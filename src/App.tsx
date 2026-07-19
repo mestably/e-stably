@@ -18,7 +18,8 @@ import {
   MessageSquare, 
   Menu, 
   X,
-  Compass
+  Compass,
+  Cloud
 } from 'lucide-react';
 import { User } from './types';
 import { FirebaseService } from './lib/firebase';
@@ -30,12 +31,13 @@ import TermsSection from './components/TermsSection';
 import ContactSection from './components/ContactSection';
 import AuthModal from './components/AuthModal';
 import HomeSection from './components/HomeSection';
+import DriveBackupSection from './components/DriveBackupSection';
 
 // Path to user-uploaded logo
 const LOGO_SRC = '/logomaster.jpg';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -249,6 +251,18 @@ export default function App() {
               <Mail className={`w-4 h-4 ${activeTab === 'contact' ? 'text-gold' : 'text-navy'}`} />
               <span>تواصل معنا</span>
             </button>
+
+            <button
+              onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'backup' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <Cloud className={`w-4 h-4 ${activeTab === 'backup' ? 'text-gold' : 'text-navy'}`} />
+              <span>النسخ الاحتياطي (Drive)</span>
+            </button>
           </nav>
         </aside>
 
@@ -335,6 +349,14 @@ export default function App() {
                 <Mail className="w-4 h-4 text-gold" />
                 <span>تواصل معنا</span>
               </button>
+
+              <button
+                onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'backup' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Cloud className="w-4 h-4 text-gold" />
+                <span>النسخ الاحتياطي (Drive)</span>
+              </button>
             </div>
           </div>
         )}
@@ -401,58 +423,62 @@ export default function App() {
             <ContactSection />
           )}
 
+          {activeTab === 'backup' && (
+            <DriveBackupSection />
+          )}
+
         </main>
 
       </div>
 
       {/* Navigation - Bottom bar strictly for mobile experience */}
-      <footer className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-100 z-40 px-2 py-1 flex justify-around shadow-lg">
+      <footer className="md:hidden fixed bottom-0 left-0 right-0 bg-navy border-t border-navy-dark z-40 px-2 py-1 flex justify-around shadow-lg">
         
         <button
           onClick={() => setActiveTab('home')}
-          className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'home' ? 'text-navy font-bold' : 'text-slate-400 hover:text-navy'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'home' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
-          <Compass className={`w-5 h-5 ${activeTab === 'home' ? 'text-gold' : ''}`} />
+          <Compass className={`w-5 h-5 ${activeTab === 'home' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الرئيسية</span>
         </button>
 
         <button
           onClick={() => setActiveTab('horses')}
-          className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'horses' ? 'text-navy font-bold' : 'text-slate-400 hover:text-navy'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'horses' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
-          <Award className={`w-5 h-5 ${activeTab === 'horses' ? 'text-gold' : ''}`} />
+          <Award className={`w-5 h-5 ${activeTab === 'horses' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الخيول</span>
         </button>
 
         <button
           onClick={() => setActiveTab('stables')}
-          className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'stables' ? 'text-navy font-bold' : 'text-slate-400 hover:text-navy'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'stables' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
-          <Home className={`w-5 h-5 ${activeTab === 'stables' ? 'text-gold' : ''}`} />
+          <Home className={`w-5 h-5 ${activeTab === 'stables' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الإسطبلات</span>
         </button>
 
         <button
           onClick={() => setActiveTab('shelter')}
-          className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'shelter' ? 'text-navy font-bold' : 'text-slate-400 hover:text-navy'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'shelter' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
-          <ShieldCheck className={`w-5 h-5 ${activeTab === 'shelter' ? 'text-gold' : ''}`} />
+          <ShieldCheck className={`w-5 h-5 ${activeTab === 'shelter' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الإيواء</span>
         </button>
 
         <button
           onClick={() => setActiveTab('transport')}
-          className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'transport' ? 'text-navy font-bold' : 'text-slate-400 hover:text-navy'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'transport' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
-          <Truck className={`w-5 h-5 ${activeTab === 'transport' ? 'text-gold' : ''}`} />
+          <Truck className={`w-5 h-5 ${activeTab === 'transport' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">النقل</span>
         </button>
 
         <button
           onClick={() => setActiveTab('contact')}
-          className={`flex flex-col items-center gap-1 p-2 ${activeTab === 'contact' ? 'text-navy font-bold' : 'text-slate-400 hover:text-navy'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'contact' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
-          <Mail className={`w-5 h-5 ${activeTab === 'contact' ? 'text-gold' : ''}`} />
+          <Mail className={`w-5 h-5 ${activeTab === 'contact' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">تواصل</span>
         </button>
 
