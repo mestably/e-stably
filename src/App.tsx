@@ -72,31 +72,12 @@ export default function App() {
         
         {/* Brand & Logo */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl overflow-hidden border-2 border-gold flex items-center justify-center bg-navy shadow-xs">
+          <div className="h-12 flex items-center justify-center">
             <img 
               src={LOGO_SRC} 
-              onError={(e) => {
-                // If logomaster.jpg is missing, render an extremely elegant golden vector logo
-                e.currentTarget.style.display = 'none';
-                const parent = e.currentTarget.parentElement;
-                if (parent) {
-                  parent.innerHTML = `
-                    <div class="flex flex-col items-center justify-center w-full h-full bg-navy text-gold">
-                      <span class="text-sm font-black tracking-tight">الخيول</span>
-                    </div>
-                  `;
-                }
-              }}
-              alt="Logo" 
-              className="w-full h-full object-cover"
+              alt="Estably Logo" 
+              className="h-12 w-auto object-contain"
             />
-          </div>
-          <div>
-            <h1 className="font-extrabold text-navy text-sm leading-none flex items-center gap-1">
-              ملتقى الخيول العربية
-              <Sparkles className="w-3.5 h-3.5 text-gold fill-current" />
-            </h1>
-            <span className="text-[10px] text-slate-400 font-medium leading-none block mt-0.5">التميز في عالم الفروسية</span>
           </div>
         </div>
 
