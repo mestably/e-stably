@@ -15,6 +15,7 @@ export interface User {
   avatar?: string;
   bio?: string;
   isSuspended?: boolean;
+  isVerified?: boolean;
   password?: string;
   updatedAt?: string;
 }

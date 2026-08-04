@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, FormEvent, ChangeEvent } from 'react';
-import { Eye, EyeOff, User as UserIcon, Mail, Phone, Lock, Sparkles, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect, useRef, FormEvent, KeyboardEvent } from 'react';
+import { Eye, EyeOff, User as UserIcon, Mail, Phone, Lock, Sparkles, CheckCircle, XCircle, AlertCircle, RefreshCw, Send, KeyRound } from 'lucide-react';
 import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
+import { AuthService } from '../lib/authService';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -29,13 +30,49 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   
-  // UI states
+  // UI & Activation states
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [nicknameAvailable, setNicknameAvailable] = useState<boolean | null>(null);
   const [isCheckingNickname, setIsCheckingNickname] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Pending Activation State & 6-Digit OTP
+  const [pendingVerificationUser, setPendingVerificationUser] = useState<User | null>(null);
+  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [lastSentOtpCode, setLastSentOtpCode] = useState<string>('');
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Input refs for OTP 6-digits auto-advance
+  const otpInputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null)
+  ];
+
+  // Cooldown timer for resending email code
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => prev - 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  // Focus first OTP input when activation screen opens
+  useEffect(() => {
+    if (pendingVerificationUser) {
+      setTimeout(() => {
+        otpInputRefs[0].current?.focus();
+      }, 100);
+    }
+  }, [pendingVerificationUser]);
 
   // Auto check nickname availability when input changes
   useEffect(() => {
@@ -96,106 +133,177 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       return;
     }
 
+    setIsLoading(true);
+
     try {
       const users = await FirebaseService.getUsers();
       if (users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) {
         setError('البريد الإلكتروني مسجل بالفعل.');
+        setIsLoading(false);
         return;
       }
 
-      const newUser: User = {
-        id: 'usr_' + Date.now(),
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
-        nickname: nickname.trim(),
-        role: email.trim().toLowerCase() === 'admin@m-estably.com' ? 'admin' : 'user',
-        createdAt: new Date().toISOString(),
-      };
+      // 1. Register user in DB (unverified)
+      const { user } = await AuthService.registerUser({
+        name,
+        email,
+        phone,
+        nickname,
+        password,
+      });
 
-      await FirebaseService.saveUser(newUser);
-      setSuccess('تم إنشاء الحساب بنجاح! تم تفعيل حسابك لتتمكن من إضافة إعلاناتك.');
+      // 2. Generate and send 6-Digit OTP code to email
+      const { code } = await AuthService.sendOtpCode(user.email);
+      setLastSentOtpCode(code);
+
+      // 3. Set pending user & transition to 6-digit OTP view
+      setPendingVerificationUser(user);
+      setOtpDigits(['', '', '', '', '', '']);
+      setSuccess(`تم إنشاء الحساب بنجاح! أرسلنا كود تفعيل مكون من 6 أرقام إلى بريدك الإلكتروني: ${user.email}`);
+      setResendCooldown(60);
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'حدث خطأ أثناء إرسال كود التفعيل للبريد الإلكتروني، يرجى التأكد من البريد والمحاولة مجدداً.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleOtpDigitChange = (index: number, value: string) => {
+    // Handle paste of full 6 digit code
+    if (value.length > 1) {
+      const digits = value.replace(/\D/g, '').slice(0, 6).split('');
+      const newOtp = ['', '', '', '', '', ''];
+      digits.forEach((d, i) => {
+        newOtp[i] = d;
+      });
+      setOtpDigits(newOtp);
+      const focusIdx = Math.min(digits.length, 5);
+      otpInputRefs[focusIdx].current?.focus();
+      return;
+    }
+
+    const digit = value.replace(/\D/g, '').slice(-1);
+    const newOtp = [...otpDigits];
+    newOtp[index] = digit;
+    setOtpDigits(newOtp);
+
+    // Auto-advance focus to next field
+    if (digit && index < 5) {
+      otpInputRefs[index + 1].current?.focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
+      otpInputRefs[index - 1].current?.focus();
+    }
+  };
+
+  const handleVerifyOtp = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
+    if (!pendingVerificationUser) return;
+
+    const fullCode = otpDigits.join('');
+    if (fullCode.length !== 6) {
+      setError('يرجى إدخال كود التفعيل المكون من 6 أرقام كاملاً.');
+      return;
+    }
+
+    setIsVerifyingOtp(true);
+    setError('');
+    setSuccess('');
+
+    try {
+      await AuthService.verifyOtpCode(pendingVerificationUser.email, fullCode);
+      const verifiedUser = { ...pendingVerificationUser, isVerified: true };
       
+      setSuccess('تهانينا! تم تفعيل الحساب بنجاح. جاري تسجيل دخولك الآن...');
       setTimeout(() => {
-        onAuthSuccess(newUser);
+        onAuthSuccess(verifiedUser);
         onClose();
-      }, 1500);
-    } catch (err) {
-      setError('حدث خطأ أثناء التسجيل، يرجى المحاولة مرة أخرى.');
+      }, 1000);
+    } catch (err: any) {
+      setError(err.message || 'كود التفعيل غير صحيح أو انتهت صلاحيته.');
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  };
+
+  const handleResendOtp = async () => {
+    if (resendCooldown > 0 || !pendingVerificationUser) return;
+    setError('');
+    setSuccess('');
+
+    try {
+      const { code } = await AuthService.sendOtpCode(pendingVerificationUser.email);
+      setLastSentOtpCode(code);
+      setOtpDigits(['', '', '', '', '', '']);
+      setSuccess(`تم إعادة إرسال كود التفعيل (6 أرقام) إلى بريدك الإلكتروني: ${pendingVerificationUser.email}`);
+      setResendCooldown(60);
+      otpInputRefs[0].current?.focus();
+    } catch (err: any) {
+      setError(err.message || 'تعذر إعادة إرسال الكود، يرجى المحاولة لاحقاً.');
     }
   };
 
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     
     if (!loginEmail || !loginPassword) {
       setError('يرجى إدخال الاسم المستعار، الهاتف أو البريد الإلكتروني مع كلمة السر.');
       return;
     }
 
-    const identifier = loginEmail.trim().toLowerCase();
+    setIsLoading(true);
 
     try {
-      const users = await FirebaseService.getUsers();
-      
-      // Admin bypass / default accounts
-      if ((identifier === 'admin@m-estably.com' || identifier === 'admin') && loginPassword === 'admin123') {
-        const adminUser: User = {
-          id: 'admin_user',
-          name: 'المدير العام',
-          email: 'admin@m-estably.com',
-          phone: '0559595055',
-          nickname: 'admin',
-          role: 'admin',
-          createdAt: new Date().toISOString()
-        };
-        onAuthSuccess(adminUser);
-        onClose();
+      const { user, isVerified } = await AuthService.loginUser(loginEmail, loginPassword);
+
+      if (!isVerified) {
+        // Send a fresh OTP and prompt activation view
+        const { code } = await AuthService.sendOtpCode(user.email);
+        setLastSentOtpCode(code);
+        setPendingVerificationUser(user);
+        setOtpDigits(['', '', '', '', '', '']);
+        setResendCooldown(60);
+        setError(`حسابك غير مفعل بعد. أرسلنا كود تفعيل مكون من 6 أرقام إلى بريدك الإلكتروني (${user.email}). يرجى إدخاله لتفعيل الحساب.`);
+        setIsLoading(false);
         return;
       }
 
-      // Hardcoded or registered user matching (by email, nickname, or phone)
-      const foundUser = users.find((u) => {
-        const userEmail = u.email ? u.email.toLowerCase() : '';
-        const userNickname = u.nickname ? u.nickname.toLowerCase() : '';
-        const userPhone = u.phone ? u.phone.replace(/[\s\-\+]/g, '') : '';
-        const cleanIdentifier = identifier.replace(/[\s\-\+]/g, '');
-
-        return userEmail === identifier || 
-               userNickname === identifier || 
-               userPhone === cleanIdentifier;
-      });
-
-      if (foundUser) {
-        if (foundUser.isSuspended) {
-          setError('تم إيقاف هذا الحساب من قِبل الإدارة. يرجى التواصل مع الدعم الفني.');
-          return;
-        }
-        onAuthSuccess(foundUser);
-        onClose();
-      } else {
-        setError('بيانات الدخول غير صحيحة أو الحساب غير موجود.');
-      }
-    } catch (err) {
-      setError('حدث خطأ أثناء تسجيل الدخول.');
+      onAuthSuccess(user);
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'حدث خطأ أثناء تسجيل الدخول.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleGoogleLogin = async () => {
-    // Elegant simulation of Google Fast Login via OAuth/API integration
-    const googleUser: User = {
-      id: 'g_user_' + Date.now(),
-      name: 'مستخدم جوجل السريع',
-      email: 'google.user@gmail.com',
-      phone: '0555612055',
-      nickname: 'google_user',
-      role: 'user',
-      createdAt: new Date().toISOString()
-    };
-    await FirebaseService.saveUser(googleUser);
-    onAuthSuccess(googleUser);
-    onClose();
+    setIsLoading(true);
+    try {
+      const googleUser: User = {
+        id: 'g_user_' + Date.now(),
+        name: 'مستخدم جوجل السريع',
+        email: 'google.user@gmail.com',
+        phone: '0555612055',
+        nickname: 'google_user',
+        role: 'user',
+        isVerified: true,
+        createdAt: new Date().toISOString()
+      };
+      await FirebaseService.saveUser(googleUser);
+      onAuthSuccess(googleUser);
+      onClose();
+    } catch (err) {
+      setError('تعذر الدخول عن طريق Google حالياً.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -203,46 +311,137 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
         
         {/* Header Tabs */}
-        <div className="flex border-b border-slate-100 bg-slate-50">
-          <button
-            onClick={() => { setIsLogin(true); setError(''); }}
-            className={`flex-1 py-4 text-center text-sm font-semibold transition-all ${
-              isLogin 
-                ? 'bg-white text-navy border-b-2 border-navy font-bold' 
-                : 'text-slate-500 hover:text-navy hover:bg-slate-100/50'
-            }`}
-          >
-            تسجيل الدخول
-          </button>
-          <button
-            onClick={() => { setIsLogin(false); setError(''); }}
-            className={`flex-1 py-4 text-center text-sm font-semibold transition-all ${
-              !isLogin 
-                ? 'bg-white text-navy border-b-2 border-navy font-bold' 
-                : 'text-slate-500 hover:text-navy hover:bg-slate-100/50'
-            }`}
-          >
-            اشتراك جديد
-          </button>
-        </div>
+        {!pendingVerificationUser && (
+          <div className="flex border-b border-slate-100 bg-slate-50">
+            <button
+              onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
+              className={`flex-1 py-4 text-center text-sm font-semibold transition-all cursor-pointer ${
+                isLogin 
+                  ? 'bg-white text-navy border-b-2 border-navy font-bold' 
+                  : 'text-slate-500 hover:text-navy hover:bg-slate-100/50'
+              }`}
+            >
+              تسجيل الدخول
+            </button>
+            <button
+              onClick={() => { setIsLogin(false); setError(''); setSuccess(''); }}
+              className={`flex-1 py-4 text-center text-sm font-semibold transition-all cursor-pointer ${
+                !isLogin 
+                  ? 'bg-white text-navy border-b-2 border-navy font-bold' 
+                  : 'text-slate-500 hover:text-navy hover:bg-slate-100/50'
+              }`}
+            >
+              اشتراك جديد
+            </button>
+          </div>
+        )}
 
         {/* Content Area */}
         <div className="p-6 overflow-y-auto flex-1">
           {error && (
-            <div className="mb-4 p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-l flex items-start gap-2">
+            <div className="mb-4 p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-xl flex items-start gap-2 shadow-xs">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {success && (
-            <div className="mb-4 p-3 bg-green-50 border-r-4 border-green-500 text-green-700 text-xs rounded-l flex items-start gap-2">
+            <div className="mb-4 p-3 bg-green-50 border-r-4 border-green-500 text-green-700 text-xs rounded-xl flex items-start gap-2 shadow-xs">
               <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
               <span>{success}</span>
             </div>
           )}
 
-          {isLogin ? (
+          {/* --- 6-DIGIT OTP ACTIVATION VIEW --- */}
+          {pendingVerificationUser ? (
+            <div className="py-2 space-y-5 text-center">
+              <div className="w-16 h-16 bg-navy/10 text-navy rounded-full flex items-center justify-center mx-auto border border-navy/20 relative shadow-inner">
+                <KeyRound className="w-8 h-8 text-navy" />
+                <span className="absolute -top-1 -right-1 bg-gold text-white font-extrabold text-[10px] w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                  OTP
+                </span>
+              </div>
+
+              <div>
+                <h3 className="font-extrabold text-base text-slate-800">أدخل كود التفعيل المكون من 6 أرقام</h3>
+                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
+                  تم إرسال كود التفعيل الفعلي إلى بريدك الإلكتروني:<br />
+                  <strong className="text-navy font-bold text-sm bg-slate-100 px-3 py-1 rounded-lg inline-block mt-1 font-mono" dir="ltr">
+                    {pendingVerificationUser.email}
+                  </strong>
+                </p>
+              </div>
+
+              {/* 6 OTP Input Boxes */}
+              <form onSubmit={handleVerifyOtp} className="space-y-4 pt-1">
+                <div className="flex justify-center items-center gap-2" dir="ltr">
+                  {otpDigits.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      ref={otpInputRefs[idx]}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={digit}
+                      onChange={(e) => handleOtpDigitChange(idx, e.target.value)}
+                      onKeyDown={(e) => handleOtpKeyDown(idx, e)}
+                      className={`w-11 h-13 text-center text-xl font-bold font-mono border-2 rounded-xl focus:outline-none transition-all ${
+                        digit ? 'border-navy bg-navy/5 text-navy' : 'border-slate-200 focus:border-navy focus:bg-slate-50'
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isVerifyingOtp || otpDigits.join('').length !== 6}
+                  className="w-full bg-navy hover:bg-navy-dark text-white font-bold py-3.5 rounded-xl transition shadow-md flex items-center justify-center gap-2 text-sm cursor-pointer disabled:opacity-50 mt-4"
+                >
+                  {isVerifyingOtp ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin text-gold" />
+                      <span>جاري التحقق من الكود...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle className="w-4 h-4 text-gold" />
+                      <span>تأكيد وتفعيل الحساب</span>
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Resend Code Button & Timer */}
+              <div className="pt-2 border-t border-slate-100 space-y-2">
+                <p className="text-xs text-slate-500">لم يصلك كود التفعيل؟</p>
+                <button
+                  type="button"
+                  onClick={handleResendOtp}
+                  disabled={resendCooldown > 0}
+                  className="w-full border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="w-3.5 h-3.5 text-slate-500" />
+                  <span>
+                    {resendCooldown > 0 
+                      ? `إعادة إرسال الكود خلال (${resendCooldown} ثانية)` 
+                      : 'إعادة إرسال كود التفعيل الآن'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingVerificationUser(null);
+                    setError('');
+                    setSuccess('');
+                  }}
+                  className="text-xs text-slate-400 hover:text-slate-600 underline pt-1 block mx-auto"
+                >
+                  العودة لتسجيل الدخول
+                </button>
+              </div>
+            </div>
+          ) : isLogin ? (
             // --- LOGIN FORM ---
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
@@ -283,9 +482,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
               <button
                 type="submit"
-                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-6 cursor-pointer"
+                disabled={isLoading}
+                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-6 cursor-pointer disabled:opacity-50"
               >
-                <span>تسجيل الدخول</span>
+                <span>{isLoading ? 'جاري التحقق...' : 'تسجيل الدخول'}</span>
               </button>
 
               <div className="relative my-6 text-center">
@@ -306,14 +506,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                 </svg>
                 <span>الدخول السريع باستخدام Google</span>
               </button>
-
-              <div className="text-center mt-6 p-3 bg-gold-light rounded-xl border border-gold/20">
-                <span className="text-[11px] text-gold-dark font-medium leading-relaxed block">
-                  دخول المدير لتجربة كامل الصلاحيات:<br />
-                  البريد الإلكتروني: <strong className="font-mono">admin@m-estably.com</strong><br />
-                  كلمة السر: <strong className="font-mono">admin123</strong>
-                </span>
-              </div>
             </form>
           ) : (
             // --- REGISTRATION FORM ---
@@ -334,7 +526,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">البريد الإلكتروني لتفعيل الحساب</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">البريد الإلكتروني الحقيقي (للتفعيل)</label>
                 <div className="relative">
                   <Mail className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
                   <input
@@ -349,7 +541,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">رقم الهاتف للتفعيل عبر واتساب</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">رقم الهاتف للتواصل</label>
                 <div className="relative">
                   <Phone className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
                   <input
@@ -441,9 +633,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
               <button
                 type="submit"
-                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-6 cursor-pointer"
+                disabled={isLoading}
+                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-6 cursor-pointer disabled:opacity-50"
               >
-                <span>إنشاء الحساب والتفعيل</span>
+                <span>{isLoading ? 'جاري إنشاء الحساب...' : 'إنشاء الحساب وإرسال كود التفعيل (OTP)'}</span>
               </button>
             </form>
           )}
@@ -452,8 +645,11 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
           <button
-            onClick={onClose}
-            className="text-slate-500 hover:text-navy font-semibold text-xs py-1 px-3"
+            onClick={() => {
+              setPendingVerificationUser(null);
+              onClose();
+            }}
+            className="text-slate-500 hover:text-navy font-semibold text-xs py-1 px-3 cursor-pointer"
           >
             إغلاق النافذة
           </button>
