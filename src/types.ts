@@ -11,6 +11,12 @@ export interface User {
   nickname: string;
   role: 'admin' | 'user';
   createdAt: string;
+  city?: string;
+  avatar?: string;
+  bio?: string;
+  isSuspended?: boolean;
+  password?: string;
+  updatedAt?: string;
 }
 
 export interface Review {

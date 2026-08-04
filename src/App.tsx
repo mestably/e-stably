@@ -19,7 +19,9 @@ import {
   Menu, 
   X,
   Compass,
-  Cloud
+  Cloud,
+  ShieldAlert,
+  Edit
 } from 'lucide-react';
 import { User } from './types';
 import { FirebaseService } from './lib/firebase';
@@ -32,14 +34,17 @@ import ContactSection from './components/ContactSection';
 import AuthModal from './components/AuthModal';
 import HomeSection from './components/HomeSection';
 import DriveBackupSection from './components/DriveBackupSection';
+import UserProfileModal from './components/UserProfileModal';
+import AdminControlSection from './components/AdminControlSection';
 
 // Path to user-uploaded logo
 const LOGO_SRC = '/logomaster.jpg';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -101,14 +106,50 @@ export default function App() {
         {/* Action Controls & Session manager */}
         <div className="flex items-center gap-2">
           {currentUser ? (
-            <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-50 border border-slate-100 p-1.5 rounded-xl">
-              <div className="w-8 h-8 rounded-lg bg-navy/5 flex items-center justify-center text-navy font-bold text-xs shrink-0">
-                {currentUser.name.charAt(0)}
-              </div>
-              <div className="text-right flex flex-col justify-center max-w-[70px] sm:max-w-[120px]">
-                <span className="text-[10px] font-bold text-slate-700 block truncate">{currentUser.name}</span>
-                <span className="text-[8px] text-gold-dark font-medium block truncate">@{currentUser.nickname} {currentUser.role === 'admin' ? '(مدير)' : ''}</span>
-              </div>
+            <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-50 border border-slate-200/60 p-1.5 rounded-xl">
+              
+              {/* User Profile Quick Click */}
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="flex items-center gap-2 hover:bg-slate-100/80 p-1 rounded-lg transition cursor-pointer"
+                title="تعديل ملفك الشخصي"
+              >
+                <div className="w-8 h-8 rounded-lg bg-navy/10 text-navy font-bold text-xs shrink-0 overflow-hidden flex items-center justify-center border border-navy/20">
+                  {currentUser.avatar ? (
+                    <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
+                  ) : (
+                    currentUser.name.charAt(0)
+                  )}
+                </div>
+                <div className="text-right flex flex-col justify-center max-w-[70px] sm:max-w-[110px]">
+                  <span className="text-[10px] font-bold text-slate-800 block truncate">{currentUser.name}</span>
+                  <span className="text-[8px] text-gold-dark font-semibold block truncate">@{currentUser.nickname} {currentUser.role === 'admin' ? '(مدير)' : ''}</span>
+                </div>
+              </button>
+
+              {/* Edit profile icon */}
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="p-1.5 bg-navy/5 hover:bg-navy/10 text-navy rounded-lg transition cursor-pointer shrink-0 text-xs flex items-center gap-1 font-bold"
+                title="تعديل الملف الشخصي"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline text-[10px]">تعديل</span>
+              </button>
+
+              {/* Admin Button if user is Admin */}
+              {currentUser.role === 'admin' && (
+                <button
+                  onClick={() => setActiveTab('admin')}
+                  className="p-1.5 bg-gold-light hover:bg-gold/20 text-gold-dark rounded-lg transition cursor-pointer shrink-0 text-xs flex items-center gap-1 font-extrabold border border-gold/30"
+                  title="لوحة التحكم الإدارية"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-gold-dark" />
+                  <span className="hidden sm:inline text-[10px]">المدير</span>
+                </button>
+              )}
+
+              {/* Logout button */}
               <button
                 onClick={handleLogout}
                 className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition cursor-pointer shrink-0"
@@ -205,6 +246,28 @@ export default function App() {
               <Truck className={`w-4 h-4 ${activeTab === 'transport' ? 'text-gold' : 'text-navy'}`} />
               <span>نقل الخيول والمقطورات</span>
             </button>
+
+            {/* Admin navigation tab if user is Admin */}
+            {currentUser?.role === 'admin' && (
+              <>
+                <div className="h-px bg-slate-100 my-4"></div>
+                <div className="text-[10px] text-gold-dark font-extrabold px-3 pb-2 uppercase tracking-wider flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>لوحة الإدارة</span>
+                </div>
+                <button
+                  onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'admin' 
+                      ? 'bg-navy text-gold shadow-md border border-gold/30 font-black' 
+                      : 'text-gold-dark bg-gold-light hover:bg-gold/20'
+                  }`}
+                >
+                  <ShieldAlert className="w-4 h-4 text-gold-dark" />
+                  <span>لوحة التحكم الإدارية</span>
+                </button>
+              </>
+            )}
 
             <div className="h-px bg-slate-100 my-4"></div>
             <div className="text-[10px] text-slate-400 font-bold px-3 pb-2 uppercase tracking-wider">المنصة والاتصال</div>
@@ -408,6 +471,10 @@ export default function App() {
             <DriveBackupSection />
           )}
 
+          {activeTab === 'admin' && currentUser && (
+            <AdminControlSection currentUser={currentUser} />
+          )}
+
         </main>
 
       </div>
@@ -471,6 +538,19 @@ export default function App() {
         onClose={() => setIsAuthOpen(false)} 
         onAuthSuccess={handleAuthSuccess} 
       />
+
+      {/* User Profile Edit Modal wrapper */}
+      {currentUser && (
+        <UserProfileModal
+          isOpen={isProfileOpen}
+          currentUser={currentUser}
+          onClose={() => setIsProfileOpen(false)}
+          onUpdateUser={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            localStorage.setItem('horses_forum_session', JSON.stringify(updatedUser));
+          }}
+        />
+      )}
 
     </div>
   );

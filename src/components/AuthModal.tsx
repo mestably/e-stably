@@ -168,6 +168,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       });
 
       if (foundUser) {
+        if (foundUser.isSuspended) {
+          setError('تم إيقاف هذا الحساب من قِبل الإدارة. يرجى التواصل مع الدعم الفني.');
+          return;
+        }
         onAuthSuccess(foundUser);
         onClose();
       } else {
