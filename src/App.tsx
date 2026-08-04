@@ -38,8 +38,10 @@ import UserProfileModal from './components/UserProfileModal';
 import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 
-// Path to user-uploaded logo
-const LOGO_SRC = '/estably_logo.jpg';
+import logoImg from './assets/logo.jpg';
+
+// Imported bundled logo for high reliability on Vercel and all hosts
+const LOGO_SRC = logoImg;
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
