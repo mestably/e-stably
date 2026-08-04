@@ -78,13 +78,24 @@ export const AuthService = {
   async sendOtpCode(email: string): Promise<{ email: string; sentViaRealApi: boolean; apiDeliveryMethod?: string }> {
     const cleanEmail = email.trim().toLowerCase();
 
-    const res = await fetch('/api/send-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail })
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail })
+      });
+    } catch (netErr) {
+      throw new Error('فشل الاتصال بالخادم. يرجى التأكد من الاتصال بالإنترنت والمحاولة لاحقاً.');
+    }
 
-    const data = await res.json();
+    let data: any;
+    try {
+      const text = await res.text();
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      throw new Error('استجابة غير متوقعة من الخادم. يرجى إعادة المحاولة لاحقاً.');
+    }
 
     if (!res.ok || !data.success || !data.sentViaRealApi) {
       throw new Error(data.error || 'تعذر إرسال كود التفعيل إلى بريدك الإلكتروني. يرجى التأكد من صحة البريد والمحاولة لاحقاً.');
@@ -109,13 +120,25 @@ export const AuthService = {
       throw new Error('يرجى إدخال كود تفعيل مكون من 6 أرقام.');
     }
 
-    const res = await fetch('/api/verify-otp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: cleanEmail, code: cleanCode })
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/verify-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: cleanEmail, code: cleanCode })
+      });
+    } catch (netErr) {
+      throw new Error('فشل الاتصال بالخادم. يرجى التأكد من الاتصال بالإنترنت والمحاولة لاحقاً.');
+    }
 
-    const data = await res.json();
+    let data: any;
+    try {
+      const text = await res.text();
+      data = JSON.parse(text);
+    } catch (parseErr) {
+      throw new Error('استجابة غير متوقعة من الخادم. يرجى إعادة المحاولة لاحقاً.');
+    }
+
     if (!res.ok || !data.success) {
       throw new Error(data.error || 'كود التفعيل غير صحيح أو انتهت صلاحيته.');
     }
