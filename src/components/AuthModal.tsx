@@ -155,7 +155,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       setResendCooldown(60);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'حدث خطأ أثناء إرسال كود التفعيل للبريد الإلكتروني، يرجى التأكد من البريد والمحاولة مجدداً.');
+      setError(err.message || 'حدث خطأ أثناء إرسال كود التفعيل عبر البريد الإلكتروني، يرجى المحاولة لاحقاً.');
     } finally {
       setIsLoading(false);
     }

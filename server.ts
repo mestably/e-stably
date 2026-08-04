@@ -199,9 +199,17 @@ app.post('/api/send-otp', async (req, res) => {
 
   if (!sentViaRealApi) {
     console.warn(`[OTP Send Failure] Failed to send email to ${cleanEmail}. Error: ${lastBrevoError}`);
+    
+    let userFacingError = 'تعذر إرسال كود التفعيل عبر خدمة البريد الإلكتروني حالياً.';
+    if (lastBrevoError.includes('unauthorized') || lastBrevoError.includes('Key not found') || lastBrevoError.includes('Authentication failed') || lastBrevoError.includes('535')) {
+      userFacingError = 'البريد الإلكتروني المدخل صحيح، لكن فشل الإرسال بسبب إلغاء أو عدم تفعيل مفتاح Brevo API (Key not found / Authentication failed). يرجى تحديث مفتاح BREVO_API_KEY أو BREVO_SMTP_KEY في متغيرات البيئة (Settings) بمفتاح جديد نشط من حساب Brevo.';
+    } else if (lastBrevoError) {
+      userFacingError = `فشل إرسال البريد الإلكتروني من الخادم: ${lastBrevoError}`;
+    }
+
     return res.status(500).json({
       success: false,
-      error: 'تعذر إرسال كود التفعيل إلى بريدك الإلكتروني حالياً. يرجى التأكد من صحة البريد والمحاولة مجدداً.',
+      error: userFacingError,
       lastBrevoError
     });
   }
