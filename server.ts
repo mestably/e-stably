@@ -36,9 +36,12 @@ app.post('/api/send-otp', async (req, res) => {
   const defaultBrevoApiKey = ['xkeysib', '8f0222f5c0710f508432cdfc8b9ba02bc7b2aa40fd8eeb7600c9b1bf97e710b2', 'GFhLV1MVHnFsqnbe'].join('-');
   const defaultBrevoSmtpKey = ['xsmtpsib', '8f0222f5c0710f508432cdfc8b9ba02bc7b2aa40fd8eeb7600c9b1bf97e710b2', '6O2StxZyRbdzkAKL'].join('-');
 
-  const brevoApiKey = process.env.BREVO_API_KEY || defaultBrevoApiKey;
-  const brevoSmtpKey = process.env.BREVO_SMTP_KEY || defaultBrevoSmtpKey;
-  const brevoSenderEmail = process.env.BREVO_SENDER_EMAIL || 'x24.akar@gmail.com';
+  const envApiKey = (process.env.BREVO_API_KEY || '').trim();
+  const envSmtpKey = (process.env.BREVO_SMTP_KEY || '').trim();
+
+  const brevoApiKey = envApiKey.length > 10 ? envApiKey : defaultBrevoApiKey;
+  const brevoSmtpKey = envSmtpKey.length > 10 ? envSmtpKey : defaultBrevoSmtpKey;
+  const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || '').trim() || 'x24.akar@gmail.com';
   let lastBrevoError = '';
 
   if (brevoApiKey) {
