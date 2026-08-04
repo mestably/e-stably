@@ -38,10 +38,10 @@ function verifyOtpToken(email: string, code: string, token: string): boolean {
   }
 }
 
-// API Endpoint to send real OTP email
-app.post('/api/send-otp', async (req, res) => {
+// API Endpoint handler functions
+async function handleSendOtp(req: express.Request, res: express.Response) {
   try {
-    const { email } = req.body || {};
+    const email = req.body?.email || req.query?.email;
     if (!email || typeof email !== 'string') {
       return res.status(400).json({ success: false, error: 'البريد الإلكتروني مطلوب' });
     }
@@ -246,7 +246,7 @@ app.post('/api/send-otp', async (req, res) => {
     });
   } catch (topErr: any) {
     console.error('Unhandled top-level error in send-otp:', topErr);
-    const cleanEmail = String(req.body?.email || '').trim().toLowerCase();
+    const cleanEmail = String(req.body?.email || req.query?.email || '').trim().toLowerCase();
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 10 * 60 * 1000;
     const otpToken = generateOtpToken(cleanEmail, code, expiresAt);
@@ -259,12 +259,11 @@ app.post('/api/send-otp', async (req, res) => {
       fallbackCode: code
     });
   }
-});
+}
 
-// API Endpoint to verify OTP
-app.post('/api/verify-otp', (req, res) => {
+function handleVerifyOtp(req: express.Request, res: express.Response) {
   try {
-    const { email, code, otpToken } = req.body || {};
+    const { email, code, otpToken } = req.body || req.query || {};
     if (!email || !code) {
       return res.status(400).json({ success: false, error: 'البريد الإلكتروني وكود التفعيل مطلوبان' });
     }
@@ -299,6 +298,24 @@ app.post('/api/verify-otp', (req, res) => {
     console.error('Unhandled error in verify-otp:', err);
     return res.status(500).json({ success: false, error: 'حدث خطأ أثناء التأكد من كود التفعيل.' });
   }
+}
+
+// Attach endpoints to Express app with wildcard/route fallback
+app.post(['/api/send-otp', '/send-otp'], handleSendOtp);
+app.post(['/api/verify-otp', '/verify-otp'], handleVerifyOtp);
+
+app.use((req, res, next) => {
+  const url = req.url || '';
+  const pathStr = req.path || '';
+  if (req.method === 'POST') {
+    if (url.includes('verify') || pathStr.includes('verify')) {
+      return handleVerifyOtp(req, res);
+    }
+    if (url.includes('send') || pathStr.includes('send')) {
+      return handleSendOtp(req, res);
+    }
+  }
+  next();
 });
 
 app.get('/favicon.ico', (req, res) => {
