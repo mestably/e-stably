@@ -38,11 +38,6 @@ import UserProfileModal from './components/UserProfileModal';
 import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 
-import logoImg from './assets/logo.jpg';
-
-// Imported bundled logo for high reliability on Vercel and all hosts
-const LOGO_SRC = logoImg;
-
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
@@ -84,18 +79,14 @@ export default function App() {
       {/* Header Panel */}
       <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-xs px-4 sm:px-6 py-3.5 flex items-center justify-between">
         
-        {/* Brand & Logo */}
+        {/* Brand */}
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setActiveTab('home')}
-            className="h-14 flex items-center justify-center cursor-pointer hover:opacity-90 transition"
+            className="flex items-center gap-2 cursor-pointer hover:opacity-90 transition group"
           >
-            <img 
-              src={LOGO_SRC} 
-              alt="Estably Logo" 
-              className="h-14 w-auto object-contain"
-              referrerPolicy="no-referrer"
-            />
+            <span className="font-extrabold text-2xl text-navy tracking-tight group-hover:text-gold-dark transition">إستابلي</span>
+            <span className="text-[10px] font-bold bg-navy/5 text-navy px-2 py-0.5 rounded-md border border-navy/10">للخيول</span>
           </button>
         </div>
 
