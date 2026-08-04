@@ -32,7 +32,7 @@ app.post('/api/send-otp', async (req, res) => {
   let sentViaRealApi = false;
   let apiDeliveryMethod = '';
 
-  // 1. Try Brevo API (Sendinblue REST API v3) if user provided BREVO_API_KEY in process.env
+  // 1. Try Brevo API (Sendinblue REST API v3)
   const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
   const brevoSmtpKey = (process.env.BREVO_SMTP_KEY || '').trim();
   const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || '').trim() || 'x24.akar@gmail.com';
@@ -238,9 +238,16 @@ app.post('/api/send-otp', async (req, res) => {
 
   if (!sentViaRealApi) {
     console.warn(`[OTP Send Failure] Failed to send email to ${cleanEmail}. Error: ${lastBrevoError}`);
+    let errorMessage = 'تعذر إرسال كود التفعيل عبر البريد الإلكتروني حالياً.';
+    if (lastBrevoError.includes('Key not found') || lastBrevoError.includes('unauthorized') || lastBrevoError.includes('535')) {
+      errorMessage = 'مفتاح Brevo API غير نشط أو تم إلغاؤه من حساب Brevo. يرجى إدخال مفتاح API جديد ونشط في إعدادات التطبيق (Settings > BREVO_API_KEY).';
+    } else if (lastBrevoError) {
+      errorMessage = `فشل الإرسال عبر البريد الإلكتروني: ${lastBrevoError}`;
+    }
+
     return res.status(500).json({
       success: false,
-      error: 'تعذر إرسال كود التفعيل عبر البريد الإلكتروني حالياً. يرجى التأكد من إضافة مفتاح BREVO_API_KEY صالح في إعدادات التطبيق (Settings).',
+      error: errorMessage,
       lastBrevoError
     });
   }
