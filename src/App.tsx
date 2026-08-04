@@ -23,7 +23,7 @@ import {
   ShieldAlert,
   Edit
 } from 'lucide-react';
-import { User } from './types';
+import { User, AnnouncementBanner } from './types';
 import { FirebaseService } from './lib/firebase';
 import StablesSection from './components/StablesSection';
 import HorsesSection from './components/HorsesSection';
@@ -36,6 +36,7 @@ import HomeSection from './components/HomeSection';
 import DriveBackupSection from './components/DriveBackupSection';
 import UserProfileModal from './components/UserProfileModal';
 import AdminControlSection from './components/AdminControlSection';
+import BannerModal from './components/BannerModal';
 
 // Path to user-uploaded logo
 const LOGO_SRC = '/logomaster.jpg';
@@ -43,12 +44,13 @@ const LOGO_SRC = '/logomaster.jpg';
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Initialize data cache on mount
+  // Initialize data cache on mount & fetch announcement banner
   useEffect(() => {
     FirebaseService.initFallbackData();
     
@@ -57,6 +59,11 @@ export default function App() {
     if (savedUser) {
       setCurrentUser(JSON.parse(savedUser));
     }
+
+    // Load Announcement Banner
+    FirebaseService.getBanner().then((b) => {
+      if (b) setBanner(b);
+    }).catch(err => console.warn('Could not load banner', err));
   }, []);
 
   const handleAuthSuccess = (user: User) => {
@@ -551,6 +558,9 @@ export default function App() {
           }}
         />
       )}
+
+      {/* Announcement Banner Modal */}
+      <BannerModal banner={banner} />
 
     </div>
   );

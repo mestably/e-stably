@@ -110,3 +110,13 @@ export interface ChatMessage {
   message: string;
   createdAt: string;
 }
+
+export interface AnnouncementBanner {
+  id: string;
+  enabled: boolean;
+  imageUrl: string;
+  linkUrl?: string;
+  title?: string;
+  durationSeconds?: number; // Default 7
+  updatedAt?: string;
+}

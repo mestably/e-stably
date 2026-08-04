@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review } from '../types';
+import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner } from '../types';
 
 const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
@@ -425,6 +425,21 @@ export const FirebaseService = {
 
   async deleteChatMessage(id: string): Promise<boolean> {
     return deleteDocument('chats', id);
+  },
+
+  // --- ANNOUNCEMENT BANNER API ---
+  async getBanner(): Promise<AnnouncementBanner | null> {
+    const list = await getCollection<AnnouncementBanner>('banner');
+    if (list && list.length > 0) {
+      return list[0];
+    }
+    // Check local storage fallback if no server banner
+    const local = getLocal<AnnouncementBanner>('banner');
+    return local.length > 0 ? local[0] : null;
+  },
+
+  async saveBanner(banner: AnnouncementBanner): Promise<boolean> {
+    return saveDocument<AnnouncementBanner>('banner', banner);
   },
 
   // --- LOCAL CACHE ACCESSORS ---

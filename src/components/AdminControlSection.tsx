@@ -29,10 +29,16 @@ import {
   User as UserIcon,
   Sparkles,
   RefreshCw,
-  Eye
+  Eye,
+  Megaphone,
+  Camera,
+  Link,
+  Clock,
+  Image as ImageIcon
 } from 'lucide-react';
-import { User, Horse, Stable, Shelter, Transport } from '../types';
+import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner } from '../types';
 import { FirebaseService } from '../lib/firebase';
+import { compressImage } from '../lib/imageUtils';
 import ConfirmModal from './ConfirmModal';
 
 interface AdminControlSectionProps {
@@ -40,7 +46,7 @@ interface AdminControlSectionProps {
 }
 
 export default function AdminControlSection({ currentUser }: AdminControlSectionProps) {
-  const [activeTab, setActiveTab] = useState<'users' | 'listings'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner'>('users');
   const [listingCategory, setListingCategory] = useState<'all' | 'horses' | 'stables' | 'shelters' | 'transports'>('all');
   
   // Data State
@@ -49,6 +55,17 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
   const [stables, setStables] = useState<Stable[]>([]);
   const [shelters, setShelters] = useState<Shelter[]>([]);
   const [transports, setTransports] = useState<Transport[]>([]);
+  const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
+  
+  // Banner Form State
+  const [bannerEnabled, setBannerEnabled] = useState(true);
+  const [bannerImageUrl, setBannerImageUrl] = useState('');
+  const [bannerTitle, setBannerTitle] = useState('');
+  const [bannerLinkUrl, setBannerLinkUrl] = useState('');
+  const [bannerDuration, setBannerDuration] = useState(7);
+  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  const [isSavingBanner, setIsSavingBanner] = useState(false);
+
   const [isLoading, setIsLoading] = useState(true);
 
   // Search & Filters
@@ -74,22 +91,89 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [u, h, s, sh, t] = await Promise.all([
+      const [u, h, s, sh, t, b] = await Promise.all([
         FirebaseService.getUsers(),
         FirebaseService.getHorses(),
         FirebaseService.getStables(),
         FirebaseService.getShelters(),
-        FirebaseService.getTransports()
+        FirebaseService.getTransports(),
+        FirebaseService.getBanner()
       ]);
       setUsers(u);
       setHorses(h);
       setStables(s);
       setShelters(sh);
       setTransports(t);
+      if (b) {
+        setBanner(b);
+        setBannerEnabled(b.enabled ?? true);
+        setBannerImageUrl(b.imageUrl || '');
+        setBannerTitle(b.title || '');
+        setBannerLinkUrl(b.linkUrl || '');
+        setBannerDuration(b.durationSeconds || 7);
+      }
     } catch (err) {
       console.error('Failed to load admin data', err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleBannerImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingBanner(true);
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const rawBase64 = reader.result as string;
+        const compressed = await compressImage(rawBase64, 900, 700, 0.85);
+        setBannerImageUrl(compressed);
+        showNotify('success', 'تم تحميل صورة البنر بنجاح. يرجى الضغط على حفظ الإعدادات.');
+      } catch (err) {
+        showNotify('error', 'فشل ضغط ومعالجة الصورة.');
+      } finally {
+        setIsUploadingBanner(false);
+      }
+    };
+    reader.onerror = () => {
+      showNotify('error', 'فشل قراءة ملف الصورة.');
+      setIsUploadingBanner(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSaveBanner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bannerImageUrl) {
+      showNotify('error', 'يرجى تحميل أو إضافة رابط صورة البنر أولاً.');
+      return;
+    }
+
+    setIsSavingBanner(true);
+    const newBannerObj: AnnouncementBanner = {
+      id: 'main_app_banner',
+      enabled: bannerEnabled,
+      imageUrl: bannerImageUrl,
+      title: bannerTitle.trim(),
+      linkUrl: bannerLinkUrl.trim(),
+      durationSeconds: bannerDuration || 7,
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      const ok = await FirebaseService.saveBanner(newBannerObj);
+      if (ok) {
+        setBanner(newBannerObj);
+        showNotify('success', 'تم حفظ وتحديث إعدادات البنر الإعلاني بنجاح!');
+      } else {
+        showNotify('error', 'فشل حفظ إعدادات البنر.');
+      }
+    } catch (err) {
+      showNotify('error', 'حدث خطأ أثناء حفظ الإعلان.');
+    } finally {
+      setIsSavingBanner(false);
     }
   };
 
@@ -331,6 +415,19 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
         >
           <FileText className="w-4 h-4" />
           <span>إدارة الإعلانات والخدمات ({allListings.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('banner')}
+          className={`px-6 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'banner' ? 'border-navy text-navy font-extrabold' : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <Megaphone className="w-4 h-4 text-gold-dark" />
+          <span>بنر الإعلان الافتتاحي</span>
+          {bannerEnabled && bannerImageUrl && (
+            <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse"></span>
+          )}
         </button>
       </div>
 
@@ -631,6 +728,194 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
               ))
             )}
           </div>
+
+        </div>
+      )}
+
+      {/* TAB 3: ANNOUNCEMENT BANNER MANAGEMENT */}
+      {activeTab === 'banner' && (
+        <div className="bg-white rounded-b-2xl p-4 sm:p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-6">
+          
+          <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gold/20 text-gold-dark flex items-center justify-center border border-gold/40 shrink-0">
+                <Megaphone className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-800">إعلان البنر الافتتاحي المنبثق</h3>
+                <p className="text-xs text-slate-500 mt-0.5">يظهر هذا البنر تلقائياً في منتصف الشاشة لجميع الزوار عند فتح الموقع لمدة 7 ثوانٍ ثم يختفي.</p>
+              </div>
+            </div>
+
+            {/* Enable/Disable Toggle Switch */}
+            <div className="flex items-center gap-3 bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-xs shrink-0">
+              <span className="text-xs font-extrabold text-slate-700">حالة الإعلان:</span>
+              <button
+                type="button"
+                onClick={() => setBannerEnabled(!bannerEnabled)}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors cursor-pointer ${
+                  bannerEnabled ? 'bg-green-600' : 'bg-slate-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    bannerEnabled ? '-translate-x-6' : '-translate-x-1'
+                  }`}
+                />
+              </button>
+              <span className={`text-xs font-extrabold ${bannerEnabled ? 'text-green-600' : 'text-slate-400'}`}>
+                {bannerEnabled ? 'مفعل (يعمل)' : 'معطل (مخفي)'}
+              </span>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveBanner} className="space-y-6">
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Banner Image Upload & Input */}
+              <div className="space-y-4">
+                <h4 className="font-bold text-xs text-slate-700 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4 text-navy" />
+                  <span>صورة البنر الإعلاني</span>
+                </h4>
+
+                {/* Upload box */}
+                <div className="border-2 border-dashed border-slate-200 rounded-2xl p-5 text-center bg-slate-50/50 hover:bg-slate-50 transition relative">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleBannerImageUpload}
+                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    disabled={isUploadingBanner}
+                  />
+                  <div className="flex flex-col items-center justify-center gap-2">
+                    <div className="w-12 h-12 rounded-full bg-navy/5 text-navy flex items-center justify-center">
+                      <Camera className="w-6 h-6" />
+                    </div>
+                    <span className="text-xs font-bold text-slate-700">
+                      {isUploadingBanner ? 'جاري معالجة الصورة...' : 'اضغط هنا لرفع صورة البنر الإعلاني من جهازك'}
+                    </span>
+                    <span className="text-[10px] text-slate-400">يدعم صيغ JPG, PNG, WEBP بصورة واضحة وجذابة</span>
+                  </div>
+                </div>
+
+                {/* Direct Image URL fallback */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">أو أدخل رابط الصورة المباشر (URL)</label>
+                  <input
+                    type="url"
+                    value={bannerImageUrl}
+                    onChange={(e) => setBannerImageUrl(e.target.value)}
+                    placeholder="https://example.com/banner.jpg"
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                  />
+                </div>
+
+                {/* Optional Title & Link */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">عنوان توضيحي (اختياري)</label>
+                    <input
+                      type="text"
+                      value={bannerTitle}
+                      onChange={(e) => setBannerTitle(e.target.value)}
+                      placeholder="عروض خيل الموسم الحصرية..."
+                      className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">رابط التوجيه (اختياري)</label>
+                    <div className="relative">
+                      <Link className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+                      <input
+                        type="url"
+                        value={bannerLinkUrl}
+                        onChange={(e) => setBannerLinkUrl(e.target.value)}
+                        placeholder="https://wa.me/..."
+                        className="w-full text-xs pl-3 pr-9 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Duration */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-navy" />
+                    <span>مدة ظهور الإعلان بالشاشة (بالثواني)</span>
+                  </label>
+                  <select
+                    value={bannerDuration}
+                    onChange={(e) => setBannerDuration(Number(e.target.value))}
+                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-bold"
+                  >
+                    <option value={5}>5 ثوانٍ</option>
+                    <option value={7}>7 ثوانٍ (الافتراضي)</option>
+                    <option value={10}>10 ثوانٍ</option>
+                    <option value={12}>12 ثانية</option>
+                    <option value={15}>15 ثانية</option>
+                  </select>
+                </div>
+
+              </div>
+
+              {/* Live Preview Panel */}
+              <div className="space-y-3">
+                <h4 className="font-bold text-xs text-slate-700 flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-gold-dark" />
+                  <span>معاينة الإعلان كما يظهر للمستخدمين</span>
+                </h4>
+
+                <div className="bg-slate-900 rounded-2xl p-4 border border-slate-800 shadow-xl min-h-[260px] flex flex-col items-center justify-center relative overflow-hidden">
+                  
+                  {bannerImageUrl ? (
+                    <div className="relative w-full max-h-[300px] rounded-xl overflow-hidden border border-gold/40 shadow-2xl">
+                      {/* Fake countdown bar */}
+                      <div className="w-full bg-slate-700 h-1">
+                        <div className="h-full bg-gold w-3/4 animate-pulse"></div>
+                      </div>
+
+                      <img src={bannerImageUrl} alt="معاينة البنر" className="w-full h-[220px] object-cover" />
+
+                      {bannerTitle && (
+                        <div className="absolute bottom-0 inset-x-0 bg-navy/90 p-3 text-white text-xs font-bold">
+                          {bannerTitle}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-center p-8 text-slate-500 space-y-2">
+                      <ImageIcon className="w-12 h-12 mx-auto text-slate-600" />
+                      <p className="text-xs font-bold text-slate-400">لم يتم اختيار صورة بنر بعد</p>
+                      <p className="text-[10px] text-slate-500">قم برفع صورة ليظهر شكل الإعلان هنا فوراً</p>
+                    </div>
+                  )}
+
+                  <div className="mt-3 text-[10px] text-slate-400 font-semibold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-gold" />
+                    <span>سيظهر الإعلان فور فتح أي مستخدم للموقع في منتصف الشاشة لمقدار {bannerDuration} ثوانٍ</span>
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-4 border-t border-slate-200 flex justify-end">
+              <button
+                type="submit"
+                disabled={isSavingBanner || isUploadingBanner}
+                className="bg-navy hover:bg-navy-dark text-white font-extrabold py-3 px-8 rounded-xl transition text-xs flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <Save className="w-4 h-4 text-gold" />
+                <span>{isSavingBanner ? 'جاري حفظ الإعدادات...' : 'حفظ إعدادات البنر الإعلاني'}</span>
+              </button>
+            </div>
+
+          </form>
 
         </div>
       )}
