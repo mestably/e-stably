@@ -39,7 +39,7 @@ import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 
 // Path to user-uploaded logo
-const LOGO_SRC = '/logomaster.jpg';
+const LOGO_SRC = '/estably_logo.jpg';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
@@ -84,13 +84,17 @@ export default function App() {
         
         {/* Brand & Logo */}
         <div className="flex items-center gap-3">
-          <div className="h-12 flex items-center justify-center">
+          <button 
+            onClick={() => setActiveTab('home')}
+            className="h-14 flex items-center justify-center cursor-pointer hover:opacity-90 transition"
+          >
             <img 
               src={LOGO_SRC} 
               alt="Estably Logo" 
-              className="h-12 w-auto object-contain"
+              className="h-14 w-auto object-contain"
+              referrerPolicy="no-referrer"
             />
-          </div>
+          </button>
         </div>
 
         {/* Global Search Bar */}
