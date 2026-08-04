@@ -482,28 +482,36 @@ export const FirebaseService = {
   applySiteSettings(settings: SiteSettings) {
     if (typeof document === 'undefined') return;
 
+    try {
+      localStorage.setItem('site_settings_cache', JSON.stringify(settings));
+    } catch (e) {}
+
     // 1. Update Document Title
     if (settings.siteName) {
       document.title = settings.siteName;
     }
 
-    // 2. Update Favicon & Apple Touch Icon
+    // 2. Update Favicon & Apple Touch Icon & Shortcut Icon (Firefox/Safari/Chrome)
     if (settings.logoUrl) {
-      let iconLink = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
-      if (!iconLink) {
-        iconLink = document.createElement('link');
-        iconLink.rel = 'icon';
-        document.head.appendChild(iconLink);
-      }
-      iconLink.href = settings.logoUrl;
+      const mimeType = settings.logoUrl.startsWith('data:image/png')
+        ? 'image/png'
+        : settings.logoUrl.startsWith('data:image/jpeg')
+        ? 'image/jpeg'
+        : settings.logoUrl.startsWith('data:image/svg+xml')
+        ? 'image/svg+xml'
+        : 'image/x-icon';
 
-      let appleIconLink = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
-      if (!appleIconLink) {
-        appleIconLink = document.createElement('link');
-        appleIconLink.rel = 'apple-touch-icon';
-        document.head.appendChild(appleIconLink);
-      }
-      appleIconLink.href = settings.logoUrl;
+      const rels = ['icon', 'shortcut icon', 'apple-touch-icon', 'apple-touch-icon-precomposed'];
+      rels.forEach(rel => {
+        let link = document.querySelector(`link[rel='${rel}']`) as HTMLLinkElement;
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = rel;
+          document.head.appendChild(link);
+        }
+        link.type = mimeType;
+        link.href = settings.logoUrl;
+      });
     }
 
     // 3. Update Meta Description

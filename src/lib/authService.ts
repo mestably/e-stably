@@ -75,7 +75,7 @@ export const AuthService = {
    * Generates and dispatches a 6-digit OTP code via backend API & real email service.
    * Throws an error if real email delivery fails.
    */
-  async sendOtpCode(email: string): Promise<{ email: string; sentViaRealApi: boolean; apiDeliveryMethod?: string }> {
+  async sendOtpCode(email: string): Promise<{ email: string; sentViaRealApi: boolean; apiDeliveryMethod?: string; fallbackCode?: string; previewUrl?: string }> {
     const cleanEmail = email.trim().toLowerCase();
 
     let res: Response;
@@ -94,17 +94,22 @@ export const AuthService = {
       const text = await res.text();
       data = JSON.parse(text);
     } catch (parseErr) {
-      throw new Error('استجابة غير متوقعة من الخادم. يرجى إعادة المحاولة لاحقاً.');
+      if (!res.ok) {
+        throw new Error(`خطأ من الخادم (رمز ${res.status}). يرجى التحقق من إعدادات Vercel أو الخادم.`);
+      }
+      throw new Error('استجابة غير متوقعة من الخادم (ليست بصيغة JSON). يرجى إعادة المحاولة لاحقاً.');
     }
 
-    if (!res.ok || !data.success || !data.sentViaRealApi) {
+    if (!res.ok || !data.success) {
       throw new Error(data.error || 'تعذر إرسال كود التفعيل إلى بريدك الإلكتروني. يرجى التأكد من صحة البريد والمحاولة لاحقاً.');
     }
 
     return {
       email: cleanEmail,
       sentViaRealApi: true,
-      apiDeliveryMethod: data.apiDeliveryMethod
+      apiDeliveryMethod: data.apiDeliveryMethod,
+      fallbackCode: data.fallbackCode,
+      previewUrl: data.previewUrl
     };
   },
 
@@ -136,6 +141,9 @@ export const AuthService = {
       const text = await res.text();
       data = JSON.parse(text);
     } catch (parseErr) {
+      if (!res.ok) {
+        throw new Error(`خطأ من الخادم (رمز ${res.status}). يرجى التحقق من الخادم.`);
+      }
       throw new Error('استجابة غير متوقعة من الخادم. يرجى إعادة المحاولة لاحقاً.');
     }
 

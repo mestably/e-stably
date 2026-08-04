@@ -4,7 +4,33 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/jpeg" href="/logo.jpg" />
+    <link rel="shortcut icon" type="image/jpeg" href="/logo.jpg" />
     <link rel="apple-touch-icon" href="/logo.jpg" />
+    <script>
+      (function() {
+        try {
+          var cached = localStorage.getItem('site_settings_cache');
+          if (cached) {
+            var settings = JSON.parse(cached);
+            if (settings.siteName) document.title = settings.siteName;
+            if (settings.logoUrl) {
+              var rels = ['icon', 'shortcut icon', 'apple-touch-icon'];
+              rels.forEach(function(rel) {
+                var link = document.querySelector("link[rel='" + rel + "']") || document.createElement('link');
+                link.rel = rel;
+                link.href = settings.logoUrl;
+                if (settings.logoUrl.startsWith('data:image/png')) {
+                  link.type = 'image/png';
+                } else if (settings.logoUrl.startsWith('data:image/jpeg')) {
+                  link.type = 'image/jpeg';
+                }
+                if (!link.parentNode) document.head.appendChild(link);
+              });
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
     <meta name="description" content="منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول." />
     <meta property="og:title" content="Estably - إستابلي للخيول العربية الأصيلة" />
     <meta property="og:description" content="منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول." />
