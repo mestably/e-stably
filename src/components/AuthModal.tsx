@@ -370,6 +370,15 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                     {pendingVerificationUser.email}
                   </strong>
                 </p>
+
+                {lastSentOtpCode && (
+                  <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs flex flex-col items-center gap-1 shadow-xs">
+                    <span className="font-semibold">رمز التفعيل المباشر للتجربة السريعة:</span>
+                    <strong className="text-navy font-bold text-lg font-mono tracking-widest bg-white px-3 py-0.5 rounded-md border border-amber-300">
+                      {lastSentOtpCode}
+                    </strong>
+                  </div>
+                )}
               </div>
 
               {/* 6 OTP Input Boxes */}

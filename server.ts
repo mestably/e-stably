@@ -35,7 +35,7 @@ app.post('/api/send-otp', async (req, res) => {
   // 1. Try Brevo API (Sendinblue REST API v3)
   const brevoApiKey = process.env.BREVO_API_KEY || '';
   const brevoSmtpKey = process.env.BREVO_SMTP_KEY || '';
-  const brevoSenderEmail = process.env.BREVO_SENDER_EMAIL || 'x2.sharshar@gmail.com';
+  const brevoSenderEmail = process.env.BREVO_SENDER_EMAIL || 'x24.akar@gmail.com';
   let lastBrevoError = '';
 
   if (brevoApiKey) {
@@ -199,7 +199,8 @@ app.post('/api/send-otp', async (req, res) => {
     email: cleanEmail,
     code: code,
     sentViaRealApi,
-    apiDeliveryMethod
+    apiDeliveryMethod,
+    lastBrevoError
   });
 });
 
