@@ -104,6 +104,12 @@ export const AuthService = {
       throw new Error(data.error || 'تعذر إرسال كود التفعيل إلى بريدك الإلكتروني. يرجى التأكد من صحة البريد والمحاولة لاحقاً.');
     }
 
+    if (data.otpToken && typeof window !== 'undefined') {
+      try {
+        sessionStorage.setItem('otp_token_' + cleanEmail, data.otpToken);
+      } catch (e) {}
+    }
+
     return {
       email: cleanEmail,
       sentViaRealApi: true,
@@ -125,12 +131,19 @@ export const AuthService = {
       throw new Error('يرجى إدخال كود تفعيل مكون من 6 أرقام.');
     }
 
+    let otpToken = '';
+    if (typeof window !== 'undefined') {
+      try {
+        otpToken = sessionStorage.getItem('otp_token_' + cleanEmail) || '';
+      } catch (e) {}
+    }
+
     let res: Response;
     try {
       res = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, code: cleanCode })
+        body: JSON.stringify({ email: cleanEmail, code: cleanCode, otpToken })
       });
     } catch (netErr) {
       throw new Error('فشل الاتصال بالخادم. يرجى التأكد من الاتصال بالإنترنت والمحاولة لاحقاً.');
