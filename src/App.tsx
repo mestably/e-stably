@@ -57,10 +57,16 @@ export default function App() {
       setCurrentUser(JSON.parse(savedUser));
     }
 
-    // Load Announcement Banner
+    // Load Announcement Banner & Site Settings
     FirebaseService.getBanner().then((b) => {
       if (b) setBanner(b);
     }).catch(err => console.warn('Could not load banner', err));
+
+    FirebaseService.getSiteSettings().then((settings) => {
+      if (settings) {
+        FirebaseService.applySiteSettings(settings);
+      }
+    }).catch(err => console.warn('Could not load site settings', err));
   }, []);
 
   const handleAuthSuccess = (user: User) => {
@@ -270,6 +276,18 @@ export default function App() {
                   <ShieldAlert className="w-4 h-4 text-gold-dark" />
                   <span>لوحة التحكم الإدارية</span>
                 </button>
+
+                <button
+                  onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'backup' 
+                      ? 'bg-navy text-white shadow-md' 
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+                  }`}
+                >
+                  <Cloud className={`w-4 h-4 ${activeTab === 'backup' ? 'text-gold' : 'text-navy'}`} />
+                  <span>النسخ الاحتياطي (Drive)</span>
+                </button>
               </>
             )}
 
@@ -298,18 +316,6 @@ export default function App() {
             >
               <Mail className={`w-4 h-4 ${activeTab === 'contact' ? 'text-gold' : 'text-navy'}`} />
               <span>تواصل معنا</span>
-            </button>
-
-            <button
-              onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                activeTab === 'backup' 
-                  ? 'bg-navy text-white shadow-md' 
-                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
-              }`}
-            >
-              <Cloud className={`w-4 h-4 ${activeTab === 'backup' ? 'text-gold' : 'text-navy'}`} />
-              <span>النسخ الاحتياطي (Drive)</span>
             </button>
           </nav>
         </aside>
@@ -398,13 +404,15 @@ export default function App() {
                 <span>تواصل معنا</span>
               </button>
 
-              <button
-                onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'backup' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
-              >
-                <Cloud className="w-4 h-4 text-gold" />
-                <span>النسخ الاحتياطي (Drive)</span>
-              </button>
+              {currentUser?.role === 'admin' && (
+                <button
+                  onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'backup' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  <Cloud className="w-4 h-4 text-gold" />
+                  <span>النسخ الاحتياطي (Drive)</span>
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -472,7 +480,7 @@ export default function App() {
           )}
 
           {activeTab === 'backup' && (
-            <DriveBackupSection />
+            <DriveBackupSection currentUser={currentUser} />
           )}
 
           {activeTab === 'admin' && currentUser && (

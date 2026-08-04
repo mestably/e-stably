@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner } from '../types';
+import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner, SiteSettings } from '../types';
 
 const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
@@ -440,6 +440,98 @@ export const FirebaseService = {
 
   async saveBanner(banner: AnnouncementBanner): Promise<boolean> {
     return saveDocument<AnnouncementBanner>('banner', banner);
+  },
+
+  // --- SITE SETTINGS & BOOKMARK IDENTITY API ---
+  async getSiteSettings(): Promise<SiteSettings> {
+    const defaultSettings: SiteSettings = {
+      id: 'main_site_settings',
+      siteName: 'Estably - إستابلي للخيول العربية الأصيلة',
+      siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
+      logoUrl: '/logo.jpg',
+      updatedAt: new Date().toISOString()
+    };
+
+    try {
+      const list = await getCollection<SiteSettings>('site_settings');
+      if (list && list.length > 0 && list[0].siteName) {
+        return { ...defaultSettings, ...list[0] };
+      }
+      const local = getLocal<SiteSettings>('site_settings');
+      if (local && local.length > 0 && local[0].siteName) {
+        return { ...defaultSettings, ...local[0] };
+      }
+    } catch (e) {
+      console.warn('Could not fetch site settings, using default', e);
+    }
+    return defaultSettings;
+  },
+
+  async saveSiteSettings(settings: SiteSettings): Promise<boolean> {
+    const ok = await saveDocument<SiteSettings>('site_settings', {
+      ...settings,
+      id: 'main_site_settings',
+      updatedAt: new Date().toISOString()
+    });
+    if (ok) {
+      this.applySiteSettings(settings);
+    }
+    return ok;
+  },
+
+  applySiteSettings(settings: SiteSettings) {
+    if (typeof document === 'undefined') return;
+
+    // 1. Update Document Title
+    if (settings.siteName) {
+      document.title = settings.siteName;
+    }
+
+    // 2. Update Favicon & Apple Touch Icon
+    if (settings.logoUrl) {
+      let iconLink = document.querySelector("link[rel*='icon']") as HTMLLinkElement;
+      if (!iconLink) {
+        iconLink = document.createElement('link');
+        iconLink.rel = 'icon';
+        document.head.appendChild(iconLink);
+      }
+      iconLink.href = settings.logoUrl;
+
+      let appleIconLink = document.querySelector("link[rel='apple-touch-icon']") as HTMLLinkElement;
+      if (!appleIconLink) {
+        appleIconLink = document.createElement('link');
+        appleIconLink.rel = 'apple-touch-icon';
+        document.head.appendChild(appleIconLink);
+      }
+      appleIconLink.href = settings.logoUrl;
+    }
+
+    // 3. Update Meta Description
+    if (settings.siteDescription) {
+      let metaDesc = document.querySelector("meta[name='description']") as HTMLMetaElement;
+      if (!metaDesc) {
+        metaDesc = document.createElement('meta');
+        metaDesc.name = 'description';
+        document.head.appendChild(metaDesc);
+      }
+      metaDesc.content = settings.siteDescription;
+    }
+
+    // 4. Update OpenGraph Tags (for bookmarks, links, social sharing)
+    const setOgMeta = (property: string, content: string) => {
+      if (!content) return;
+      let meta = document.querySelector(`meta[property='${property}']`) as HTMLMetaElement;
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute('property', property);
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    };
+
+    setOgMeta('og:title', settings.siteName);
+    setOgMeta('og:description', settings.siteDescription);
+    setOgMeta('og:image', settings.logoUrl);
   },
 
   // --- LOCAL CACHE ACCESSORS ---

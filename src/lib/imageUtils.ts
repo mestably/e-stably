@@ -14,9 +14,9 @@ export function compressImage(
   quality = 0.7
 ): Promise<string> {
   return new Promise((resolve) => {
-    // If it's already small or not a valid data URL, skip compression
-    if (!base64Str.startsWith('data:image')) {
-      resolve(base64Str);
+    // If it's not a valid string or not a data URL, return as is
+    if (typeof base64Str !== 'string' || !base64Str.startsWith('data:image')) {
+      resolve(base64Str || '');
       return;
     }
 

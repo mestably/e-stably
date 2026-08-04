@@ -34,9 +34,11 @@ import {
   Camera,
   Link,
   Clock,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Globe,
+  Bookmark
 } from 'lucide-react';
-import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner } from '../types';
+import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner, SiteSettings } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { compressImage } from '../lib/imageUtils';
 import ConfirmModal from './ConfirmModal';
@@ -46,7 +48,7 @@ interface AdminControlSectionProps {
 }
 
 export default function AdminControlSection({ currentUser }: AdminControlSectionProps) {
-  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner'>('users');
+  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'site'>('users');
   const [listingCategory, setListingCategory] = useState<'all' | 'horses' | 'stables' | 'shelters' | 'transports'>('all');
   
   // Data State
@@ -65,6 +67,15 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
   const [bannerDuration, setBannerDuration] = useState(7);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
   const [isSavingBanner, setIsSavingBanner] = useState(false);
+
+  // Site Identity & Bookmark Icon State
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>({
+    siteName: 'Estably - إستابلي للخيول العربية الأصيلة',
+    siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
+    logoUrl: '/logo.jpg'
+  });
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isSavingSiteSettings, setIsSavingSiteSettings] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -91,13 +102,14 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [u, h, s, sh, t, b] = await Promise.all([
+      const [u, h, s, sh, t, b, st] = await Promise.all([
         FirebaseService.getUsers(),
         FirebaseService.getHorses(),
         FirebaseService.getStables(),
         FirebaseService.getShelters(),
         FirebaseService.getTransports(),
-        FirebaseService.getBanner()
+        FirebaseService.getBanner(),
+        FirebaseService.getSiteSettings()
       ]);
       setUsers(u);
       setHorses(h);
@@ -111,6 +123,9 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
         setBannerTitle(b.title || '');
         setBannerLinkUrl(b.linkUrl || '');
         setBannerDuration(b.durationSeconds || 7);
+      }
+      if (st) {
+        setSiteSettings(st);
       }
     } catch (err) {
       console.error('Failed to load admin data', err);
@@ -174,6 +189,55 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
       showNotify('error', 'حدث خطأ أثناء حفظ الإعلان.');
     } finally {
       setIsSavingBanner(false);
+    }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingLogo(true);
+    try {
+      const rawBase64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (err) => reject(err);
+        reader.readAsDataURL(file);
+      });
+
+      const compressed = await compressImage(rawBase64, 400, 400, 0.85);
+      setSiteSettings(prev => ({ ...prev, logoUrl: compressed }));
+      showNotify('success', 'تم رفع وتعديل صورة اللوجو/الأيقونة بنجاح! يرجى ضغط حفظ لتثبيت البيانات.');
+    } catch (err) {
+      console.error('Logo upload error:', err);
+      showNotify('error', 'فشل معالجة الصورة. يرجى اختيار صورة بصيغة JPG أو PNG.');
+    } finally {
+      setIsUploadingLogo(false);
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
+
+  const handleSaveSiteSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!siteSettings.siteName.trim()) {
+      showNotify('error', 'يرجى إدخال اسم الموقع.');
+      return;
+    }
+
+    setIsSavingSiteSettings(true);
+    try {
+      const ok = await FirebaseService.saveSiteSettings(siteSettings);
+      if (ok) {
+        showNotify('success', 'تم حفظ وتحديث هوية الموقع، اللوجو والأيقونة بنجاح!');
+      } else {
+        showNotify('error', 'فشل حفظ إعدادات الموقع.');
+      }
+    } catch (err) {
+      showNotify('error', 'حدث خطأ أثناء حفظ إعدادات الموقع.');
+    } finally {
+      setIsSavingSiteSettings(false);
     }
   };
 
@@ -428,6 +492,16 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
           {bannerEnabled && bannerImageUrl && (
             <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse"></span>
           )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('site')}
+          className={`px-6 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'site' ? 'border-navy text-navy font-extrabold' : 'border-transparent text-slate-400 hover:text-slate-600'
+          }`}
+        >
+          <Globe className="w-4 h-4 text-navy" />
+          <span>هوية الموقع والـ Bookmark Icon</span>
         </button>
       </div>
 
@@ -912,6 +986,179 @@ export default function AdminControlSection({ currentUser }: AdminControlSection
               >
                 <Save className="w-4 h-4 text-gold" />
                 <span>{isSavingBanner ? 'جاري حفظ الإعدادات...' : 'حفظ إعدادات البنر الإعلاني'}</span>
+              </button>
+            </div>
+
+          </form>
+
+        </div>
+      )}
+
+      {/* TAB 4: SITE IDENTITY & BOOKMARK ICON MANAGEMENT */}
+      {activeTab === 'site' && (
+        <div className="bg-white rounded-b-2xl p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-6">
+          
+          {/* Info Header */}
+          <div className="bg-navy/5 border border-navy/10 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-navy text-gold flex items-center justify-center shrink-0 shadow-xs">
+                <Bookmark className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-black text-sm text-navy flex items-center gap-2">
+                  إعدادات هوية الموقع والـ Bookmark Icon
+                </h3>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  هنا تضبط اسم الموقع وشعار الـ Favicon والوصف التعريفي. عندما يحفظ المستعمل الموقع في المفضلة (Bookmark) أو يضيفه لشاشة الهاتف الرئيسية (Add to Home Screen)، يتم اعتماد هذا اللوجو والاسم فوراً.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveSiteSettings} className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              
+              {/* Form Controls */}
+              <div className="space-y-4">
+                
+                {/* Site Name Input */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                    <Globe className="w-4 h-4 text-navy" />
+                    <span>اسم الموقع (Site Title / Bookmark Name)</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={siteSettings.siteName}
+                    onChange={(e) => setSiteSettings({ ...siteSettings, siteName: e.target.value })}
+                    placeholder="مثال: Estably - إستابلي للخيول العربية الأصيلة"
+                    className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-bold"
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1">يظهر هذا العنوان في شريط أعلى المتصفح وعند حفظ المفضلة (Bookmark).</p>
+                </div>
+
+                {/* Site Description */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">وصف الموقع (Site Meta Description)</label>
+                  <textarea
+                    rows={3}
+                    value={siteSettings.siteDescription}
+                    onChange={(e) => setSiteSettings({ ...siteSettings, siteDescription: e.target.value })}
+                    placeholder="اكتب وصفاً مختصراً للموقع يظهر في محركات البحث والمشاركة..."
+                    className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                  />
+                </div>
+
+                {/* Logo / Favicon Upload & URL */}
+                <div className="space-y-3 pt-2">
+                  <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <ImageIcon className="w-4 h-4 text-navy" />
+                    <span>شعار وأيقونة الموقع (Favicon & Apple Touch Icon)</span>
+                  </label>
+
+                  {/* Drag & drop / upload button */}
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-4 text-center bg-slate-50 hover:bg-slate-100/80 transition relative">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleLogoUpload}
+                      disabled={isUploadingLogo}
+                      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                    />
+                    <div className="flex flex-col items-center gap-1.5">
+                      <Camera className="w-6 h-6 text-navy" />
+                      <span className="text-xs font-bold text-slate-700">
+                        {isUploadingLogo ? 'جاري رفع ومعالجة الشعار...' : 'اضغط هنا لرفع صورة اللوجو الجديدة من جهازك'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">يفضل صورة مربعة بحجم واضح (PNG أو JPG)</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-500 mb-1">أو أدخل رابط الصورة المباشر (URL)</label>
+                    <input
+                      type="text"
+                      value={siteSettings.logoUrl}
+                      onChange={(e) => setSiteSettings({ ...siteSettings, logoUrl: e.target.value })}
+                      placeholder="/logo.jpg أو https://example.com/logo.png"
+                      className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-mono dir-ltr"
+                    />
+                  </div>
+                </div>
+
+              </div>
+
+              {/* Live Preview Column */}
+              <div className="space-y-4">
+                <h4 className="font-bold text-xs text-slate-700 flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-gold-dark" />
+                  <span>معاينة كيف يظهر الـ Bookmark للشعار والموقع</span>
+                </h4>
+
+                {/* Simulated Microsoft Edge / Browser Bookmark Bar */}
+                <div className="bg-slate-900 text-white rounded-2xl p-4 border border-slate-800 shadow-xl space-y-4">
+                  
+                  <div className="text-[11px] font-bold text-slate-400 border-b border-slate-800 pb-2 flex items-center gap-2">
+                    <Bookmark className="w-3.5 h-3.5 text-gold" />
+                    <span>شريط المفضلة في المتصفح (Edge / Chrome Bookmark Bar):</span>
+                  </div>
+
+                  {/* Browser Tab preview */}
+                  <div className="bg-slate-800/80 rounded-xl p-2.5 flex items-center gap-3 border border-slate-700">
+                    <img 
+                      src={siteSettings.logoUrl || '/logo.jpg'} 
+                      alt="Favicon Preview" 
+                      className="w-6 h-6 rounded-lg object-cover border border-gold/40 shrink-0 bg-white"
+                      onError={(e) => { (e.target as HTMLImageElement).src = '/logo.jpg'; }}
+                    />
+                    <div className="truncate">
+                      <div className="text-xs font-bold text-white truncate">{siteSettings.siteName || 'اسم الموقع'}</div>
+                      <div className="text-[10px] text-slate-400 truncate">{window.location.host || 'estably.app'}</div>
+                    </div>
+                  </div>
+
+                  <div className="text-[11px] font-bold text-slate-400 border-b border-slate-800 pb-2 flex items-center gap-2 pt-2">
+                    <Sparkles className="w-3.5 h-3.5 text-gold" />
+                    <span>أيقونة الاختصار على الشاشة الرئيسية للهاتف (Home Screen Shortcut):</span>
+                  </div>
+
+                  {/* Mobile Shortcut preview */}
+                  <div className="flex items-center gap-4 bg-slate-800/40 p-3 rounded-xl border border-slate-800">
+                    <div className="flex flex-col items-center gap-1.5">
+                      <img 
+                        src={siteSettings.logoUrl || '/logo.jpg'} 
+                        alt="Mobile App Icon" 
+                        className="w-14 h-14 rounded-2xl object-cover border-2 border-gold/60 shadow-lg bg-white"
+                        onError={(e) => { (e.target as HTMLImageElement).src = '/logo.jpg'; }}
+                      />
+                      <span className="text-[10px] font-bold text-slate-300 max-w-[70px] truncate text-center">
+                        {siteSettings.siteName?.split('-')[0]?.trim() || 'Estably'}
+                      </span>
+                    </div>
+
+                    <div className="text-[11px] text-slate-300 space-y-1">
+                      <p className="font-bold text-gold">أيقونة واضحة عند الإضافة لسطح المكتب</p>
+                      <p className="text-[10px] text-slate-400 leading-relaxed">
+                        عندما يضغط الزائر على "Add to Home screen" في متصفح Edge أو Chrome أو Safari، ستظهر الأيقونة والشعار بهذا الشكل الأنيق.
+                      </p>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+
+            {/* Submit Button */}
+            <div className="pt-4 border-t border-slate-200 flex justify-end">
+              <button
+                type="submit"
+                disabled={isSavingSiteSettings || isUploadingLogo}
+                className="bg-navy hover:bg-navy-dark text-white font-extrabold py-3 px-8 rounded-xl transition text-xs flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <Save className="w-4 h-4 text-gold" />
+                <span>{isSavingSiteSettings ? 'جاري الحفظ والربط...' : 'حفظ وتحديث هوية الموقع والـ Bookmark Icon'}</span>
               </button>
             </div>
 

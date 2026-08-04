@@ -30,9 +30,14 @@ import {
   BackupFile,
 } from '../lib/drive';
 import { FirebaseService } from '../lib/firebase';
+import { User } from '../types';
 import ConfirmModal from './ConfirmModal';
 
-export default function DriveBackupSection() {
+interface DriveBackupSectionProps {
+  currentUser?: User | null;
+}
+
+export default function DriveBackupSection({ currentUser }: DriveBackupSectionProps) {
   const [googleUser, setGoogleUser] = useState<FirebaseUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [needsAuth, setNeedsAuth] = useState(true);
@@ -97,6 +102,10 @@ export default function DriveBackupSection() {
         }
       }
     } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request' || err?.message?.includes('popup-closed-by-user')) {
+        setError('');
+        return;
+      }
       console.error('Google Sign-in failed:', err);
       setError('فشل الاتصال بحساب Google. يرجى المحاولة مرة أخرى.');
     } finally {
@@ -294,6 +303,20 @@ export default function DriveBackupSection() {
       return isoString;
     }
   };
+
+  if (currentUser?.role !== 'admin') {
+    return (
+      <div className="p-8 bg-white border border-slate-100 rounded-2xl text-center space-y-4 max-w-lg mx-auto my-8 shadow-xs" dir="rtl">
+        <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs">
+          <Shield className="w-8 h-8 text-red-600" />
+        </div>
+        <h3 className="text-sm font-black text-navy">النسخ الاحتياطي مخصص لمدير النظام فقط</h3>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          خدمة إنشاء واستعادة النسخ الاحتياطية على Google Drive متاحة حصرياً لحسابات إدارة المنصة (Admin). يرجى تسجيل الدخول بحساب المدير لاستخدام هذه الخصائص.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 text-right" dir="rtl">

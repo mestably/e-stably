@@ -8,6 +8,7 @@ import { Eye, EyeOff, User as UserIcon, Mail, Phone, Lock, Sparkles, CheckCircle
 import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { AuthService } from '../lib/authService';
+import { googleDriveSignIn } from '../lib/drive';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -282,21 +283,29 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
   const handleGoogleLogin = async () => {
     setIsLoading(true);
+    setError('');
     try {
-      const googleUser: User = {
-        id: 'g_user_' + Date.now(),
-        name: 'مستخدم جوجل السريع',
-        email: 'google.user@gmail.com',
-        phone: '0555612055',
-        nickname: 'google_user',
-        role: 'user',
-        isVerified: true,
-        createdAt: new Date().toISOString()
-      };
-      await FirebaseService.saveUser(googleUser);
-      onAuthSuccess(googleUser);
-      onClose();
-    } catch (err) {
+      const result = await googleDriveSignIn();
+      if (result && result.user) {
+        const googleUser: User = {
+          id: result.user.uid || ('g_user_' + Date.now()),
+          name: result.user.displayName || 'مستخدم Google',
+          email: result.user.email || 'google.user@gmail.com',
+          phone: result.user.phoneNumber || '0555612055',
+          nickname: (result.user.email ? result.user.email.split('@')[0] : 'google_user'),
+          role: 'user',
+          isVerified: true,
+          createdAt: new Date().toISOString()
+        };
+        await FirebaseService.saveUser(googleUser);
+        onAuthSuccess(googleUser);
+        onClose();
+      }
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request' || err?.message?.includes('popup-closed-by-user')) {
+        setError('');
+        return;
+      }
       setError('تعذر الدخول عن طريق Google حالياً.');
     } finally {
       setIsLoading(false);

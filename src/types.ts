@@ -121,3 +121,11 @@ export interface AnnouncementBanner {
   durationSeconds?: number; // Default 7
   updatedAt?: string;
 }
+
+export interface SiteSettings {
+  id: string;
+  siteName: string;
+  siteDescription: string;
+  logoUrl: string;
+  updatedAt?: string;
+}

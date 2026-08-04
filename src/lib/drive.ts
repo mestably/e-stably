@@ -52,6 +52,10 @@ export const googleDriveSignIn = async (): Promise<{ user: FirebaseUser; accessT
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
+    if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request' || error?.message?.includes('popup-closed-by-user')) {
+      console.info('Google sign-in popup was closed by user.');
+      return null;
+    }
     console.error('Drive Sign in error:', error);
     throw error;
   } finally {
