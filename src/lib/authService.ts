@@ -22,51 +22,28 @@ export const auth = getAuth(app);
 
 export const AuthService = {
   /**
-   * Registers a new user via Firebase Auth, sends a real verification email,
-   * and creates an unverified user record in the database.
+   * Prepares a new user structure without saving it to DB yet.
+   * User is only persisted to DB after successful OTP activation.
    */
-  async registerUser(data: {
+  async prepareRegistration(data: {
     name: string;
     email: string;
     phone: string;
     nickname: string;
     password: string;
-  }): Promise<{ user: User; firebaseUser?: FirebaseUser }> {
+  }): Promise<User> {
     const cleanEmail = data.email.trim().toLowerCase();
-    let fbUser: FirebaseUser | undefined = undefined;
 
-    // 1. Try Firebase Auth Account creation
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, data.password);
-      fbUser = userCredential.user;
-      try {
-        await sendEmailVerification(fbUser);
-      } catch (e) {
-        console.warn('sendEmailVerification warning:', e);
-      }
-    } catch (err: any) {
-      console.warn('Firebase Auth registration warning (will use DB fallback):', err);
-      if (err.code === 'auth/email-already-in-use') {
-        const customErr: any = new Error('هذا البريد الإلكتروني مسجل بالفعل في النظام.');
-        customErr.code = 'auth/email-already-in-use';
-        throw customErr;
-      }
-      if (err.code === 'auth/invalid-email') {
-        const customErr: any = new Error('يرجى إدخال بريد إلكتروني صحيح وصالح.');
-        customErr.code = 'auth/invalid-email';
-        throw customErr;
-      }
-      if (err.code === 'auth/weak-password') {
-        const customErr: any = new Error('كلمة السر ضعيفة، يرجى استخدام كلمة سر أقوى.');
-        customErr.code = 'auth/weak-password';
-        throw customErr;
-      }
-      // For auth/operation-not-allowed or other auth errors, we silently catch & proceed to DB creation
+    const users = await FirebaseService.getUsers();
+    if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
+      throw new Error('البريد الإلكتروني مسجل بالفعل في النظام.');
+    }
+    if (users.some((u) => u.nickname.toLowerCase() === data.nickname.trim().toLowerCase())) {
+      throw new Error('الاسم المستعار مستخدم بالفعل، يرجى اختيار اسم آخر.');
     }
 
-    // 2. Create user record in DB with isVerified = false
     const newUser: User = {
-      id: fbUser?.uid || 'usr_' + Date.now(),
+      id: 'usr_' + Date.now(),
       name: data.name.trim(),
       email: cleanEmail,
       phone: data.phone.trim(),
@@ -77,51 +54,52 @@ export const AuthService = {
       createdAt: new Date().toISOString(),
     };
 
-    await FirebaseService.saveUser(newUser);
-
-    return { user: newUser, firebaseUser: fbUser };
+    return newUser;
   },
 
   /**
-   * Generates and dispatches a 6-digit OTP code via backend API & email service.
+   * Legacy register method wrapper.
    */
-  async sendOtpCode(email: string): Promise<{ code: string; email: string; sentViaRealApi?: boolean; apiDeliveryMethod?: string }> {
+  async registerUser(data: {
+    name: string;
+    email: string;
+    phone: string;
+    nickname: string;
+    password: string;
+  }): Promise<{ user: User }> {
+    const user = await this.prepareRegistration(data);
+    return { user };
+  },
+
+  /**
+   * Generates and dispatches a 6-digit OTP code via backend API & real email service.
+   * Throws an error if real email delivery fails.
+   */
+  async sendOtpCode(email: string): Promise<{ email: string; sentViaRealApi: boolean; apiDeliveryMethod?: string }> {
     const cleanEmail = email.trim().toLowerCase();
 
-    try {
-      const res = await fetch('/api/send-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail })
-      });
-      const data = await res.json();
-      if (data.success) {
-        localStorage.setItem(`otp_${cleanEmail}`, JSON.stringify({
-          code: data.code,
-          expiresAt: Date.now() + 10 * 60 * 1000
-        }));
-        return {
-          code: data.code,
-          email: cleanEmail,
-          sentViaRealApi: data.sentViaRealApi,
-          apiDeliveryMethod: data.apiDeliveryMethod
-        };
-      }
-    } catch (e) {
-      console.warn('Backend API send-otp call warning:', e);
+    const res = await fetch('/api/send-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail })
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || !data.success || !data.sentViaRealApi) {
+      throw new Error(data.error || 'تعذر إرسال كود التفعيل إلى بريدك الإلكتروني. يرجى التأكد من صحة البريد والمحاولة لاحقاً.');
     }
 
-    // Client fallback if API endpoint unreachable
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
-    const otpData = { email: cleanEmail, code, expiresAt, createdAt: new Date().toISOString() };
-    localStorage.setItem(`otp_${cleanEmail}`, JSON.stringify(otpData));
-
-    return { code, email: cleanEmail };
+    return {
+      email: cleanEmail,
+      sentViaRealApi: true,
+      apiDeliveryMethod: data.apiDeliveryMethod
+    };
   },
 
   /**
-   * Verifies the 6-digit OTP code using server API or local store.
+   * Verifies the 6-digit OTP code using server API.
+   * Only returns true if the server confirms the exact code.
    */
   async verifyOtpCode(email: string, inputCode: string): Promise<boolean> {
     const cleanEmail = email.trim().toLowerCase();
@@ -131,47 +109,25 @@ export const AuthService = {
       throw new Error('يرجى إدخال كود تفعيل مكون من 6 أرقام.');
     }
 
-    let apiVerified = false;
+    const res = await fetch('/api/verify-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: cleanEmail, code: cleanCode })
+    });
 
-    try {
-      const res = await fetch('/api/verify-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, code: cleanCode })
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'كود التفعيل غير صحيح.');
-      }
-      apiVerified = true;
-    } catch (err: any) {
-      if (err.message && err.message !== 'Failed to fetch') {
-        throw err;
-      }
-      // Fallback local check
-      const localData = localStorage.getItem(`otp_${cleanEmail}`);
-      if (!localData) {
-        throw new Error('لم يتم العثور على كود تفعيل لهذا البريد. يرجى طلب كود جديد.');
-      }
-      const storedOtp = JSON.parse(localData);
-      if (Date.now() > storedOtp.expiresAt) {
-        throw new Error('انتهت صلاحية كود التفعيل (مر أكثر من 10 دقائق). يرجى طلب كود جديد.');
-      }
-      if (storedOtp.code !== cleanCode) {
-        throw new Error('رمز التفعيل غير صحيح، يرجى التأكد من الأرقام الستة وإعادة المحاولة.');
-      }
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || 'كود التفعيل غير صحيح أو انتهت صلاحيته.');
     }
 
-    // Mark user as verified in DB and localStorage
+    // Mark existing user as verified if present in DB
     const users = await FirebaseService.getUsers();
-    const user = users.find(u => u.email.toLowerCase() === cleanEmail);
-    if (user) {
-      user.isVerified = true;
-      await FirebaseService.saveUser(user);
+    const existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+    if (existingUser) {
+      existingUser.isVerified = true;
+      await FirebaseService.saveUser(existingUser);
     }
 
-    // Clean up
-    localStorage.removeItem(`otp_${cleanEmail}`);
     return true;
   },
 

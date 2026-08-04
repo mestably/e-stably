@@ -136,15 +136,8 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setIsLoading(true);
 
     try {
-      const users = await FirebaseService.getUsers();
-      if (users.some((u) => u.email.toLowerCase() === email.trim().toLowerCase())) {
-        setError('البريد الإلكتروني مسجل بالفعل.');
-        setIsLoading(false);
-        return;
-      }
-
-      // 1. Register user in DB (unverified)
-      const { user } = await AuthService.registerUser({
+      // 1. Prepare user structure (does NOT save user to DB until verified!)
+      const newUserPayload = await AuthService.prepareRegistration({
         name,
         email,
         phone,
@@ -152,14 +145,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         password,
       });
 
-      // 2. Generate and send 6-Digit OTP code to email
-      const { code } = await AuthService.sendOtpCode(user.email);
-      setLastSentOtpCode(code);
+      // 2. Send real OTP email
+      await AuthService.sendOtpCode(newUserPayload.email);
 
-      // 3. Set pending user & transition to 6-digit OTP view
-      setPendingVerificationUser(user);
+      // 3. Set pending user state & switch to 6-digit OTP activation screen
+      setPendingVerificationUser(newUserPayload);
       setOtpDigits(['', '', '', '', '', '']);
-      setSuccess(`تم إنشاء الحساب بنجاح! أرسلنا كود تفعيل مكون من 6 أرقام إلى بريدك الإلكتروني: ${user.email}`);
+      setSuccess(`أرسلنا كود تفعيل مكون من 6 أرقام إلى بريدك الإلكتروني: ${newUserPayload.email}`);
       setResendCooldown(60);
     } catch (err: any) {
       console.error(err);
@@ -215,10 +207,17 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setSuccess('');
 
     try {
+      // 1. Verify code via server API
       await AuthService.verifyOtpCode(pendingVerificationUser.email, fullCode);
-      const verifiedUser = { ...pendingVerificationUser, isVerified: true };
+
+      // 2. Save user to database ONLY after real activation succeeds
+      const verifiedUser: User = { 
+        ...pendingVerificationUser, 
+        isVerified: true 
+      };
+      await FirebaseService.saveUser(verifiedUser);
       
-      setSuccess('تهانينا! تم تفعيل الحساب بنجاح. جاري تسجيل دخولك الآن...');
+      setSuccess('تهانينا! تم التفعيل وإنشاء الحساب بنجاح. جاري تسجيل الدخول...');
       setTimeout(() => {
         onAuthSuccess(verifiedUser);
         onClose();
@@ -236,14 +235,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setSuccess('');
 
     try {
-      const { code } = await AuthService.sendOtpCode(pendingVerificationUser.email);
-      setLastSentOtpCode(code);
+      await AuthService.sendOtpCode(pendingVerificationUser.email);
       setOtpDigits(['', '', '', '', '', '']);
       setSuccess(`تم إعادة إرسال كود التفعيل (6 أرقام) إلى بريدك الإلكتروني: ${pendingVerificationUser.email}`);
       setResendCooldown(60);
       otpInputRefs[0].current?.focus();
     } catch (err: any) {
-      setError(err.message || 'تعذر إعادة إرسال الكود، يرجى المحاولة لاحقاً.');
+      setError(err.message || 'تعذر إعادة إرسال الكود، يرجى التأكد من البريد والمحاولة لاحقاً.');
     }
   };
 
@@ -264,8 +262,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
       if (!isVerified) {
         // Send a fresh OTP and prompt activation view
-        const { code } = await AuthService.sendOtpCode(user.email);
-        setLastSentOtpCode(code);
+        await AuthService.sendOtpCode(user.email);
         setPendingVerificationUser(user);
         setOtpDigits(['', '', '', '', '', '']);
         setResendCooldown(60);
@@ -370,15 +367,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                     {pendingVerificationUser.email}
                   </strong>
                 </p>
-
-                {lastSentOtpCode && (
-                  <div className="mt-3 p-2.5 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl text-xs flex flex-col items-center gap-1 shadow-xs">
-                    <span className="font-semibold">رمز التفعيل المباشر للتجربة السريعة:</span>
-                    <strong className="text-navy font-bold text-lg font-mono tracking-widest bg-white px-3 py-0.5 rounded-md border border-amber-300">
-                      {lastSentOtpCode}
-                    </strong>
-                  </div>
-                )}
               </div>
 
               {/* 6 OTP Input Boxes */}
