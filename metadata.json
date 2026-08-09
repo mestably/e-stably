@@ -1,0 +1,6 @@
+{
+  "name": "ملتقى الخيول العربية",
+  "description": "منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية، الإيواء، ونقل الخيول مع دعم المزامنة والتحكم الكامل للمدير.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
