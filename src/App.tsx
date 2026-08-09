@@ -165,7 +165,6 @@ export default function App() {
                 className="h-10 sm:h-12 max-w-[180px] object-contain rounded-lg transition-transform group-hover:scale-105" 
               />
             )}
-            <span className="text-[10px] font-bold bg-navy/5 text-navy px-2 py-0.5 rounded-md border border-navy/10">للخيول</span>
           </button>
         </div>
 
