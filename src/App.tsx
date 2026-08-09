@@ -65,8 +65,10 @@ export default function App() {
     if (savedUser) {
       try {
         const u = JSON.parse(savedUser);
-        if (u && isSystemAdminEmail(u.email)) {
+        if (u && u.authProvider !== 'google' && isSystemAdminEmail(u.email)) {
           u.role = 'admin';
+        } else if (u && u.authProvider === 'google') {
+          u.role = 'user';
         }
         setCurrentUser(u);
       } catch (e) {}
@@ -98,7 +100,7 @@ export default function App() {
     localStorage.removeItem('horses_forum_session');
   };
 
-  const isAdmin = Boolean(currentUser && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email)));
+  const isAdmin = Boolean(currentUser && currentUser.authProvider !== 'google' && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email)));
 
   return (
     <div className="min-h-screen bg-[#f0f2f5] flex flex-col font-sans selection:bg-gold/30 selection:text-navy" dir="rtl">

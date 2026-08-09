@@ -18,22 +18,44 @@ export default function TermsSection() {
     "عمولة المنصة:\n* 2.5% من قيمة البيع إذا تجاوزت قيمة الجواد 10,000 ريال.\n* 500 ريال إذا كانت قيمة الجواد أقل من 10,000 ريال.\n* العمولة مستحقة عند إتمام البيع أو الاتفاق النهائي.",
     "يمنح المشتري مهلة يومين لاستلام الجواد بعد البيع، وبعد ذلك يتحمل رسوم إيواء بقيمة 50 ريال عن كل يوم تأخير.",
     "البائع مسؤول مسؤولية كاملة عن صحة الصور والمعلومات والمستندات المرفقة في الإعلان.",
-    "يحق للمنصة حذف أو إيقاف أي إعلان مخالف أو مضلل أو يحتوي على معلومات غير صحيحة."
+    "يحق للمنصة حذف أو إيقاف أي إعلان مخالف أو مضلل أو يحتوي على معلومات غير صحيحة.",
+    "الصدق والشفافية: أن يكون الوسيط أميناً ولا يغش البائع أو المشتري؛ لقوله ﷺ: «البَيِّعانِ بالخِيارِ ما لَمْ يَتَفَرَّقا، فإنْ صَدَقا وبَيَّنا بُورِكَ لهما في بَيْعِهِما، وإنْ كَتَبا وكَذَبا مُحِقَتْ بَرَكةُ بَيْعِهِما».\nيُحرم على التاجر أو البائع أن يبيع سلعة لا يملكها ولا تدخل في حيازته وقت البيع، إلا في حالات البيع المباحة شرعاً والمضبوطة بشروطها كعقد \"السلم\"."
   ];
 
   return (
     <div className="space-y-6">
       
       {/* Top Header info */}
-      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 flex items-start gap-4">
-        <div className="p-3 bg-blue-50 text-navy rounded-xl shrink-0">
-          <FileText className="w-6 h-6 text-navy" />
+      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200/80 shadow-xs space-y-4">
+        <div className="flex items-start gap-4">
+          <div className="p-3 bg-blue-50 text-navy rounded-xl shrink-0">
+            <FileText className="w-6 h-6 text-navy" />
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-base sm:text-lg font-black text-navy leading-tight">
+              الشروط والأحكام الخاصة بمنصة ملتقى الخيول العربية
+            </h2>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              يرجى قراءة الشروط والأحكام التالية بعناية لضمان سلامة التعاملات والتعاون الكامل بين كافة أطراف المنصة.
+            </p>
+          </div>
         </div>
-        <div className="space-y-1">
-          <h2 className="text-sm font-bold text-navy leading-tight">الشروط والأحكام الخاصة بمنصة ملتقى الخيول العربية</h2>
-          <p className="text-[11px] text-slate-500 leading-relaxed">
-            يرجى قراءة الشروط والأحكام التالية بعناية لضمان سلامة التعاملات والتعاون الكامل بين كافة أطراف المنصة.
-          </p>
+
+        {/* Sacred Texts & Guidance Banner */}
+        <div className="pt-3 border-t border-slate-200/80 space-y-2">
+          {/* Red Font Quranic Verse */}
+          <div className="bg-red-50/80 border border-red-200/80 rounded-xl p-3 text-center">
+            <p className="text-red-600 font-extrabold text-xs sm:text-sm leading-relaxed">
+              نتبع قوله تعالى: &#123;يَا أَيُّهَا الَّذِينَ آمَنُوا أَوْفُوا بِالْعُقُودِ&#125;
+            </p>
+          </div>
+
+          {/* Gold Font Hadith */}
+          <div className="bg-amber-50/80 border border-gold/40 rounded-xl p-3 text-center">
+            <p className="text-gold-dark font-black text-xs sm:text-sm leading-relaxed">
+              قول رسول الله ﷺ «مَنْ حَمَلَ عَلَيْنَا السِّلَاحَ فَلَيْسَ مِنَّا، وَمَنْ غَشَّنَا فَلَيْسَ مِنَّا»
+            </p>
+          </div>
         </div>
       </div>
 

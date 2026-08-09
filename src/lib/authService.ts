@@ -332,7 +332,7 @@ export const AuthService = {
     let existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
 
     if (!existingUser) {
-      // Create new profile for Google user
+      // Create new profile for Google user - always regular user ('user')
       existingUser = {
         id: fbUser.uid || ('usr_g_' + Date.now()),
         name: fbUser.displayName || cleanEmail.split('@')[0],
@@ -340,19 +340,18 @@ export const AuthService = {
         phone: fbUser.phoneNumber || '',
         nickname: (fbUser.displayName || cleanEmail.split('@')[0]).replace(/\s+/g, '_').toLowerCase(),
         password: '',
-        role: isSystemAdminEmail(cleanEmail) ? 'admin' : 'user',
+        role: 'user', // أي شخص يدخل بجوجل يكون مستخدم عادي دائماً
+        authProvider: 'google',
         isVerified: true,
         createdAt: new Date().toISOString(),
       };
       await FirebaseService.saveUser(existingUser);
     } else {
-      if (!existingUser.isVerified || isSystemAdminEmail(cleanEmail)) {
-        existingUser.isVerified = true;
-        if (isSystemAdminEmail(cleanEmail)) {
-          existingUser.role = 'admin';
-        }
-        await FirebaseService.saveUser(existingUser);
-      }
+      // Any user logging in with Google is set as regular user ('user')
+      existingUser.role = 'user';
+      existingUser.authProvider = 'google';
+      existingUser.isVerified = true;
+      await FirebaseService.saveUser(existingUser);
     }
 
     if (existingUser.isSuspended) {

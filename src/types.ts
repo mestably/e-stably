@@ -17,6 +17,7 @@ export interface User {
   isSuspended?: boolean;
   isVerified?: boolean;
   password?: string;
+  authProvider?: 'google' | 'email';
   updatedAt?: string;
 }
 
@@ -65,6 +66,8 @@ export interface Horse {
   rentType?: 'hour' | 'day'; // hour or day
   rentStart?: string;
   rentEnd?: string;
+  rating?: number;
+  reviews?: Review[];
   createdAt: string;
 }
 

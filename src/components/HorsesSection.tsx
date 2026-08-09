@@ -589,6 +589,13 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery }: 
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                 
+                {/* Rating Badge Top Left */}
+                <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-xs text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-extrabold flex items-center gap-1 shadow-md border border-amber-400/30">
+                  <Star className="w-3 h-3 fill-current text-amber-400" />
+                  <span>{horse.rating || 5}</span>
+                  <span className="text-slate-300 text-[9px]">({horse.reviews?.length || 0})</span>
+                </div>
+
                 {/* Sale / Rent Badge */}
                 <span className={`absolute top-3 right-3 text-[9px] px-2.5 py-0.5 rounded-full font-bold shadow-md text-white ${
                   horse.adType === 'sale' ? 'bg-amber-500' : 'bg-navy'

@@ -94,6 +94,8 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         await FirebaseService.saveStable(updatedItem);
       } else if (type === 'shelter') {
         await FirebaseService.saveShelter(updatedItem);
+      } else if (type === 'horse') {
+        await FirebaseService.saveHorse(updatedItem);
       }
 
       setSuccess('تم إضافة تقييمك بنجاح!');
@@ -127,6 +129,8 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         await FirebaseService.saveStable(updatedItem);
       } else if (type === 'shelter') {
         await FirebaseService.saveShelter(updatedItem);
+      } else if (type === 'horse') {
+        await FirebaseService.saveHorse(updatedItem);
       }
 
       setDeleteReviewId(null);
@@ -315,6 +319,12 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                   <span className="text-[10px] text-slate-400 block">الحالة الصحية</span>
                   <span className="text-xs font-bold text-slate-800">{item.healthStatus || 'سليم تماماً'}</span>
                 </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 block">التقييم العام</span>
+                  <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
+                    <Star className="w-3.5 h-3.5 fill-current" /> {item.rating || 5} / 5
+                  </div>
+                </div>
                 {item.stableName && (
                   <div className="space-y-1">
                     <span className="text-[10px] text-slate-400 block">الإسطبل المرتبط</span>
@@ -445,8 +455,8 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
             </div>
           </div>
 
-          {/* Reviews Rating Panel for Stables & Shelter */}
-          {(type === 'stable' || type === 'shelter') && (
+          {/* Reviews Rating Panel for Stables, Shelter & Horses */}
+          {(type === 'stable' || type === 'shelter' || type === 'horse') && (
             <div className="space-y-4 border-t border-slate-100 pt-6">
               <div className="flex justify-between items-center">
                 <h4 className="font-bold text-slate-800 text-sm">تقييمات وآراء المستخدمين</h4>
