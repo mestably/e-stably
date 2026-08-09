@@ -4,9 +4,9 @@
  */
 
 import { useState, useEffect, ChangeEvent, FormEvent } from 'react';
-import { Plus, Search, Shield, Star, Phone, Map, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2 } from 'lucide-react';
+import { Plus, Search, Shield, Star, Phone, Map, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2, Crown } from 'lucide-react';
 import { Stable, User } from '../types';
-import { FirebaseService } from '../lib/firebase';
+import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
 import { compressImage } from '../lib/imageUtils';
@@ -15,13 +15,23 @@ interface StablesSectionProps {
   currentUser: User | null;
   onOpenAuth: () => void;
   searchQuery: string;
+  onAdCreated?: () => void;
 }
 
-export default function StablesSection({ currentUser, onOpenAuth, searchQuery }: StablesSectionProps) {
+export default function StablesSection({ currentUser, onOpenAuth, searchQuery, onAdCreated }: StablesSectionProps) {
   const [stables, setStables] = useState<Stable[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedStable, setSelectedStable] = useState<Stable | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [userTodayAds, setUserTodayAds] = useState(0);
+
+  useEffect(() => {
+    if (currentUser?.id) {
+      FirebaseService.getUserTodayAdsCount(currentUser.id).then((cnt) => {
+        setUserTodayAds(cnt);
+      });
+    }
+  }, [currentUser?.id, isAddOpen]);
   
   // Form Fields
   const [name, setName] = useState('');
@@ -127,6 +137,16 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery }:
       return;
     }
 
+    const isUnlimited = currentUser?.role === 'admin' || currentUser?.isGold;
+
+    if (!editingItemId && !isUnlimited) {
+      const cnt = await FirebaseService.getUserTodayAdsCount(currentUser.id);
+      if (cnt >= DAILY_FREE_ADS_LIMIT) {
+        setError(`عذراً! لقد استنفذت الحد الأقصى للإعلانات المجانية اليومية (${DAILY_FREE_ADS_LIMIT} إعلانات اليوم). يقتصر الحد اليومي على الحسابات العادية. يمكنك الترقية للعضوية الذهبية 👑 لنشر إعلانات بلا حدود!`);
+        return;
+      }
+    }
+
     if (!name || !description || !phone) {
       setError('يرجى ملء كافة البيانات المطلوبة.');
       return;
@@ -162,6 +182,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery }:
       setTimeout(() => {
         setIsAddOpen(false);
         fetchStables();
+        onAdCreated?.();
       }, 1500);
     } catch (err) {
       setError('حدث خطأ أثناء حفظ الإسطبل.');
@@ -248,6 +269,38 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery }:
             </div>
 
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-4">
+              {!editingItemId && (
+                (currentUser?.role === 'admin' || currentUser?.isGold) ? (
+                  <div className="p-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-gold-light/40 text-amber-900 text-xs font-bold flex items-center justify-between shadow-2xs">
+                    <div className="flex items-center gap-2">
+                      <Crown className="w-4 h-4 text-amber-600 animate-bounce" />
+                      <span>{currentUser?.role === 'admin' ? 'حساب مدير النظام 🛡️' : 'العضوية الذهبية المميزة 👑'}: نشر إعلانات غير محدود</span>
+                    </div>
+                    <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
+                      بلا حدود
+                    </span>
+                  </div>
+                ) : (
+                  <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${
+                    userTodayAds >= DAILY_FREE_ADS_LIMIT 
+                      ? 'bg-red-50 border-red-200 text-red-700' 
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  }`}>
+                    <div className="flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span>المتبقي من الإعلانات المجانية اليومية (حساب عادي):</span>
+                    </div>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
+                      userTodayAds >= DAILY_FREE_ADS_LIMIT 
+                        ? 'bg-red-600 text-white' 
+                        : 'bg-emerald-600 text-white shadow-2xs'
+                    }`}>
+                      {Math.max(0, DAILY_FREE_ADS_LIMIT - userTodayAds)} من {DAILY_FREE_ADS_LIMIT} إعلانات
+                    </span>
+                  </div>
+                )
+              )}
+
               {error && (
                 <div className="p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-l flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />

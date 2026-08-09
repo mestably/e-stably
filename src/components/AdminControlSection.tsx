@@ -28,6 +28,7 @@ import {
   Mail,
   User as UserIcon,
   Sparkles,
+  Crown,
   RefreshCw,
   Eye,
   Megaphone,
@@ -268,6 +269,21 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       showNotify('success', `تم ${updated.isSuspended ? 'إيقاف' : 'تفعيل'} حساب ${updated.name} بنجاح.`);
     } else {
       showNotify('error', 'فشل تغيير حالة الحساب.');
+    }
+  };
+
+  const handleToggleGold = async (userToToggle: User) => {
+    const updated: User = {
+      ...userToToggle,
+      isGold: !userToToggle.isGold,
+      updatedAt: new Date().toISOString()
+    };
+    const ok = await FirebaseService.saveUser(updated);
+    if (ok) {
+      setUsers(users.map(u => u.id === updated.id ? updated : u));
+      showNotify('success', `تم ${updated.isGold ? 'منح العضوية الذهبية 👑 لـ' : 'إلغاء العضوية الذهبية عن'} ${updated.name} بنجاح.`);
+    } else {
+      showNotify('error', 'فشل تغيير العضوية الذهبية.');
     }
   };
 
@@ -623,11 +639,15 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                       <td className="p-3.5">
                         {u.role === 'admin' ? (
                           <span className="inline-flex items-center gap-1 bg-gold-light text-gold-dark font-extrabold px-2.5 py-1 rounded-lg text-[10px]">
-                            <Sparkles className="w-3 h-3" /> مدير
+                            <Sparkles className="w-3 h-3" /> مدير النظام
+                          </span>
+                        ) : u.isGold ? (
+                          <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold px-2.5 py-1 rounded-lg text-[10px] border border-amber-300">
+                            <Crown className="w-3 h-3 text-amber-600" /> عضوية ذهبية 👑
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold px-2.5 py-1 rounded-lg text-[10px]">
-                            مستخدم
+                            عادي (5 يومياً)
                           </span>
                         )}
                       </td>
@@ -645,8 +665,24 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                       </td>
 
                       <td className="p-3.5">
-                        <div className="flex items-center justify-center gap-1.5">
+                        <div className="flex items-center justify-center gap-1.5 flex-wrap">
                           
+                          {/* Toggle Gold Membership */}
+                          {u.role !== 'admin' && (
+                            <button
+                              onClick={() => handleToggleGold(u)}
+                              className={`p-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 transition cursor-pointer ${
+                                u.isGold 
+                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300' 
+                                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-xs'
+                              }`}
+                              title={u.isGold ? 'إلغاء العضوية الذهبية' : 'منح العضوية الذهبية (إعلانات غير محدودة)'}
+                            >
+                              <Crown className="w-3.5 h-3.5" />
+                              <span>{u.isGold ? 'إلغاء الذهبية' : 'ترقية للذهبية 👑'}</span>
+                            </button>
+                          )}
+
                           {/* Toggle Suspend */}
                           <button
                             onClick={() => handleToggleSuspend(u)}

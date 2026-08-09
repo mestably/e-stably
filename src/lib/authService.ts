@@ -332,25 +332,32 @@ export const AuthService = {
     let existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
 
     if (!existingUser) {
-      // Create new profile for Google user - always regular user ('user')
+      // Create new profile for Google user
       existingUser = {
         id: fbUser.uid || ('usr_g_' + Date.now()),
         name: fbUser.displayName || cleanEmail.split('@')[0],
         email: cleanEmail,
         phone: fbUser.phoneNumber || '',
         nickname: (fbUser.displayName || cleanEmail.split('@')[0]).replace(/\s+/g, '_').toLowerCase(),
+        avatar: fbUser.photoURL || undefined,
         password: '',
-        role: 'user', // أي شخص يدخل بجوجل يكون مستخدم عادي دائماً
+        role: 'user', // أي مستخدم يدخل بجوجل يكون مستخدم عادي وليس مدير
         authProvider: 'google',
         isVerified: true,
         createdAt: new Date().toISOString(),
       };
       await FirebaseService.saveUser(existingUser);
     } else {
-      // Any user logging in with Google is set as regular user ('user')
-      existingUser.role = 'user';
+      // Preserve custom profile edits (phone, avatar, name, bio, etc.) while ensuring role is 'user'
       existingUser.authProvider = 'google';
       existingUser.isVerified = true;
+      existingUser.role = 'user'; // مستخدم عادي دائماً عند الدخول بجوجل
+      if (!existingUser.avatar && fbUser.photoURL) {
+        existingUser.avatar = fbUser.photoURL;
+      }
+      if (!existingUser.phone && fbUser.phoneNumber) {
+        existingUser.phone = fbUser.phoneNumber;
+      }
       await FirebaseService.saveUser(existingUser);
     }
 

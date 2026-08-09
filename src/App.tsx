@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   Home, 
   Award, 
@@ -21,6 +21,7 @@ import {
   Compass,
   Cloud,
   ShieldAlert,
+  Crown,
   Edit
 } from 'lucide-react';
 import { User, AnnouncementBanner, SiteSettings } from './types';
@@ -39,6 +40,7 @@ import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
+import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
@@ -48,6 +50,22 @@ export default function App() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [todayAdsCount, setTodayAdsCount] = useState<number>(0);
+
+  const refreshDailyAdsCount = useCallback(async () => {
+    if (currentUser?.id) {
+      const cnt = await FirebaseService.getUserTodayAdsCount(currentUser.id);
+      setTodayAdsCount(cnt);
+    } else {
+      setTodayAdsCount(0);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    refreshDailyAdsCount();
+  }, [refreshDailyAdsCount, activeTab]);
+
+  const remainingDailyAds = Math.max(0, DAILY_FREE_ADS_LIMIT - todayAdsCount);
 
   const [siteSettings, setSiteSettings] = useState<SiteSettings>({
     id: 'main_site_settings',
@@ -64,13 +82,29 @@ export default function App() {
     const savedUser = localStorage.getItem('horses_forum_session');
     if (savedUser) {
       try {
-        const u = JSON.parse(savedUser);
-        if (u && u.authProvider !== 'google' && isSystemAdminEmail(u.email)) {
-          u.role = 'admin';
-        } else if (u && u.authProvider === 'google') {
+        let u: User = JSON.parse(savedUser);
+        if (u.authProvider === 'google') {
           u.role = 'user';
+        } else if (isSystemAdminEmail(u.email)) {
+          u.role = 'admin';
         }
         setCurrentUser(u);
+
+        // Fetch fresh user profile from DB to preserve all profile edits (avatar, phone, etc.)
+        FirebaseService.getUsers().then((users) => {
+          const freshUser = users.find(
+            (dbUser) => dbUser.id === u.id || (dbUser.email && u.email && dbUser.email.toLowerCase() === u.email.toLowerCase())
+          );
+          if (freshUser) {
+            if (freshUser.authProvider === 'google') {
+              freshUser.role = 'user';
+            } else if (isSystemAdminEmail(freshUser.email)) {
+              freshUser.role = 'admin';
+            }
+            setCurrentUser(freshUser);
+            localStorage.setItem('horses_forum_session', JSON.stringify(freshUser));
+          }
+        }).catch(err => console.warn('Could not sync fresh user profile', err));
       } catch (e) {}
     }
 
@@ -170,9 +204,22 @@ export default function App() {
                     currentUser.name.charAt(0)
                   )}
                 </div>
-                <div className="text-right flex flex-col justify-center max-w-[70px] sm:max-w-[110px]">
+                <div className="text-right flex flex-col justify-center max-w-[120px] sm:max-w-[160px]">
                   <span className="text-[10px] font-bold text-slate-800 block truncate">{currentUser.name}</span>
-                  <span className="text-[8px] text-gold-dark font-semibold block truncate">@{currentUser.nickname} {isAdmin ? '(مدير)' : ''}</span>
+                  <span className="text-[8px] text-gold-dark font-semibold block truncate">@{currentUser.nickname} {isAdmin ? '(مدير)' : currentUser.isGold ? '(عضو ذهبي)' : ''}</span>
+                  {isAdmin ? (
+                    <span className="text-[8px] font-extrabold text-navy bg-navy/10 px-1.5 py-0.2 rounded border border-navy/20 mt-0.5 block truncate" title="إعلانات غير محدودة لمدير النظام">
+                      🛡️ إعلانات غير محدودة
+                    </span>
+                  ) : currentUser.isGold ? (
+                    <span className="text-[8px] font-extrabold text-amber-900 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300 mt-0.5 block truncate" title="إعلانات غير محدودة للعضوية الذهبية">
+                      👑 ذهبي: غير محدود
+                    </span>
+                  ) : (
+                    <span className="text-[8px] font-extrabold text-emerald-800 bg-emerald-100/90 px-1.5 py-0.2 rounded border border-emerald-300 mt-0.5 block truncate" title={`المتبقي من الإعلانات المجانية اليومية: ${remainingDailyAds} من ${DAILY_FREE_ADS_LIMIT}`}>
+                      المتبقي اليومي: {remainingDailyAds} من {DAILY_FREE_ADS_LIMIT}
+                    </span>
+                  )}
                 </div>
               </button>
 
@@ -370,9 +417,23 @@ export default function App() {
                     <div className="w-9 h-9 rounded-lg bg-navy text-white flex items-center justify-center font-bold text-sm shrink-0">
                       {currentUser.name.charAt(0)}
                     </div>
-                    <div className="text-right">
+                    <div className="text-right space-y-0.5">
                       <span className="text-xs font-bold text-slate-800 block">{currentUser.name}</span>
-                      <span className="text-[10px] text-slate-500 block">@{currentUser.nickname}</span>
+                      <span className="text-[10px] text-slate-500 block">@{currentUser.nickname} {isAdmin ? '(مدير النظام)' : currentUser.isGold ? '(عضوية ذهبية)' : ''}</span>
+                      {isAdmin ? (
+                        <div className="text-[10px] font-bold text-navy bg-navy/10 px-2.5 py-1 rounded-lg border border-navy/20 mt-1 inline-flex items-center gap-1">
+                          <span>🛡️ مدير النظام: إعلانات غير محدودة</span>
+                        </div>
+                      ) : currentUser.isGold ? (
+                        <div className="text-[10px] font-bold text-amber-900 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 mt-1 inline-flex items-center gap-1">
+                          <span>👑 عضوية ذهبية: إعلانات غير محدودة</span>
+                        </div>
+                      ) : (
+                        <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 mt-1 inline-flex items-center gap-1">
+                          <span>المتبقي من الإعلانات المجانية اليومية:</span>
+                          <span className="font-black text-emerald-900 bg-emerald-200/80 px-1.5 py-0.5 rounded">{remainingDailyAds} من {DAILY_FREE_ADS_LIMIT}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <button
@@ -493,6 +554,7 @@ export default function App() {
               currentUser={currentUser} 
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
             />
           )}
 
@@ -501,6 +563,7 @@ export default function App() {
               currentUser={currentUser} 
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
             />
           )}
 
@@ -509,6 +572,7 @@ export default function App() {
               currentUser={currentUser} 
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
             />
           )}
 
@@ -517,6 +581,7 @@ export default function App() {
               currentUser={currentUser} 
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
             />
           )}
 

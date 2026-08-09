@@ -17,10 +17,11 @@ import {
   X,
   Save,
   Shield,
+  Crown,
   FileText
 } from 'lucide-react';
 import { User } from '../types';
-import { FirebaseService } from '../lib/firebase';
+import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import { compressImage } from '../lib/imageUtils';
 
 interface UserProfileModalProps {
@@ -49,8 +50,9 @@ export default function UserProfileModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [todayAdsCount, setTodayAdsCount] = useState(0);
 
-  // Reset form when modal opens or user changes
+  // Reset form and fetch daily ads count when modal opens or user changes
   useEffect(() => {
     setName(currentUser.name || '');
     setEmail(currentUser.email || '');
@@ -62,9 +64,17 @@ export default function UserProfileModal({
     setNewPassword('');
     setError('');
     setSuccess('');
+
+    if (isOpen && currentUser?.id) {
+      FirebaseService.getUserTodayAdsCount(currentUser.id).then((cnt) => {
+        setTodayAdsCount(cnt);
+      });
+    }
   }, [currentUser, isOpen]);
 
   if (!isOpen) return null;
+
+  const remainingDailyAds = Math.max(0, DAILY_FREE_ADS_LIMIT - todayAdsCount);
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -305,11 +315,96 @@ export default function UserProfileModal({
             />
           </div>
 
+          {/* Ads Limit / Membership Status Banner */}
+          {currentUser.role === 'admin' ? (
+            <div className="bg-gradient-to-r from-navy/10 via-slate-100 to-navy/5 border border-navy/20 p-3.5 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-navy text-gold flex items-center justify-center font-bold text-sm shrink-0">
+                  <Shield className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-extrabold text-navy block">حساب مدير النظام 🛡️</span>
+                  <span className="text-[10px] text-slate-500 block">يتمتع مدير النظام بصلاحية نشر إعلانات بلا حدود دون قيود يومية</span>
+                </div>
+              </div>
+              <span className="bg-navy text-gold text-[10px] font-black px-2.5 py-1 rounded-full shadow-2xs">
+                إعلانات غير محدودة
+              </span>
+            </div>
+          ) : currentUser.isGold ? (
+            <div className="bg-gradient-to-r from-amber-500/10 via-amber-100/60 to-gold/10 border border-amber-400/50 p-3.5 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                  <Crown className="w-4 h-4" />
+                </div>
+                <div>
+                  <span className="text-xs font-extrabold text-amber-900 block">العضوية الذهبية المشتركة 👑</span>
+                  <span className="text-[10px] text-amber-700 block">حسابك مميز! يمكنك نشر عدد غير محدود من الإعلانات يومياً</span>
+                </div>
+              </div>
+              <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-2xs">
+                VIP - غير محدود
+              </span>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* Daily Free Ads Remaining Card */}
+              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200 p-3.5 rounded-xl space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-extrabold text-slate-800 block">المتبقي من الإعلانات المجانية اليومية (للمستخدم العادي)</span>
+                      <span className="text-[10px] text-slate-500 block">الحد الأقصى المسموح به مجاناً هو {DAILY_FREE_ADS_LIMIT} إعلانات يومياً</span>
+                    </div>
+                  </div>
+                  <span className={`font-black text-xs px-2.5 py-1 rounded-full shadow-2xs ${
+                    remainingDailyAds > 0 ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+                  }`}>
+                    {remainingDailyAds} من {DAILY_FREE_ADS_LIMIT} إعلانات
+                  </span>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
+                  <div 
+                    className={`h-full transition-all duration-300 ${remainingDailyAds > 0 ? 'bg-emerald-600' : 'bg-red-600'}`}
+                    style={{ width: `${(remainingDailyAds / DAILY_FREE_ADS_LIMIT) * 100}%` }}
+                  ></div>
+                </div>
+              </div>
+
+              {/* Gold Membership Subscription Offer Box */}
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300/80 p-3.5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs mt-0.5 sm:mt-0">
+                    <Crown className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-extrabold text-amber-900 block">ترقية إلى العضوية الذهبية 👑</span>
+                    <span className="text-[10px] text-amber-800 block">احصل على إعلانات غير محدودة يومياً وبدون أي قيود باشتراك مميز!</span>
+                  </div>
+                </div>
+                <a
+                  href={`https://wa.me/966559595055?text=${encodeURIComponent(`السلام عليكم، أرغب في الاشتراك في العضوية الذهبية (إعلانات غير محدودة) لحسابي: ${currentUser.name} (${currentUser.phone || currentUser.email})`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto text-center bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs px-3.5 py-2 rounded-lg transition shadow-xs flex items-center justify-center gap-1.5 shrink-0"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>طلب الترقية الآن</span>
+                </a>
+              </div>
+            </div>
+          )}
+
           {/* Badges / Account Status Info */}
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-navy" />
-              <span>نوع الحساب: <strong className="text-navy">{currentUser.role === 'admin' ? 'مدير نظام' : 'عضو مسجل'}</strong></span>
+              <span>نوع الحساب: <strong className="text-navy">{currentUser.role === 'admin' ? 'مدير نظام 🛡️' : currentUser.isGold ? 'عضوية ذهبية 👑' : 'عضو عادي (5 إعلانات/يوم)'}</strong></span>
             </div>
             <div>
               تاريخ الانضمام: {new Date(currentUser.createdAt).toLocaleDateString('ar-SA')}

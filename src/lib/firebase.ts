@@ -122,14 +122,19 @@ async function getCollection<T extends { id: string; updatedAt?: string; created
   }
 }
 
-async function saveDocument<T extends { id: string; updatedAt?: string }>(nodeName: string, doc: T): Promise<boolean> {
+async function saveDocument<T extends { id: string; email?: string; updatedAt?: string }>(nodeName: string, doc: T): Promise<boolean> {
   // Update timestamp to ensure LWW consistency
   doc.updatedAt = new Date().toISOString();
 
   const local = getLocal<T>(nodeName);
-  const existingIndex = local.findIndex((item) => item.id === doc.id);
+  const existingIndex = local.findIndex((item) => {
+    if (item.id === doc.id) return true;
+    if (nodeName === 'users' && item.email && doc.email && item.email.toLowerCase() === doc.email.toLowerCase()) return true;
+    return false;
+  });
+
   if (existingIndex > -1) {
-    local[existingIndex] = doc;
+    local[existingIndex] = { ...local[existingIndex], ...doc };
   } else {
     local.push(doc);
   }
@@ -191,7 +196,42 @@ async function syncLocalToCloud<T extends { id: string }>(nodeName: string, item
   }
 }
 
+export const DAILY_FREE_ADS_LIMIT = 5;
+
 export const FirebaseService = {
+  // --- DAILY ADS LIMIT HELPER ---
+  async getUserTodayAdsCount(userId: string): Promise<number> {
+    if (!userId) return 0;
+    const todayStr = new Date().toDateString();
+
+    try {
+      const [horses, stables, shelters, transports] = await Promise.all([
+        this.getHorses(),
+        this.getStables(),
+        this.getShelters(),
+        this.getTransports()
+      ]);
+
+      let count = 0;
+      const isToday = (createdAt?: string) => {
+        if (!createdAt) return false;
+        try {
+          return new Date(createdAt).toDateString() === todayStr;
+        } catch {
+          return false;
+        }
+      };
+
+      horses.forEach(h => { if (h.userId === userId && isToday(h.createdAt)) count++; });
+      stables.forEach(s => { if (s.userId === userId && isToday(s.createdAt)) count++; });
+      shelters.forEach(sh => { if (sh.userId === userId && isToday(sh.createdAt)) count++; });
+      transports.forEach(t => { if (t.userId === userId && isToday(t.createdAt)) count++; });
+
+      return count;
+    } catch {
+      return 0;
+    }
+  },
   // --- UTILS ---
   initFallbackData() {
     if (localStorage.getItem('horses_forum_initialized')) return;

@@ -16,6 +16,7 @@ export interface User {
   bio?: string;
   isSuspended?: boolean;
   isVerified?: boolean;
+  isGold?: boolean;
   password?: string;
   authProvider?: 'google' | 'email';
   updatedAt?: string;
