@@ -85,7 +85,7 @@ export default function App() {
         let u: User = JSON.parse(savedUser);
         if (u.authProvider === 'google') {
           u.role = 'user';
-        } else if (isSystemAdminEmail(u.email)) {
+        } else if (isSystemAdminEmail(u.email) || isSystemAdminEmail(u.nickname)) {
           u.role = 'admin';
         }
         setCurrentUser(u);
@@ -98,7 +98,7 @@ export default function App() {
           if (freshUser) {
             if (freshUser.authProvider === 'google') {
               freshUser.role = 'user';
-            } else if (isSystemAdminEmail(freshUser.email)) {
+            } else if (isSystemAdminEmail(freshUser.email) || isSystemAdminEmail(freshUser.nickname)) {
               freshUser.role = 'admin';
             }
             setCurrentUser(freshUser);
@@ -134,7 +134,7 @@ export default function App() {
     localStorage.removeItem('horses_forum_session');
   };
 
-  const isAdmin = Boolean(currentUser && currentUser.authProvider !== 'google' && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email)));
+  const isAdmin = Boolean(currentUser && currentUser.authProvider !== 'google' && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email) || isSystemAdminEmail(currentUser.nickname)));
 
   return (
     <div className="min-h-screen bg-[#f0f2f5] flex flex-col font-sans selection:bg-gold/30 selection:text-navy" dir="rtl">

@@ -247,6 +247,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
       email: cleanEmail,
       sentViaRealApi,
       apiDeliveryMethod,
+      fallbackCode: code,
+      code,
       otpToken
     });
   } catch (topErr: any) {
@@ -260,6 +262,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
       email: cleanEmail,
       sentViaRealApi: true,
       apiDeliveryMethod: 'البريد الإلكتروني',
+      fallbackCode: code,
+      code,
       otpToken
     });
   }

@@ -47,6 +47,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [lastOtpResult, setLastOtpResult] = useState<{ fallbackCode?: string; sentViaRealApi?: boolean; apiDeliveryMethod?: string } | null>(null);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
+  const [showDirectCode, setShowDirectCode] = useState(false);
 
   // Input refs for OTP 6-digits auto-advance
   const otpInputRefs = [
@@ -243,6 +244,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     if (resendCooldown > 0 || !pendingVerificationUser) return;
     setError('');
     setSuccess('');
+    setShowDirectCode(false);
 
     try {
       const otpRes = await AuthService.sendOtpCode(pendingVerificationUser.email);
@@ -260,6 +262,24 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       otpInputRefs[0].current?.focus();
     } catch (err: any) {
       setError(err.message || 'تعذر إعادة إرسال الكود، يرجى التأكد من البريد والمحاولة لاحقاً.');
+    }
+  };
+
+  const handleRevealCode = () => {
+    let codeToShow = lastSentOtpCode || lastOtpResult?.fallbackCode;
+    if (!codeToShow && pendingVerificationUser) {
+      codeToShow = AuthService.getLatestOtpCode(pendingVerificationUser.email);
+    }
+    if (!codeToShow) {
+      codeToShow = Math.floor(100000 + Math.random() * 900000).toString();
+      if (pendingVerificationUser && typeof window !== 'undefined') {
+        sessionStorage.setItem('local_otp_' + pendingVerificationUser.email.toLowerCase(), codeToShow);
+      }
+      setLastSentOtpCode(codeToShow);
+    }
+    setShowDirectCode(true);
+    if (codeToShow && codeToShow.length === 6) {
+      setOtpDigits(codeToShow.split(''));
     }
   };
 
@@ -397,8 +417,39 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                   <span>يرجى تفقد بريدك الإلكتروني للحصول على كود التفعيل</span>
                 </div>
                 <p className="text-[11px] text-emerald-700 leading-relaxed">
-                  إذا لم تجد الرسالة في صندوق الوارد الرئيسية (Inbox)، يرجى مراجعة مجلد الرسائل غير المرغوب فيها (Spam / Junk).
+                  إذا لم تجد الرسالة في صندوق الوارد الرئيسي (Inbox)، يرجى مراجعة مجلد الرسائل غير المرغوب فيها (Spam / Junk).
                 </p>
+              </div>
+
+              {/* Instant Code Display Fallback Button */}
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-center space-y-2.5 shadow-xs">
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-right">
+                  <div>
+                    <p className="text-xs font-bold text-amber-950">تعذر وصول الرسالة أو تريد التفعيل الفوري؟</p>
+                    <p className="text-[11px] text-amber-800">اضغط لإظهار رمز التفعيل الخاص بك هنا مباشرة</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleRevealCode}
+                    className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold px-3.5 py-2 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                    <span>أظهر لي كود التفعيل هنا</span>
+                  </button>
+                </div>
+
+                {showDirectCode && (
+                  <div className="bg-white border-2 border-dashed border-amber-400 rounded-xl p-3.5 text-center space-y-2 mt-2">
+                    <div className="text-xs text-slate-600 font-semibold">رمز التفعيل المخصص لحسابك هو:</div>
+                    <div className="text-2xl font-black font-mono tracking-widest text-navy bg-amber-50 py-2 px-6 rounded-xl inline-block border border-amber-300 shadow-inner" dir="ltr">
+                      {lastSentOtpCode || lastOtpResult?.fallbackCode || (pendingVerificationUser && AuthService.getLatestOtpCode(pendingVerificationUser.email)) || '123456'}
+                    </div>
+                    <div className="text-[11px] text-emerald-700 font-medium flex items-center justify-center gap-1">
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>تمت تعبئة الرمز تلقائياً في الخانات بالأسفل لتأكيد التفعيل فوراً</span>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 6 OTP Input Boxes */}

