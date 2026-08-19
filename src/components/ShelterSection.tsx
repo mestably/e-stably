@@ -50,21 +50,32 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const fetchShelters = async () => {
-    // 1. Load instantly from cache
+    // 1. Load instantly from sanitized cache
     const cached = FirebaseService.getLocalShelters();
-    if (cached.length > 0) setShelters(cached);
+    setShelters(cached);
 
     // 2. Fetch fresh from background database
     try {
       const data = await FirebaseService.getShelters();
       setShelters(data);
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching shelters:', e);
     }
   };
 
   useEffect(() => {
     fetchShelters();
+
+    const handleSync = (e: any) => {
+      if (e?.detail?.shelters) {
+        setShelters(e.detail.shelters);
+      }
+    };
+
+    window.addEventListener('horses_forum_sync_complete', handleSync);
+    return () => {
+      window.removeEventListener('horses_forum_sync_complete', handleSync);
+    };
   }, []);
 
   const handleOpenAdd = () => {

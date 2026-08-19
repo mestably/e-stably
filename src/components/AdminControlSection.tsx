@@ -248,6 +248,14 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
 
   useEffect(() => {
     loadData();
+
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener('horses_forum_sync_complete', handleSync);
+    return () => {
+      window.removeEventListener('horses_forum_sync_complete', handleSync);
+    };
   }, []);
 
   const showNotify = (type: 'success' | 'error', message: string) => {

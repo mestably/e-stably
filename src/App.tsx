@@ -74,9 +74,13 @@ export default function App() {
     logoUrl: '/logomaster.jpg'
   });
 
-  // Initialize data cache on mount & fetch announcement banner
+  // Initialize data cache & perform real-time cloud sync on startup
   useEffect(() => {
     FirebaseService.initFallbackData();
+    // Actively purge deleted items and sync with live database on browser startup
+    FirebaseService.performInitialCloudSync().catch(err => {
+      console.warn('Initial cloud sync background run:', err);
+    });
     
     // Check if user session exists in local storage
     const savedUser = localStorage.getItem('horses_forum_session');

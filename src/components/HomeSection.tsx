@@ -90,28 +90,46 @@ export default function HomeSection({ onSelectTab }: HomeSectionProps) {
   useEffect(() => {
     const loadStats = async () => {
       try {
-        const horses = await FirebaseService.getHorses();
-        const stables = await FirebaseService.getStables();
-        const shelters = await FirebaseService.getShelters();
-        const transports = await FirebaseService.getTransports();
+        const [horses, stables, shelters, transports] = await Promise.all([
+          FirebaseService.getHorses(),
+          FirebaseService.getStables(),
+          FirebaseService.getShelters(),
+          FirebaseService.getTransports()
+        ]);
         
         setStats({
-          horsesCount: horses.length || 2,
-          stablesCount: stables.length || 2,
-          sheltersCount: shelters.length || 1,
-          transportsCount: transports.length || 1,
+          horsesCount: horses.length,
+          stablesCount: stables.length,
+          sheltersCount: shelters.length,
+          transportsCount: transports.length,
         });
       } catch (err) {
-        console.warn('Failed to fetch stats for home, using defaults', err);
+        console.warn('Failed to fetch stats for home', err);
         setStats({
-          horsesCount: 4,
-          stablesCount: 3,
-          sheltersCount: 2,
-          transportsCount: 1,
+          horsesCount: FirebaseService.getLocalHorses().length,
+          stablesCount: FirebaseService.getLocalStables().length,
+          sheltersCount: FirebaseService.getLocalShelters().length,
+          transportsCount: FirebaseService.getLocalTransports().length,
         });
       }
     };
     loadStats();
+
+    const handleSync = (e: any) => {
+      if (e?.detail) {
+        setStats({
+          horsesCount: e.detail.horses?.length || 0,
+          stablesCount: e.detail.stables?.length || 0,
+          sheltersCount: e.detail.shelters?.length || 0,
+          transportsCount: e.detail.transports?.length || 0,
+        });
+      }
+    };
+
+    window.addEventListener('horses_forum_sync_complete', handleSync);
+    return () => {
+      window.removeEventListener('horses_forum_sync_complete', handleSync);
+    };
   }, []);
 
   const nextSlide = () => {

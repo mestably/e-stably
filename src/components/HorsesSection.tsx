@@ -60,25 +60,42 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const fetchData = async () => {
-    // 1. Load from cache instantly
+    // 1. Load from sanitized cache instantly
     const cachedHorses = FirebaseService.getLocalHorses();
     const cachedStables = FirebaseService.getLocalStables();
-    if (cachedHorses.length > 0) setHorses(cachedHorses);
-    if (cachedStables.length > 0) setStables(cachedStables);
+    setHorses(cachedHorses);
+    setStables(cachedStables);
 
     // 2. Load fresh from background database
     try {
-      const hData = await FirebaseService.getHorses();
-      const sData = await FirebaseService.getStables();
+      const [hData, sData] = await Promise.all([
+        FirebaseService.getHorses(),
+        FirebaseService.getStables()
+      ]);
       setHorses(hData);
       setStables(sData);
     } catch (e) {
-      console.error(e);
+      console.error('Error loading horses data:', e);
     }
   };
 
   useEffect(() => {
     fetchData();
+
+    // Listen to global sync event from App startup
+    const handleSync = (e: any) => {
+      if (e?.detail?.horses) {
+        setHorses(e.detail.horses);
+      }
+      if (e?.detail?.stables) {
+        setStables(e.detail.stables);
+      }
+    };
+
+    window.addEventListener('horses_forum_sync_complete', handleSync);
+    return () => {
+      window.removeEventListener('horses_forum_sync_complete', handleSync);
+    };
   }, []);
 
   const handleOpenAdd = () => {

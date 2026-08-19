@@ -518,21 +518,72 @@ export const FirebaseService = {
   // --- LOCAL CACHE ACCESSORS ---
   getLocalStables(): Stable[] {
     const deletedIds = getDeletedIds();
-    return getLocal<Stable>('stables').filter(s => !deletedIds.includes(s.id) && !cloudDeletedIdsSet.has(s.id));
+    const demoIds = new Set(['stable_1', 'stable_2']);
+    return getLocal<Stable>('stables').filter(s => !deletedIds.includes(s.id) && !cloudDeletedIdsSet.has(s.id) && !demoIds.has(s.id));
   },
 
   getLocalHorses(): Horse[] {
     const deletedIds = getDeletedIds();
-    return getLocal<Horse>('horses').filter(h => !deletedIds.includes(h.id) && !cloudDeletedIdsSet.has(h.id));
+    const demoIds = new Set(['horse_1', 'horse_2']);
+    return getLocal<Horse>('horses').filter(h => !deletedIds.includes(h.id) && !cloudDeletedIdsSet.has(h.id) && !demoIds.has(h.id));
   },
 
   getLocalShelters(): Shelter[] {
     const deletedIds = getDeletedIds();
-    return getLocal<Shelter>('shelters').filter(sh => !deletedIds.includes(sh.id) && !cloudDeletedIdsSet.has(sh.id));
+    const demoIds = new Set(['shelter_1']);
+    return getLocal<Shelter>('shelters').filter(sh => !deletedIds.includes(sh.id) && !cloudDeletedIdsSet.has(sh.id) && !demoIds.has(sh.id));
   },
 
   getLocalTransports(): Transport[] {
     const deletedIds = getDeletedIds();
-    return getLocal<Transport>('transports').filter(t => !deletedIds.includes(t.id) && !cloudDeletedIdsSet.has(t.id));
+    const demoIds = new Set(['transport_1']);
+    return getLocal<Transport>('transports').filter(t => !deletedIds.includes(t.id) && !cloudDeletedIdsSet.has(t.id) && !demoIds.has(t.id));
+  },
+
+  /**
+   * Performs an immediate, deep cloud synchronization on browser startup.
+   * Cleans phantom / deleted ads and syncs all devices with the single source of truth.
+   */
+  async performInitialCloudSync(): Promise<{ horses: Horse[]; stables: Stable[]; shelters: Shelter[]; transports: Transport[] }> {
+    try {
+      // 1. Fetch deleted records list from cloud
+      const cloudDeleted = await fetchCloudDeletedIds();
+
+      // 2. Fetch all collections in parallel from Firebase RTDB
+      const [horses, stables, shelters, transports] = await Promise.all([
+        this.getHorses(),
+        this.getStables(),
+        this.getShelters(),
+        this.getTransports()
+      ]);
+
+      // 3. Purge any legacy sample demo items & deleted items
+      const demoIds = new Set(['horse_1', 'horse_2', 'stable_1', 'stable_2', 'shelter_1', 'transport_1']);
+      const cleanHorses = horses.filter(h => !demoIds.has(h.id) && !cloudDeleted.has(h.id));
+      const cleanStables = stables.filter(s => !demoIds.has(s.id) && !cloudDeleted.has(s.id));
+      const cleanShelters = shelters.filter(sh => !demoIds.has(sh.id) && !cloudDeleted.has(sh.id));
+      const cleanTransports = transports.filter(t => !demoIds.has(t.id) && !cloudDeleted.has(t.id));
+
+      setLocal('horses', cleanHorses);
+      setLocal('stables', cleanStables);
+      setLocal('shelters', cleanShelters);
+      setLocal('transports', cleanTransports);
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('horses_forum_sync_complete', {
+          detail: { horses: cleanHorses, stables: cleanStables, shelters: cleanShelters, transports: cleanTransports }
+        }));
+      }
+
+      return { horses: cleanHorses, stables: cleanStables, shelters: cleanShelters, transports: cleanTransports };
+    } catch (e) {
+      console.warn('Initial cloud sync error:', e);
+      return {
+        horses: this.getLocalHorses(),
+        stables: this.getLocalStables(),
+        shelters: this.getLocalShelters(),
+        transports: this.getLocalTransports()
+      };
+    }
   }
 };

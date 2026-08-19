@@ -45,21 +45,32 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const fetchStables = async () => {
-    // 1. Load instantly from cache
+    // 1. Load instantly from sanitized cache
     const cached = FirebaseService.getLocalStables();
-    if (cached.length > 0) setStables(cached);
+    setStables(cached);
 
     // 2. Fetch fresh from background database
     try {
       const data = await FirebaseService.getStables();
       setStables(data);
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching stables:', e);
     }
   };
 
   useEffect(() => {
     fetchStables();
+
+    const handleSync = (e: any) => {
+      if (e?.detail?.stables) {
+        setStables(e.detail.stables);
+      }
+    };
+
+    window.addEventListener('horses_forum_sync_complete', handleSync);
+    return () => {
+      window.removeEventListener('horses_forum_sync_complete', handleSync);
+    };
   }, []);
 
   const handleOpenAdd = () => {

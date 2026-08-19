@@ -58,21 +58,32 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
   const [mapMode, setMapMode] = useState<'pickup' | 'delivery' | null>(null);
 
   const fetchTransports = async () => {
-    // 1. Load instantly from cache
+    // 1. Load instantly from sanitized cache
     const cached = FirebaseService.getLocalTransports();
-    if (cached.length > 0) setTransports(cached);
+    setTransports(cached);
 
     // 2. Fetch fresh from background database
     try {
       const data = await FirebaseService.getTransports();
       setTransports(data);
     } catch (e) {
-      console.error(e);
+      console.error('Error fetching transports:', e);
     }
   };
 
   useEffect(() => {
     fetchTransports();
+
+    const handleSync = (e: any) => {
+      if (e?.detail?.transports) {
+        setTransports(e.detail.transports);
+      }
+    };
+
+    window.addEventListener('horses_forum_sync_complete', handleSync);
+    return () => {
+      window.removeEventListener('horses_forum_sync_complete', handleSync);
+    };
   }, []);
 
   const handleOpenAdd = () => {
