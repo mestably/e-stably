@@ -4,10 +4,11 @@
  */
 
 import { useState, FormEvent } from 'react';
-import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2 } from 'lucide-react';
+import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle } from 'lucide-react';
 import { Stable, Horse, Shelter, Transport, User, Review } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import ConfirmModal from './ConfirmModal';
+import { getRentDurationLabel } from './HorsesSection';
 
 interface DetailModalProps {
   item: any; // Stable | Horse | Shelter | Transport
@@ -49,6 +50,27 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
       onClose();
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleToggleSoldStatus = async () => {
+    if (type !== 'horse') return;
+    try {
+      const newStatus = !item.isSold;
+      const updatedHorse: Horse = {
+        ...item,
+        isSold: newStatus,
+        soldAt: newStatus ? new Date().toISOString() : undefined,
+      };
+      await FirebaseService.saveHorse(updatedHorse);
+      item.isSold = newStatus;
+      item.soldAt = updatedHorse.soldAt;
+      setSuccess(newStatus ? 'تم تحديد الجواد كـ "تم البيع" بنجاح!' : 'تم إعادة تعيين الجواد كـ "متاح" بنجاح!');
+      onRefresh();
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (e) {
+      console.error('Failed to toggle sold status:', e);
+      setError('حدث خطأ أثناء تعديل حالة البيع.');
     }
   };
 
@@ -173,6 +195,36 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
+          {/* Sold Banner if horse is marked as sold */}
+          {type === 'horse' && item.isSold && (
+            <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white p-3.5 rounded-xl flex items-center justify-between shadow-md border border-red-500/30 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2.5">
+                <span className="bg-white/20 p-2 rounded-lg text-lg">🏷️</span>
+                <div>
+                  <span className="font-black text-xs sm:text-sm block">تم بيع هذا الجواد بنجاح (مُباع)</span>
+                  <span className="text-[10px] text-white/80">هذا الإعلان معلم كـ "تم البيع" وأصبح غير متاح للشراء حالياً</span>
+                </div>
+              </div>
+              <span className="bg-white text-red-700 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs shrink-0">
+                تم البيع ✓
+              </span>
+            </div>
+          )}
+
+          {/* Success / Error notification */}
+          {success && (
+            <div className="p-3 bg-green-50 border-r-4 border-green-500 text-green-700 text-xs rounded-l flex items-center gap-2">
+              <Check className="w-4 h-4 shrink-0" />
+              <span>{success}</span>
+            </div>
+          )}
+          {error && (
+            <div className="p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-l flex items-center gap-2">
+              <X className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
           {/* Photos Panel */}
           {item.images && item.images.length > 0 && (
             <div className="space-y-2">
@@ -181,6 +233,11 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                 {item.verified === 'verified' && (
                   <span className="absolute top-3 right-3 bg-green-500 text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-bold shadow-md">
                     <Shield className="w-3.5 h-3.5" /> موثق
+                  </span>
+                )}
+                {type === 'horse' && item.isSold && (
+                  <span className="absolute top-3 left-3 bg-red-600/95 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black shadow-lg border border-white/20 backdrop-blur-xs">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-white" /> تم البيع
                   </span>
                 )}
               </div>
@@ -200,12 +257,37 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
             </div>
           )}
 
-          {/* Controls: Deletion / Editing / Share */}
+          {/* Controls: Deletion / Editing / Sold Status / Share */}
           <div className="flex flex-wrap gap-2 items-center justify-between border-b border-slate-100 pb-4">
             <div className="text-xs text-slate-400">
               بواسطة: <strong>{item.userName || 'معلن'}</strong> • {new Date(item.createdAt).toLocaleDateString('ar-SA')}
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
+              {/* Owner / Admin toggle sold status button */}
+              {type === 'horse' && (isAdmin || isOwner) && (
+                <button
+                  onClick={handleToggleSoldStatus}
+                  className={`p-2 rounded-xl transition text-xs flex items-center gap-1.5 cursor-pointer font-bold border ${
+                    item.isSold
+                      ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800'
+                      : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800'
+                  }`}
+                  title={item.isSold ? 'إلغاء وضع تم البيع وإعادة عرضه كمتاح' : 'وضع علامة تم البيع على الإعلان'}
+                >
+                  {item.isSold ? (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>إعادة عرض (متاح)</span>
+                    </>
+                  ) : (
+                    <>
+                      <Tag className="w-3.5 h-3.5 text-amber-600" />
+                      <span>وضع علامة "تم البيع"</span>
+                    </>
+                  )}
+                </button>
+              )}
+
               <button
                 onClick={handleShare}
                 className="p-2 border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-xl transition text-xs flex items-center gap-1.5 cursor-pointer"
@@ -235,6 +317,21 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
               )}
             </div>
           </div>
+
+          {type === 'horse' && item.adType === 'rent' && (
+            <div className="p-3.5 bg-red-600 text-white rounded-xl flex items-center justify-between gap-3 shadow-md border border-red-700">
+              <div className="flex items-center gap-2.5">
+                <AlertCircle className="w-5 h-5 text-white shrink-0" />
+                <div className="text-xs font-bold leading-tight">
+                  <span className="text-red-100">تنبيه تأجير الخيل: </span>
+                  <span className="text-white underline decoration-white/60">يجب تأكيد الحجز قبل الموعد بيوم</span>
+                </div>
+              </div>
+              <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-full font-bold shrink-0">
+                شرط الحجز ⚠️
+              </span>
+            </div>
+          )}
 
           {/* Description */}
           <div className="space-y-2">
@@ -281,9 +378,11 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                 </div>
                 {item.price && (
                   <div className="space-y-1">
-                    <span className="text-[10px] text-slate-400 block">السعر المطلوب</span>
+                    <span className="text-[10px] text-slate-400 block">
+                      {item.adType === 'rent' ? 'سعر الإيجار' : 'السعر المطلوب'}
+                    </span>
                     <span className="text-xs font-bold text-navy-medium font-mono">
-                      {item.price} ريال {item.adType === 'rent' ? `لكل ${item.rentType === 'hour' ? 'ساعة' : 'يوم'}` : ''}
+                      {item.price} ريال {item.adType === 'rent' ? `لكل ${getRentDurationLabel(item.rentType)}` : ''}
                     </span>
                   </div>
                 )}
@@ -293,14 +392,22 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     {item.breed === 'arabian' ? 'عربي أصيل' : item.breed === 'shabi' ? 'شعبي' : item.breed === 'sisi' ? 'سيسي' : 'أجنبي'}
                   </span>
                 </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 block">اسم الأب</span>
-                  <span className="text-xs font-bold text-slate-800">{item.sireName || 'غير متوفر'}</span>
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 block">اسم الأم</span>
-                  <span className="text-xs font-bold text-slate-800">{item.damName || 'غير متوفر'}</span>
-                </div>
+                {item.adType === 'sale' && (
+                  <>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 block">اسم الأب</span>
+                      <span className="text-xs font-bold text-slate-800">
+                        {item.sireName || (item.breed === 'arabian' ? 'غير مسجل' : 'خاص بالعربي الأصيل')}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-[10px] text-slate-400 block">اسم الأم</span>
+                      <span className="text-xs font-bold text-slate-800">
+                        {item.damName || (item.breed === 'arabian' ? 'غير مسجل' : 'خاص بالعربي الأصيل')}
+                      </span>
+                    </div>
+                  </>
+                )}
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">العمر</span>
                   <span className="text-xs font-bold text-slate-800">{item.age} سنوات</span>
@@ -315,9 +422,25 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                   <span className="text-[10px] text-slate-400 block">اللون</span>
                   <span className="text-xs font-bold text-slate-800">{item.color || 'غير محدد'}</span>
                 </div>
+                {item.adType === 'sale' && item.height && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block">الطول / الارتفاع</span>
+                    <span className="text-xs font-bold text-slate-800">{item.height}</span>
+                  </div>
+                )}
                 <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 block">الحالة الصحية</span>
-                  <span className="text-xs font-bold text-slate-800">{item.healthStatus || 'سليم تماماً'}</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    {item.adType === 'rent' ? 'الحالة والجاهزية' : 'الحالة الصحية والسلامة'}
+                  </span>
+                  <span className={`text-xs font-bold ${
+                    item.healthStatus?.includes('سليم') 
+                      ? 'text-emerald-700' 
+                      : item.adType === 'rent'
+                        ? 'text-blue-700'
+                        : 'text-amber-700'
+                  }`}>
+                    {item.healthStatus || (item.adType === 'rent' ? 'سليم وصحة ممتازة' : 'سليم خالي من العيوب')}
+                  </span>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">التقييم العام</span>
@@ -331,6 +454,14 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     <span className="text-xs font-bold text-navy-medium">{item.stableName}</span>
                   </div>
                 )}
+                {item.phone && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-slate-400 block">رقم التواصل المباشر</span>
+                    <span className="text-xs font-bold text-navy font-mono flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-navy" /> {item.phone}
+                    </span>
+                  </div>
+                )}
                 {item.adType === 'rent' && item.rentStart && (
                   <div className="space-y-1 col-span-2">
                     <span className="text-[10px] text-slate-400 block">فترة الحجز المتاحة</span>
@@ -341,8 +472,8 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                 )}
               </div>
 
-              {/* Pedigree Certificate Link */}
-              {item.certificate && (
+              {/* Pedigree Certificate Link (Only for Sale) */}
+              {item.adType === 'sale' && item.certificate && (
                 <div className="space-y-2 border border-slate-100 p-4 rounded-xl bg-slate-50/40">
                   <h5 className="font-bold text-slate-800 text-xs flex items-center gap-1">
                     <Award className="w-4 h-4 text-gold" /> شهادة النسب والتوثيق المرفقة

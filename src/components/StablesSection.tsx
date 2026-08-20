@@ -9,6 +9,7 @@ import { Stable, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
+import TermsAgreementModal from './TermsAgreementModal';
 import { compressImage } from '../lib/imageUtils';
 
 interface StablesSectionProps {
@@ -43,6 +44,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
   const fetchStables = async () => {
     // 1. Load instantly from sanitized cache
@@ -163,6 +166,15 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       return;
     }
 
+    // Open terms modal before publishing
+    setIsTermsModalOpen(true);
+  };
+
+  const handleConfirmedPublishStable = async () => {
+    if (!currentUser) return;
+    setIsSubmittingAd(true);
+    setError('');
+
     const stableData: Stable = {
       id: editingItemId ? editingItemId : 'stb_' + Date.now(),
       userId: editingItemId ? (stables.find(s => s.id === editingItemId)?.userId || currentUser.id) : currentUser.id,
@@ -181,6 +193,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     try {
       await FirebaseService.saveStable(stableData);
       setSuccess(editingItemId ? 'تم تعديل الإسطبل بنجاح!' : 'تم إضافة الإسطبل بنجاح! سيتم مراجعته وتوثيقه قريباً.');
+      setIsTermsModalOpen(false);
       
       // Clear fields
       setName('');
@@ -197,6 +210,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       }, 1500);
     } catch (err) {
       setError('حدث خطأ أثناء حفظ الإسطبل.');
+    } finally {
+      setIsSubmittingAd(false);
     }
   };
 
@@ -507,6 +522,14 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
         cancelText="إلغاء"
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
+      />
+
+      <TermsAgreementModal
+        isOpen={isTermsModalOpen}
+        onConfirm={handleConfirmedPublishStable}
+        onCancel={() => setIsTermsModalOpen(false)}
+        categoryName="إعلان الإسطبل"
+        isSubmitting={isSubmittingAd}
       />
 
     </div>

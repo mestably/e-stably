@@ -9,6 +9,7 @@ import { Transport, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
+import TermsAgreementModal from './TermsAgreementModal';
 
 // Reference the generated beautiful clipart image
 const TRANSPORT_BG = '/src/assets/images/horse_transport_bg_1784414679042.jpg';
@@ -56,6 +57,8 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
   const [success, setSuccess] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [mapMode, setMapMode] = useState<'pickup' | 'delivery' | null>(null);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
   const fetchTransports = async () => {
     // 1. Load instantly from sanitized cache
@@ -165,6 +168,15 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
       return;
     }
 
+    // Open terms modal before publishing
+    setIsTermsModalOpen(true);
+  };
+
+  const handleConfirmedPublishTransport = async () => {
+    if (!currentUser) return;
+    setIsSubmittingAd(true);
+    setError('');
+
     const transportData: Transport = {
       id: editingItemId ? editingItemId : 'trp_' + Date.now(),
       userId: editingItemId ? (transports.find(t => t.id === editingItemId)?.userId || currentUser.id) : currentUser.id,
@@ -184,6 +196,7 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     try {
       await FirebaseService.saveTransport(transportData);
       setSuccess(editingItemId ? 'تم تعديل عملية النقل بنجاح!' : 'تم إضافة عملية النقل المجدولة بنجاح!');
+      setIsTermsModalOpen(false);
       
       // Clear fields
       setVehicleType('');
@@ -201,6 +214,8 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
       }, 1500);
     } catch (err) {
       setError('حدث خطأ أثناء حفظ عملية النقل.');
+    } finally {
+      setIsSubmittingAd(false);
     }
   };
 
@@ -563,6 +578,14 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
         cancelText="إلغاء"
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
+      />
+
+      <TermsAgreementModal
+        isOpen={isTermsModalOpen}
+        onConfirm={handleConfirmedPublishTransport}
+        onCancel={() => setIsTermsModalOpen(false)}
+        categoryName="إعلان طلب النقل"
+        isSubmitting={isSubmittingAd}
       />
 
     </div>

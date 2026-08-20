@@ -9,6 +9,7 @@ import { Shelter, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
+import TermsAgreementModal from './TermsAgreementModal';
 import { compressImage } from '../lib/imageUtils';
 
 interface ShelterSectionProps {
@@ -48,6 +49,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
   const fetchShelters = async () => {
     // 1. Load instantly from sanitized cache
@@ -174,6 +177,15 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       return;
     }
 
+    // Open terms modal before publishing
+    setIsTermsModalOpen(true);
+  };
+
+  const handleConfirmedPublishShelter = async () => {
+    if (!currentUser) return;
+    setIsSubmittingAd(true);
+    setError('');
+
     const shelterData: Shelter = {
       id: editingItemId ? editingItemId : 'shl_' + Date.now(),
       userId: editingItemId ? (shelters.find(s => s.id === editingItemId)?.userId || currentUser.id) : currentUser.id,
@@ -195,6 +207,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     try {
       await FirebaseService.saveShelter(shelterData);
       setSuccess(editingItemId ? 'تم تعديل الإعلان بنجاح!' : 'تم إضافة إعلان الإيواء بنجاح!');
+      setIsTermsModalOpen(false);
       
       // Clear fields
       setTitle('');
@@ -214,6 +227,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       }, 1500);
     } catch (err) {
       setError('حدث خطأ أثناء حفظ الإيواء.');
+    } finally {
+      setIsSubmittingAd(false);
     }
   };
 
@@ -572,6 +587,14 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
         cancelText="إلغاء"
         onConfirm={handleConfirmDelete}
         onCancel={() => setDeleteConfirmId(null)}
+      />
+
+      <TermsAgreementModal
+        isOpen={isTermsModalOpen}
+        onConfirm={handleConfirmedPublishShelter}
+        onCancel={() => setIsTermsModalOpen(false)}
+        categoryName="إعلان الإيواء"
+        isSubmitting={isSubmittingAd}
       />
 
     </div>

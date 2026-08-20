@@ -59,14 +59,18 @@ export interface Horse {
   age: number;
   gender: 'stallion' | 'mare' | 'gelding'; // ذكر, أنثى, مخصى
   color: string;
+  height?: string; // طول / ارتفاع الخيل (مثال: 152 سم)
   healthStatus: string;
   images: string[]; // Base64 or URLs
   stableId: string; // Associated stable ID (optional or manual entry)
   stableName?: string;
+  phone?: string; // رقم هاتف التواصل المباشر
   price?: number; // Price or rent price
-  rentType?: 'hour' | 'day'; // hour or day
+  rentType?: 'half_hour' | 'hour' | 'two_hour_trip' | 'day' | string; // نص ساعه, ساعه, رحلة ساعتان
   rentStart?: string;
   rentEnd?: string;
+  isSold?: boolean; // هل تم البيع
+  soldAt?: string; // تاريخ البيع
   rating?: number;
   reviews?: Review[];
   createdAt: string;
