@@ -803,7 +803,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                           type="text"
                           value={sireName}
                           onChange={(e) => setSireName(e.target.value)}
-                          placeholder={breed === 'arabian' ? 'اسم الأب (مطلوب)' : 'مغلق (خاص بالعربي الأصيل)'}
+                          placeholder={breed === 'arabian' ? 'اسم الأب (مطلوب)' : 'لا يوجد'}
                           disabled={breed !== 'arabian'}
                           required={breed === 'arabian'}
                           className={`w-full text-xs p-2.5 border rounded-xl focus:outline-none ${
@@ -826,7 +826,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                           type="text"
                           value={damName}
                           onChange={(e) => setDamName(e.target.value)}
-                          placeholder={breed === 'arabian' ? 'اسم الأم (مطلوب)' : 'مغلق (خاص بالعربي الأصيل)'}
+                          placeholder={breed === 'arabian' ? 'اسم الأم (مطلوب)' : 'لا يوجد'}
                           disabled={breed !== 'arabian'}
                           required={breed === 'arabian'}
                           className={`w-full text-xs p-2.5 border rounded-xl focus:outline-none ${
@@ -1132,7 +1132,21 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                       {horse.adType === 'sale' ? 'خيل للبيع' : 'خيل للإيجار'}
                     </span>
                   )}
+                  {horse.certificate && (
+                    <span className="bg-gold text-navy text-[9px] px-2 py-0.5 rounded-full font-bold shadow-md flex items-center gap-0.5 border border-amber-300">
+                      <Award className="w-2.5 h-2.5" /> شهادة نسب
+                    </span>
+                  )}
                 </div>
+
+                {/* Left Bottom Badges (Images count) */}
+                {horse.images && horse.images.length > 1 && (
+                  <div className="absolute bottom-3 left-3 flex items-center gap-1">
+                    <span className="bg-black/65 backdrop-blur-xs text-white text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-md border border-white/20">
+                      <Image className="w-2.5 h-2.5 text-gold" /> {horse.images.length} صور
+                    </span>
+                  </div>
+                )}
 
                 {/* Price Display */}
                 {horse.price && (

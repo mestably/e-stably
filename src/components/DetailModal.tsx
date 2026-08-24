@@ -4,10 +4,11 @@
  */
 
 import { useState, FormEvent } from 'react';
-import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle } from 'lucide-react';
+import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2 } from 'lucide-react';
 import { Stable, Horse, Shelter, Transport, User, Review } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import ConfirmModal from './ConfirmModal';
+import ImageLightboxModal from './ImageLightboxModal';
 import { getRentDurationLabel } from './HorsesSection';
 
 interface DetailModalProps {
@@ -29,7 +30,43 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
   const [isDeleteAdConfirmOpen, setIsDeleteAdConfirmOpen] = useState(false);
   const [deleteReviewId, setDeleteReviewId] = useState<string | null>(null);
 
+  // Lightbox viewer state
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [lightboxImages, setLightboxImages] = useState<string[]>([]);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [lightboxTitle, setLightboxTitle] = useState('');
+  const [lightboxSubtitle, setLightboxSubtitle] = useState('');
+
   if (!isOpen || !item) return null;
+
+  const itemImages: string[] = item?.images && item.images.length > 0
+    ? item.images
+    : [activeImage];
+
+  const openGalleryAt = (index: number) => {
+    setLightboxImages(itemImages);
+    setLightboxIndex(Math.max(0, Math.min(index, itemImages.length - 1)));
+    setLightboxTitle(item.name || 'صور الإعلان');
+    setLightboxSubtitle(
+      type === 'horse'
+        ? `جواد: ${item.name} (${item.breed === 'arabian' ? 'عربي أصيل' : item.breed === 'shabi' ? 'شعبي' : 'خيل'})`
+        : type === 'stable'
+        ? `إسطبل: ${item.name}`
+        : type === 'shelter'
+        ? `خدمة إيواء: ${item.name}`
+        : `خدمة نقل ومقطورات: ${item.name}`
+    );
+    setIsLightboxOpen(true);
+  };
+
+  const openCertificateLightbox = () => {
+    if (!item.certificate) return;
+    setLightboxImages([item.certificate]);
+    setLightboxIndex(0);
+    setLightboxTitle(`شهادة النسب والتوثيق الرسمية - ${item.name}`);
+    setLightboxSubtitle('تكبير وفحص تفاصيل النسب والأختام والبيانات الرسمية');
+    setIsLightboxOpen(true);
+  };
 
   const isAdmin = currentUser?.role === 'admin';
   const isOwner = currentUser?.id === item.userId;
@@ -228,8 +265,25 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
           {/* Photos Panel */}
           {item.images && item.images.length > 0 && (
             <div className="space-y-2">
-              <div className="w-full h-64 rounded-xl overflow-hidden bg-slate-100 relative">
-                <img src={activeImage} referrerPolicy="no-referrer" alt="Detail" className="w-full h-full object-cover" />
+              <div 
+                className="w-full h-64 sm:h-72 rounded-xl overflow-hidden bg-slate-100 relative group cursor-zoom-in border border-slate-200"
+                onClick={() => openGalleryAt(itemImages.indexOf(activeImage))}
+                title="اضغط لتكبير الصورة وعرض كافة الصور بالكامل"
+              >
+                <img
+                  src={activeImage}
+                  referrerPolicy="no-referrer"
+                  alt="Detail"
+                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                />
+                
+                {/* Dark Gradient on hover */}
+                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                  <span className="bg-black/75 backdrop-blur-xs text-white text-xs font-bold px-3.5 py-2 rounded-full flex items-center gap-1.5 shadow-xl border border-white/30 transform group-hover:scale-105 transition">
+                    <Maximize2 className="w-3.5 h-3.5 text-gold" /> اضغط للتكبير وعرض الصور بالكامل ({itemImages.length})
+                  </span>
+                </div>
+
                 {item.verified === 'verified' && (
                   <span className="absolute top-3 right-3 bg-green-500 text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-bold shadow-md">
                     <Shield className="w-3.5 h-3.5" /> موثق
@@ -240,18 +294,44 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     <CheckCircle2 className="w-3.5 h-3.5 text-white" /> تم البيع
                   </span>
                 )}
+
+                {/* Floating Enlarge Hint at bottom right */}
+                <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-xs text-white text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 font-medium shadow-md border border-white/20">
+                  <ZoomIn className="w-3.5 h-3.5 text-gold" />
+                  <span>تكبير المعرض</span>
+                  {itemImages.length > 1 && (
+                    <span className="text-[10px] text-gold font-bold">({itemImages.length} صور)</span>
+                  )}
+                </div>
               </div>
+
+              {/* Thumbnails row */}
               {item.images.length > 1 && (
-                <div className="flex gap-2 overflow-x-auto pb-1">
+                <div className="flex gap-2 overflow-x-auto pb-1 items-center">
                   {item.images.map((img: string, idx: number) => (
                     <button
                       key={idx}
                       onClick={() => setActiveImage(img)}
-                      className={`w-16 h-12 rounded-lg overflow-hidden border-2 shrink-0 ${activeImage === img ? 'border-gold' : 'border-slate-200'}`}
+                      onDoubleClick={() => openGalleryAt(idx)}
+                      title={`صورة ${idx + 1} (اضغط مرتين للتكبير الفوري)`}
+                      className={`relative w-16 h-12 rounded-lg overflow-hidden border-2 shrink-0 transition cursor-pointer group ${
+                        activeImage === img ? 'border-gold shadow-xs scale-102' : 'border-slate-200 hover:border-slate-400'
+                      }`}
                     >
-                      <img src={img} referrerPolicy="no-referrer" alt="Thumb" className="w-full h-full object-cover" />
+                      <img src={img} referrerPolicy="no-referrer" alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
+                        <ZoomIn className="w-3 h-3 text-white" />
+                      </div>
                     </button>
                   ))}
+                  <button
+                    onClick={() => openGalleryAt(itemImages.indexOf(activeImage))}
+                    className="h-12 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200 flex items-center gap-1.5 shrink-0 transition cursor-pointer"
+                    title="فتح معرض الصور بالكامل"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5 text-navy" />
+                    <span>عرض الكل ({item.images.length})</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -397,13 +477,13 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     <div className="space-y-1">
                       <span className="text-[10px] text-slate-400 block">اسم الأب</span>
                       <span className="text-xs font-bold text-slate-800">
-                        {item.sireName || (item.breed === 'arabian' ? 'غير مسجل' : 'خاص بالعربي الأصيل')}
+                        {item.breed === 'arabian' ? (item.sireName || 'غير مسجل') : 'لا يوجد'}
                       </span>
                     </div>
                     <div className="space-y-1">
                       <span className="text-[10px] text-slate-400 block">اسم الأم</span>
                       <span className="text-xs font-bold text-slate-800">
-                        {item.damName || (item.breed === 'arabian' ? 'غير مسجل' : 'خاص بالعربي الأصيل')}
+                        {item.breed === 'arabian' ? (item.damName || 'غير مسجل') : 'لا يوجد'}
                       </span>
                     </div>
                   </>
@@ -474,18 +554,36 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
 
               {/* Pedigree Certificate Link (Only for Sale) */}
               {item.adType === 'sale' && item.certificate && (
-                <div className="space-y-2 border border-slate-100 p-4 rounded-xl bg-slate-50/40">
-                  <h5 className="font-bold text-slate-800 text-xs flex items-center gap-1">
-                    <Award className="w-4 h-4 text-gold" /> شهادة النسب والتوثيق المرفقة
-                  </h5>
-                  <div className="w-full h-40 bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                <div className="space-y-2 border border-slate-200 p-4 rounded-xl bg-amber-50/20">
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
+                      <Award className="w-4 h-4 text-gold" />
+                      <span>شهادة النسب والتوثيق المرفقة</span>
+                    </h5>
+                    <button
+                      onClick={openCertificateLightbox}
+                      className="text-[11px] font-bold text-navy hover:text-gold flex items-center gap-1 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs hover:shadow-xs transition cursor-pointer"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5" />
+                      <span>تكبير وفحص الشهادة</span>
+                    </button>
+                  </div>
+                  <div 
+                    className="w-full h-44 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 relative group cursor-zoom-in flex items-center justify-center bg-white"
+                    onClick={openCertificateLightbox}
+                    title="اضغط لتكبير وفحص شهادة النسب والتوثيق"
+                  >
                     <img
                       src={item.certificate}
                       referrerPolicy="no-referrer"
                       alt="Certificate"
-                      className="w-full h-full object-contain cursor-zoom-in"
-                      onClick={() => window.open(item.certificate, '_blank')}
+                      className="w-full h-full object-contain group-hover:scale-102 transition duration-300"
                     />
+                    <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <span className="bg-black/80 backdrop-blur-xs text-white text-xs font-bold px-3 py-1.5 rounded-full flex items-center gap-1.5 shadow-lg border border-white/20">
+                        <ZoomIn className="w-3.5 h-3.5 text-gold" /> اضغط لتكبير الشهادة والأختام
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -705,6 +803,15 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         cancelText="إلغاء"
         onConfirm={handleConfirmDeleteReview}
         onCancel={() => setDeleteReviewId(null)}
+      />
+
+      <ImageLightboxModal
+        isOpen={isLightboxOpen}
+        onClose={() => setIsLightboxOpen(false)}
+        images={lightboxImages}
+        initialIndex={lightboxIndex}
+        title={lightboxTitle}
+        subtitle={lightboxSubtitle}
       />
 
     </div>
