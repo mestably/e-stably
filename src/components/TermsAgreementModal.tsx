@@ -71,12 +71,12 @@ export default function TermsAgreementModal({
       desc: 'لا يقبل أي عربون بعد انتهاء المدة المحددة للمبايعة أو بعد إغلاق الإعلان.',
     },
     {
-      title: 'استلام الجواد ومعاينة الخروج من المربط',
-      desc: 'بعد استلام الجواد وخروجه من المربط أو الإسطبل لا يحق للمشتري المطالبة بالاسترجاع، إلا إذا ثبت وجود تدليس أو إخفاء عيب مؤثر لم يتم الإفصاح عنه.',
+      title: 'فحص الجواد ومعاينة الاستلام والخروج من المربط',
+      desc: 'يجب على المشتري فحص الجواد لتأكيد من معلومات الجواد، وبعد استلام الجواد وخروجه من المربط أو الإسطبل لا يحق للمشتري المطالبة بالاسترجاع، إلا إذا ثبت وجود تدليس أو إخفاء عيب مؤثر لم يتم الإفصاح عنه.',
     },
     {
       title: 'عمولة المنصة والمستحقات المالية',
-      desc: 'عمولة المنصة 2.5% من قيمة البيع إذا تجاوزت قيمة الجواد 10,000 ريال، أو 130 ريال إذا كانت قيمة الجواد أقل من 10,000 ريال، وتعتبر العمولة مستحقة عند إتمام البيع أو الاتفاق النهائي.',
+      desc: 'عمولة المنصة:\n• 2.5% من قيمة البيع إذا تجاوزت قيمة الجواد 10,000 ريال.\n• 130 ريال إذا كانت قيمة الجواد أقل من 10,000 ريال.\n• العمولة مستحقة عند إتمام البيع أو الاتفاق النهائي.\n• عمولة 10 ريال عن كل رأس في حالة الإيجار.\n• عمولة 15 ريال عن كل رأس في حالة نقل الخيل.\n• جميع العمولات لا ترتبط بمبلغ البيع النهائي بين الطرفين، فقط النسب المحددة بالشروط.',
     },
     {
       title: 'مهلة الاستلام ورسوم الإيواء اليومية',
@@ -181,9 +181,26 @@ export default function TermsAgreementModal({
                     <span className="w-5 h-5 rounded-full bg-navy text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">
                       {idx + 1}
                     </span>
-                    <div className="space-y-0.5">
+                    <div className="space-y-1 flex-1">
                       <h4 className="font-bold text-navy text-xs">{t.title}</h4>
-                      <p className="text-slate-600 text-[11px] leading-relaxed">{t.desc}</p>
+                      <p className="text-slate-600 text-[11px] leading-relaxed whitespace-pre-line">{t.desc}</p>
+                      
+                      {idx === 11 && (
+                        <div className="mt-2.5 p-3 bg-red-50/90 border border-red-200 rounded-xl text-red-600 font-black text-xs leading-relaxed space-y-1">
+                          <p className="font-black text-red-600 text-[11px] sm:text-xs">
+                            اتعهد واقسم بالله أنا المعلن أن أدفع عمولة المنصة
+                          </p>
+                          <p className="font-extrabold text-red-600 text-[11px] sm:text-xs">
+                            وكما أتعهد بدفع الرسوم خلال 10 أيام من استلام مبلغ المبايعة
+                          </p>
+                          <p className="font-black text-red-700 text-[11px] sm:text-xs">
+                            أتعهد بذلك
+                          </p>
+                          <div className="pt-1.5 mt-1 border-t border-red-200 text-red-700 text-[10px] sm:text-[11px] font-bold leading-normal">
+                            بسم اللّٰه الرحمن الرحِيم قال اللّٰه تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot; صدق الله العظيم
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}

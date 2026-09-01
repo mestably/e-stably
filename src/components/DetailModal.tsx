@@ -456,20 +456,32 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     {item.adType === 'sale' ? 'خيل للبيع' : 'خيل للإيجار'}
                   </span>
                 </div>
-                {item.price && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] text-slate-400 block">
-                      {item.adType === 'rent' ? 'سعر الإيجار' : 'السعر المطلوب'}
-                    </span>
-                    <span className="text-xs font-bold text-navy-medium font-mono">
-                      {item.price} ريال {item.adType === 'rent' ? `لكل ${getRentDurationLabel(item.rentType)}` : ''}
-                    </span>
-                  </div>
-                )}
+                <div className="space-y-1">
+                  <span className="text-[10px] text-slate-400 block">
+                    {item.adType === 'rent' ? 'سعر الإيجار' : 'السعر المطلوب'}
+                  </span>
+                  <span className="text-xs font-bold text-navy font-mono">
+                    {item.adType === 'sale' ? (
+                      item.price && item.price > 0 ? (
+                        `${item.price.toLocaleString('ar-SA')} ريال`
+                      ) : (
+                        <span className="text-amber-800 font-sans font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 inline-block">
+                          حسب الاتفاق بين الطرفين
+                        </span>
+                      )
+                    ) : (
+                      item.price && item.price > 0 ? (
+                        `${item.price.toLocaleString('ar-SA')} ريال لكل ${getRentDurationLabel(item.rentType)}`
+                      ) : (
+                        <span className="text-slate-600 font-sans font-bold">عند التواصل</span>
+                      )
+                    )}
+                  </span>
+                </div>
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">السلالة / النوع</span>
                   <span className="text-xs font-bold text-slate-800">
-                    {item.breed === 'arabian' ? 'عربي أصيل' : item.breed === 'shabi' ? 'شعبي' : item.breed === 'sisi' ? 'سيسي' : 'أجنبي'}
+                    {item.breed === 'arabian' ? 'عربي أصيل' : item.breed === 'shabi' ? 'شعبي' : 'سيسي'}
                   </span>
                 </div>
                 {item.adType === 'sale' && (
@@ -592,6 +604,21 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
 
           {type === 'shelter' && (
             <div className="space-y-4">
+              {item.stableName && (
+                <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🏛️</span>
+                    <div>
+                      <span className="text-[10px] text-amber-800 font-bold block">تابع لإسطبل مسجل بالمنصة:</span>
+                      <span className="text-xs font-black text-navy">{item.stableName}</span>
+                    </div>
+                  </div>
+                  <span className="text-[10px] bg-gold-light text-gold-dark font-bold px-2 py-0.5 rounded-full border border-gold/30">
+                    موثق ومعتمد ✓
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">نوع الإيواء</span>

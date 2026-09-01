@@ -4,8 +4,8 @@
  */
 
 import { useState, useEffect, ChangeEvent, FormEvent } from 'react';
-import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown } from 'lucide-react';
-import { Shelter, User } from '../types';
+import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown, Shield, Building2 } from 'lucide-react';
+import { Shelter, Stable, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
@@ -21,6 +21,7 @@ interface ShelterSectionProps {
 
 export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, onAdCreated }: ShelterSectionProps) {
   const [shelters, setShelters] = useState<Shelter[]>([]);
+  const [stables, setStables] = useState<Stable[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedShelter, setSelectedShelter] = useState<Shelter | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -35,6 +36,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   }, [currentUser?.id, isAddOpen]);
 
   // Form Fields
+  const [stableId, setStableId] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'monthly' | 'daily'>('monthly');
@@ -52,26 +54,35 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
   const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
-  const fetchShelters = async () => {
+  const fetchSheltersAndStables = async () => {
     // 1. Load instantly from sanitized cache
-    const cached = FirebaseService.getLocalShelters();
-    setShelters(cached);
+    const cachedShelters = FirebaseService.getLocalShelters();
+    setShelters(cachedShelters);
+    const cachedStables = FirebaseService.getLocalStables();
+    setStables(cachedStables);
 
     // 2. Fetch fresh from background database
     try {
-      const data = await FirebaseService.getShelters();
-      setShelters(data);
+      const [sheltersData, stablesData] = await Promise.all([
+        FirebaseService.getShelters(),
+        FirebaseService.getStables()
+      ]);
+      setShelters(sheltersData);
+      setStables(stablesData);
     } catch (e) {
-      console.error('Error fetching shelters:', e);
+      console.error('Error fetching shelters & stables:', e);
     }
   };
 
   useEffect(() => {
-    fetchShelters();
+    fetchSheltersAndStables();
 
     const handleSync = (e: any) => {
       if (e?.detail?.shelters) {
         setShelters(e.detail.shelters);
+      }
+      if (e?.detail?.stables) {
+        setStables(e.detail.stables);
       }
     };
 
@@ -83,6 +94,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
   const handleOpenAdd = () => {
     setEditingItemId(null);
+    setStableId('');
     setTitle('');
     setDescription('');
     setType('monthly');
@@ -90,7 +102,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     setCleaning(false);
     setTraining(false);
     setVeterinary(false);
-    setPhone('');
+    setPhone(currentUser?.phone || '');
     setImages([]);
     setError('');
     setSuccess('');
@@ -99,6 +111,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
   const handleEditClick = (shelter: Shelter) => {
     setEditingItemId(shelter.id);
+    setStableId(shelter.stableId || '');
     setTitle(shelter.title);
     setDescription(shelter.description);
     setType(shelter.type);
@@ -127,7 +140,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       await FirebaseService.deleteShelter(id);
     } catch (e) {
       console.error(e);
-      fetchShelters();
+      fetchSheltersAndStables();
     }
   };
 
@@ -162,6 +175,11 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       return;
     }
 
+    if (!stableId) {
+      setError('عذراً! لا يُسمح بإدخال مراكز إيواء إلا للإسطبلات المسجلة فقط في قسم الإسطبلات لدينا. يرجى اختيار الإسطبل المسجل التابع له المركز.');
+      return;
+    }
+
     const isUnlimited = currentUser?.role === 'admin' || currentUser?.isGold;
 
     if (!editingItemId && !isUnlimited) {
@@ -186,10 +204,14 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     setIsSubmittingAd(true);
     setError('');
 
+    const linkedStable = stables.find((s) => s.id === stableId);
+
     const shelterData: Shelter = {
       id: editingItemId ? editingItemId : 'shl_' + Date.now(),
       userId: editingItemId ? (shelters.find(s => s.id === editingItemId)?.userId || currentUser.id) : currentUser.id,
       userName: editingItemId ? (shelters.find(s => s.id === editingItemId)?.userName || currentUser.name) : currentUser.name,
+      stableId,
+      stableName: linkedStable ? linkedStable.name : 'إسطبل مسجل',
       title: title.trim(),
       description: description.trim(),
       type,
@@ -198,7 +220,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       training,
       veterinary,
       phone: phone.trim(),
-      images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800'],
+      images: images.length > 0 ? images : (linkedStable?.images?.length ? linkedStable.images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800']),
       rating: editingItemId ? (shelters.find(s => s.id === editingItemId)?.rating || 5) : 5,
       reviews: editingItemId ? (shelters.find(s => s.id === editingItemId)?.reviews || []) : [],
       createdAt: editingItemId ? (shelters.find(s => s.id === editingItemId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
@@ -210,6 +232,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       setIsTermsModalOpen(false);
       
       // Clear fields
+      setStableId('');
       setTitle('');
       setDescription('');
       setType('monthly');
@@ -222,7 +245,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
       setTimeout(() => {
         setIsAddOpen(false);
-        fetchShelters();
+        fetchSheltersAndStables();
         onAdCreated?.();
       }, 1500);
     } catch (err) {
@@ -237,6 +260,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     const matchesSearch = 
       shelter.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       shelter.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (shelter.stableName && shelter.stableName.toLowerCase().includes(searchQuery.toLowerCase())) ||
       shelter.phone.includes(searchQuery);
     return matchesSearch;
   });
@@ -291,7 +315,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold text-navy">إيواء الخيول والعناية بها</h2>
-          <p className="text-[11px] text-slate-400">مراكز إيواء مجهزة بالكامل للخيول ورعاية صحية على مدار الساعة</p>
+          <p className="text-[11px] text-slate-400">مراكز إيواء مجهزة بالكامل للخيول ورعاية صحية للإسطبلات المسجلة بالمنصة</p>
         </div>
         <button
           onClick={() => {
@@ -310,7 +334,10 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
           <div className="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
             
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
-              <h3 className="font-bold text-navy text-sm">{editingItemId ? 'تعديل بيانات الإيواء' : 'إدخال إيواء جديد'}</h3>
+              <div className="flex items-center gap-2">
+                <Shield className="w-4 h-4 text-gold" />
+                <h3 className="font-bold text-navy text-sm">{editingItemId ? 'تعديل بيانات الإيواء' : 'إدخال مركز إيواء جديد'}</h3>
+              </div>
               <button onClick={() => setIsAddOpen(false)} className="text-slate-500 hover:text-navy text-xs font-bold">إغلاق</button>
             </div>
 
@@ -347,6 +374,15 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                 )
               )}
 
+              {/* Policy alert banner */}
+              <div className="p-3 bg-blue-50/70 border border-blue-200/80 rounded-xl text-navy text-[11px] flex items-start gap-2.5">
+                <Shield className="w-4 h-4 text-navy shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold block">شرط إدخال مراكز الإيواء:</span>
+                  <span>لا يُسمح بإدخال مراكز إيواء إلا للإسطبلات المسجلة فقط في قسم الإسطبلات بالمنصة لضمان سلامة وجودة رعاية الجياد.</span>
+                </div>
+              </div>
+
               {error && (
                 <div className="p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-l flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -361,13 +397,64 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                 </div>
               )}
 
+              {/* Mandatory Registered Stable Selection Box */}
+              <div className="bg-amber-50/40 border border-amber-200/90 rounded-xl p-3.5 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-navy flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-gold" />
+                    <span>الإسطبل المسجل التابع له مركز الإيواء * (إلزامي)</span>
+                  </label>
+                  <span className="text-[10px] bg-gold-light text-gold-dark px-2 py-0.5 rounded-full font-bold">
+                    إسطبل مسجل فقط ✓
+                  </span>
+                </div>
+
+                {stables.length === 0 ? (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 space-y-1">
+                    <p className="font-bold">⚠️ لا توجد إسطبلات مسجلة حالياً بالمنصة!</p>
+                    <p className="text-[11px] leading-relaxed">
+                      يجب عليك أو على صاحب الإسطبل تسجيل الإسطبل أولاً من خلال <strong>قسم الإسطبلات</strong> حتى تتمكن من إضافة مركز إيواء مرتبط به.
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <select
+                      value={stableId}
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        setStableId(selectedId);
+                        const found = stables.find((s) => s.id === selectedId);
+                        if (found) {
+                          if (!phone) setPhone(found.phone);
+                          if (!title || title.startsWith('مركز إيواء') || title === '') {
+                            setTitle(`مركز إيواء ${found.name}`);
+                          }
+                        }
+                      }}
+                      required
+                      className="w-full text-xs p-2.5 border border-amber-300 rounded-xl focus:outline-none focus:border-navy bg-white font-bold text-navy"
+                    >
+                      <option value="">-- اختر الإسطبل المسجل في المنصة --</option>
+                      {stables.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          🏛️ {s.name} (المسؤول: {s.userName}) - 📞 {s.phone}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-[10px] text-slate-500 mt-1 block">
+                      اختر الإسطبل المسجل لربط مركز الإيواء به وتوثيق الإعلان تلقائياً.
+                    </span>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">اسم العرض / اسم مركز الإيواء *</label>
                 <input
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="مثال: إيواء النخبة الملكي"
+                  placeholder="مثال: مركز إيواء إسطبل الأصالة الملكي"
                   required
                   className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
                 />
@@ -378,7 +465,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  placeholder="اكتب وصفاً للغرف، البوكسات، المساحات المتوفرة، الرعاية اليومية..."
+                  placeholder="اكتب وصفاً للغرف، البوكسات، المساحات المتوفرة، الرعاية اليومية، النظافة، التغذية..."
                   rows={4}
                   required
                   className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
@@ -480,7 +567,12 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
               <button
                 type="submit"
-                className="w-full bg-navy hover:bg-navy-dark text-white font-bold py-3 rounded-xl cursor-pointer transition text-xs shadow"
+                disabled={stables.length === 0}
+                className={`w-full font-bold py-3 rounded-xl transition text-xs shadow ${
+                  stables.length === 0 
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed' 
+                    : 'bg-navy hover:bg-navy-dark text-white cursor-pointer'
+                }`}
               >
                 {editingItemId ? 'حفظ التعديلات' : 'حفظ ونشر مركز الإيواء'}
               </button>
@@ -522,6 +614,14 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
               {/* Text info */}
               <div className="p-4 flex-1 flex flex-col justify-between space-y-2">
                 <div>
+                  {/* Stable association badge */}
+                  {shelter.stableName && (
+                    <div className="inline-flex items-center gap-1 text-[10px] text-amber-900 font-bold bg-amber-50 border border-amber-200/70 px-2 py-0.5 rounded-md mb-1.5">
+                      <Shield className="w-3 h-3 text-gold" />
+                      <span>إسطبل: {shelter.stableName}</span>
+                    </div>
+                  )}
+
                   <h4 className="font-bold text-navy group-hover:text-gold transition text-xs leading-tight line-clamp-1">{shelter.title}</h4>
                   <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">{shelter.description}</p>
                 </div>
@@ -574,7 +674,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
           isOpen={true}
           onClose={() => setSelectedShelter(null)}
           currentUser={currentUser}
-          onRefresh={fetchShelters}
+          onRefresh={fetchSheltersAndStables}
           onEdit={handleEditClick}
         />
       )}

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
-import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse } from 'lucide-react';
+import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse, Sparkles } from 'lucide-react';
 import { Horse, Stable, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
@@ -76,7 +76,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [damName, setDamName] = useState('');
   const [sireName, setSireName] = useState('');
   const [certificate, setCertificate] = useState('');
-  const [breed, setBreed] = useState<'arabian' | 'shabi' | 'sisi' | 'foreign'>('arabian');
+  const [breed, setBreed] = useState<'arabian' | 'shabi' | 'sisi'>('arabian');
   const [age, setAge] = useState(1);
   const [gender, setGender] = useState<'stallion' | 'mare' | 'gelding'>('stallion');
   const [color, setColor] = useState('');
@@ -85,6 +85,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [images, setImages] = useState<string[]>([]);
   const [stableId, setStableId] = useState('');
   const [phone, setPhone] = useState('');
+  const [hasPrice, setHasPrice] = useState<boolean>(false);
   const [price, setPrice] = useState<number>(0);
   const [rentType, setRentType] = useState<'half_hour' | 'hour' | 'two_hour_trip' | 'day' | string>('hour');
   const [rentStart, setRentStart] = useState('');
@@ -152,6 +153,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setImages([]);
     setStableId('');
     setPhone(currentUser?.phone || '');
+    setHasPrice(false);
     setPrice(0);
     setRentStart('');
     setRentEnd('');
@@ -169,8 +171,11 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       setCertificate('');
       setHeight('');
       setHealthStatus('سليم وصحة ممتازة');
+      setHasPrice(true);
     } else {
       setHealthStatus('سليم خالي من العيوب');
+      setHasPrice(false);
+      setPrice(0);
     }
   };
 
@@ -189,6 +194,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setImages(horse.images || []);
     setStableId(horse.stableId || '');
     setPhone(horse.phone || currentUser?.phone || '');
+    setHasPrice(horse.adType === 'sale' ? !!(horse.price && horse.price > 0) : true);
     setPrice(horse.price || 0);
     setRentType(horse.rentType || 'hour');
     setRentStart(horse.rentStart || '');
@@ -200,7 +206,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setIsAddOpen(true);
   };
 
-  const handleBreedChange = (newBreed: 'arabian' | 'shabi' | 'sisi' | 'foreign') => {
+  const handleBreedChange = (newBreed: 'arabian' | 'shabi' | 'sisi') => {
     setBreed(newBreed);
     if (newBreed !== 'arabian') {
       setSireName('');
@@ -375,6 +381,10 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
           : 'يرجى ملء جميع الحقول المطلوبة (اسم الخيل، اللون، الحالة الصحية).');
         return;
       }
+      if (hasPrice && (!price || price <= 0)) {
+        setError('لقد قمت بتفعيل خيار إدخال السعر. يرجى إدخال السعر المطلوب أو إغلاق الخيار ليكون السعر حسب الاتفاق بين الطرفين.');
+        return;
+      }
       if (!phone.trim()) {
         setError('يرجى إدخال رقم الهاتف للتواصل المباشر (اتصال وواتساب).');
         return;
@@ -413,7 +423,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       stableId,
       stableName: linkedStable ? linkedStable.name : 'غير مرتبط بإسطبل محدد',
       phone: phone.trim() || currentUser.phone || '',
-      price: price > 0 ? price : undefined,
+      price: isRent ? (price > 0 ? price : undefined) : (hasPrice && price > 0 ? price : undefined),
       rentType: adType === 'rent' ? rentType : undefined,
       rentStart: adType === 'rent' && rentStart ? rentStart : undefined,
       rentEnd: adType === 'rent' && rentEnd ? rentEnd : undefined,
@@ -441,6 +451,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       setImages([]);
       setStableId('');
       setPhone('');
+      setHasPrice(false);
       setPrice(0);
       setRentStart('');
       setRentEnd('');
@@ -641,21 +652,82 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               )}
 
               {/* Price / Rent Details */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    {adType === 'sale' ? 'السعر المطلوب (ريال) *' : 'سعر الإيجار (ريال) *'}
-                  </label>
-                  <input
-                    type="number"
-                    value={price || ''}
-                    onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
-                    placeholder={adType === 'rent' ? 'مثال: 150' : 'مثال: 55000'}
-                    required
-                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy text-left font-mono"
-                  />
+              {adType === 'sale' ? (
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-navy">
+                        <Tag className="w-3.5 h-3.5 text-gold" />
+                        <span>تحديد السعر المطلوب للبيع</span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 font-medium leading-tight">
+                        ( للتفعيل وإدخال السعر أو عدم التفعيل والسعر حسب الاتفاق بين الطرفين )
+                      </p>
+                    </div>
+
+                    {/* Toggle Switch */}
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0" title="تفعيل إدخال السعر أو تركه حسب الاتفاق">
+                      <input
+                        type="checkbox"
+                        checked={hasPrice}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setHasPrice(checked);
+                          if (!checked) {
+                            setPrice(0);
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-navy shadow-inner"></div>
+                    </label>
+                  </div>
+
+                  {/* Input Field when toggle is ON, or Notice when toggle is OFF */}
+                  {hasPrice ? (
+                    <div className="pt-2 border-t border-slate-200/80 space-y-1.5 animate-in fade-in duration-200">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-xs font-bold text-slate-700">
+                          أدخل السعر المطلوب (ريال سعودي) *
+                        </label>
+                        <span className="text-[10px] text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md font-bold border border-emerald-200">
+                          سعر محدد
+                        </span>
+                      </div>
+                      <input
+                        type="number"
+                        value={price || ''}
+                        onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
+                        placeholder="مثال: 45000"
+                        required={hasPrice}
+                        min={1}
+                        className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy bg-white text-left font-mono"
+                      />
+                    </div>
+                  ) : (
+                    <div className="pt-2 border-t border-slate-200/80 flex items-center gap-2 text-amber-900 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200/80">
+                      <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                      <div className="text-xs font-bold leading-relaxed">
+                        السعر: <span className="underline decoration-amber-400">حسب الاتفاق بين الطرفين</span> في حال إتمام البيع.
+                      </div>
+                    </div>
+                  )}
                 </div>
-                {adType === 'rent' && (
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      سعر الإيجار (ريال) *
+                    </label>
+                    <input
+                      type="number"
+                      value={price || ''}
+                      onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
+                      placeholder="مثال: 150"
+                      required
+                      className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy text-left font-mono"
+                    />
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">مدة الإيجار *</label>
                     <select
@@ -670,8 +742,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                       ))}
                     </select>
                   </div>
-                )}
-              </div>
+                </div>
+              )}
 
               {/* Contact Phone Number Input (Required for direct call & WhatsApp) */}
               <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
@@ -765,7 +837,6 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                     <option value="arabian">✨ عربي أصيل {adType === 'sale' ? '(معتمد الأنساب)' : ''}</option>
                     <option value="shabi">شعبي</option>
                     <option value="sisi">سيسي</option>
-                    <option value="foreign">أجنبي</option>
                   </select>
                 </div>
               </div>
@@ -1149,14 +1220,30 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                 )}
 
                 {/* Price Display */}
-                {horse.price && (
-                  <div className="absolute bottom-3 right-3 text-white font-bold">
-                    <span className="text-sm font-mono">{horse.price}</span>
-                    <span className="text-[10px] mr-1">
-                      ريال {horse.adType === 'rent' ? `/ ${getRentDurationLabel(horse.rentType)}` : ''}
-                    </span>
-                  </div>
-                )}
+                <div className="absolute bottom-3 right-3 text-white font-bold">
+                  {horse.adType === 'sale' ? (
+                    horse.price && horse.price > 0 ? (
+                      <div className="bg-black/70 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-white/20 shadow-md">
+                        <span className="text-sm font-mono text-gold font-black">{horse.price.toLocaleString('ar-SA')}</span>
+                        <span className="text-[10px] mr-1 text-slate-200">ريال</span>
+                      </div>
+                    ) : (
+                      <div className="bg-navy/90 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-gold/40 text-gold text-[10px] sm:text-[11px] font-bold shadow-md flex items-center gap-1">
+                        <Sparkles className="w-2.5 h-2.5 text-gold" />
+                        <span>السعر حسب الاتفاق</span>
+                      </div>
+                    )
+                  ) : (
+                    horse.price && horse.price > 0 ? (
+                      <div className="bg-black/70 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-white/20 shadow-md">
+                        <span className="text-sm font-mono text-gold font-black">{horse.price.toLocaleString('ar-SA')}</span>
+                        <span className="text-[10px] mr-1 text-slate-200">
+                          ريال / {getRentDurationLabel(horse.rentType)}
+                        </span>
+                      </div>
+                    ) : null
+                  )}
+                </div>
               </div>
 
               {/* Horse Info Details */}
@@ -1173,7 +1260,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                   
                   {/* Small attributes */}
                   <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-2 text-[10px] text-slate-500 border-b border-slate-50 pb-2">
-                    <span>السلالة: <strong>{horse.breed === 'arabian' ? 'عربي أصيل' : horse.breed === 'shabi' ? 'شعبي' : horse.breed === 'sisi' ? 'سيسي' : 'أجنبي'}</strong></span>
+                    <span>السلالة: <strong>{horse.breed === 'arabian' ? 'عربي أصيل' : horse.breed === 'shabi' ? 'شعبي' : 'سيسي'}</strong></span>
                     <span>العمر: <strong>{horse.age} سنوات</strong></span>
                     <span>الجنس: <strong>{horse.gender === 'stallion' ? 'ذكر' : horse.gender === 'mare' ? 'أنثى' : 'مخصى'}</strong></span>
                     <span className="truncate">اللون: <strong>{horse.color}</strong></span>

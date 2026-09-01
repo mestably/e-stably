@@ -549,7 +549,10 @@ export default function App() {
 
           {/* Conditional Sections Render */}
           {activeTab === 'home' && (
-            <HomeSection onSelectTab={(tab) => setActiveTab(tab)} />
+            <HomeSection 
+              onSelectTab={(tab) => setActiveTab(tab)} 
+              currentUser={currentUser}
+            />
           )}
 
           {activeTab === 'horses' && (

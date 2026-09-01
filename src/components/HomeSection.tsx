@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, TouchEvent, MouseEvent } from 'react';
 import { 
   Award, 
   Home as HomeIcon, 
@@ -15,18 +15,107 @@ import {
   ArrowLeft, 
   CheckCircle2, 
   Users, 
-  FileText,
-  Clock
+  Clock,
+  Shuffle,
+  Eye,
+  Tag
 } from 'lucide-react';
-import { Horse, Stable, Shelter, Transport } from '../types';
+import { Horse, Stable, Shelter, Transport, User } from '../types';
 import { FirebaseService } from '../lib/firebase';
+import DetailModal from './DetailModal';
 
 interface HomeSectionProps {
   onSelectTab: (tab: 'horses' | 'stables' | 'shelter' | 'transport') => void;
+  currentUser?: User | null;
 }
 
-export default function HomeSection({ onSelectTab }: HomeSectionProps) {
+interface AdSlide {
+  id: string;
+  title: string;
+  subtitle: string;
+  tag: string;
+  badgeColor: string;
+  price: string;
+  image: string;
+  actionTab: 'horses' | 'stables' | 'shelter' | 'transport';
+  itemType: 'horse' | 'stable' | 'shelter' | 'transport';
+  rawItem?: Horse | Stable | Shelter | Transport;
+  isRealAd: boolean;
+}
+
+// Fallback curated slides in case database has no items yet
+const DEFAULT_CURATED_SLIDES: AdSlide[] = [
+  {
+    id: 'curated_slide_1',
+    title: 'كحيلان الشقب - بطل جمال عربي أصيل',
+    subtitle: 'فرصة نادرة لامتلاك حصان عربي مسجل ذو نسب فاخر من سلالات الأبطال',
+    tag: 'خيل للبيع',
+    badgeColor: 'bg-gold text-navy font-bold shadow-sm',
+    price: '85,000 ريال',
+    image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=1200',
+    actionTab: 'horses',
+    itemType: 'horse',
+    isRealAd: false,
+  },
+  {
+    id: 'curated_slide_2',
+    title: 'إيواء ملكي متكامل بالخالدية',
+    subtitle: 'غرف مهواة ومكيفة، غذاء مخصص، رعاية بيطرية ٢٤ ساعة مع تدريب يومي',
+    tag: 'إيواء فاخر',
+    badgeColor: 'bg-indigo-600 text-white',
+    price: 'من 1,200 ريال / شهرياً',
+    image: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200',
+    actionTab: 'shelter',
+    itemType: 'shelter',
+    isRealAd: false,
+  },
+  {
+    id: 'curated_slide_3',
+    title: 'مقطورات شحن خيول مزدوجة مكيفة',
+    subtitle: 'نقل آمن لجميع مدن المملكة مع كاميرات مراقبة وتأمين صحي للجواد',
+    tag: 'خدمات نقل',
+    badgeColor: 'bg-emerald-600 text-white',
+    price: 'أسعار تبدأ من 500 ريال',
+    image: 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&q=80&w=1200',
+    actionTab: 'transport',
+    itemType: 'transport',
+    isRealAd: false,
+  },
+  {
+    id: 'curated_slide_4',
+    title: 'مربط النخبة العربي للخيول الأصيلة',
+    subtitle: 'انضم إلينا الآن وتصفح الإسطبلات المسجلة لتصل لأكبر شريحة من عشاق ومربي الخيل',
+    tag: 'مرابط معتمدة',
+    badgeColor: 'bg-navy text-gold border border-gold/40',
+    price: 'مرابط وإنتاج',
+    image: 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200',
+    actionTab: 'stables',
+    itemType: 'stable',
+    isRealAd: false,
+  }
+];
+
+// Helper to shuffle an array randomly (Fisher-Yates)
+function shuffleArray<T>(array: T[]): T[] {
+  const shuffled = [...array];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
+export default function HomeSection({ onSelectTab, currentUser = null }: HomeSectionProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [slides, setSlides] = useState<AdSlide[]>(DEFAULT_CURATED_SLIDES);
+  const [isPaused, setIsPaused] = useState(false);
+  const [selectedItemForModal, setSelectedItemForModal] = useState<{
+    item: Horse | Stable | Shelter | Transport;
+    type: 'horse' | 'stable' | 'shelter' | 'transport';
+  } | null>(null);
+
+  const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
   const [stats, setStats] = useState({
     horsesCount: 0,
     stablesCount: 0,
@@ -34,104 +123,144 @@ export default function HomeSection({ onSelectTab }: HomeSectionProps) {
     transportsCount: 0,
   });
 
-  // Dynamic slides combining real data & premium announcements
-  const slides = [
-    {
-      id: 'slide_1',
-      title: 'كحيلان الشقب - بطل جمال عربي أصيل',
-      subtitle: 'فرصة نادرة لامتلاك حصان عربي مسجل ذو نسب فاخر من سلالات الأبطال',
-      tag: 'إعلان مميز',
-      badgeColor: 'bg-gold text-white',
-      price: '85,000 ريال',
-      image: 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=1200',
-      actionTab: 'horses' as const,
-    },
-    {
-      id: 'slide_2',
-      title: 'إيواء ملكي متكامل بالخالدية',
-      subtitle: 'غرف مهواة ومكيفة، غذاء مخصص، رعاية بيطرية ٢٤ ساعة مع تدريب يومي',
-      tag: 'إيواء فاخر',
-      badgeColor: 'bg-navy text-white border border-gold',
-      price: 'من ١,٢٠٠ ريال / شهرياً',
-      image: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200',
-      actionTab: 'shelter' as const,
-    },
-    {
-      id: 'slide_3',
-      title: 'مقطورات شحن خيول مزدوجة مكيفة',
-      subtitle: 'نقل آمن لجميع مدن المملكة مع كاميرات مراقبة وتأمين صحي للجواد',
-      tag: 'خدمات نقل',
-      badgeColor: 'bg-emerald-600 text-white',
-      price: 'أسعار تبدأ من ٥٠0 ريال',
-      image: 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&q=80&w=1200',
-      actionTab: 'transport' as const,
-    },
-    {
-      id: 'slide_4',
-      title: 'مربط النخبة العربي للخيول الأصيلة',
-      subtitle: 'انضم إلينا الآن وأضف إسطبلك الخاص لتصل لأكبر شريحة من عشاق ومربي الخيل',
-      tag: 'مرابط موثقة',
-      badgeColor: 'bg-indigo-600 text-white',
-      price: 'توثيق فوري مجاني',
-      image: 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200',
-      actionTab: 'stables' as const,
+  // Load real published ads from all sections and shuffle them randomly
+  const loadRealAds = useCallback(async () => {
+    try {
+      const [horses, stables, shelters, transports] = await Promise.all([
+        FirebaseService.getHorses(),
+        FirebaseService.getStables(),
+        FirebaseService.getShelters(),
+        FirebaseService.getTransports()
+      ]);
+
+      setStats({
+        horsesCount: horses.length,
+        stablesCount: stables.length,
+        sheltersCount: shelters.length,
+        transportsCount: transports.length,
+      });
+
+      const realSlides: AdSlide[] = [];
+
+      // 1. Map Horses into slides
+      horses.forEach((horse) => {
+        const breedLabel = horse.breed === 'arabian' ? 'خيل عربي أصيل' : horse.breed === 'shabi' ? 'خيل شعبي' : 'سيسي';
+        const priceLabel = horse.adType === 'sale'
+          ? (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'السعر حسب الاتفاق')
+          : (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'عند التواصل');
+        const healthOrDetails = horse.healthStatus || `العمر: ${horse.age} سنوات • اللون: ${horse.color}`;
+        const mainImage = horse.images?.[0] || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=1200';
+
+        realSlides.push({
+          id: `horse_${horse.id}`,
+          title: `${horse.name} (${breedLabel})`,
+          subtitle: `${healthOrDetails} • ${horse.stableName || 'إعلان مستخدم'}`,
+          tag: horse.adType === 'sale' ? (horse.isSold ? 'تم البيع' : 'خيل للبيع') : 'خيل للإيجار',
+          badgeColor: horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white',
+          price: priceLabel,
+          image: mainImage,
+          actionTab: 'horses',
+          itemType: 'horse',
+          rawItem: horse,
+          isRealAd: true,
+        });
+      });
+
+      // 2. Map Stables into slides
+      stables.forEach((stable) => {
+        const mainImage = stable.images?.[0] || 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200';
+        realSlides.push({
+          id: `stable_${stable.id}`,
+          title: stable.name,
+          subtitle: stable.description || 'مربط وإسطبل متكامل لتربية وتدريب الخيول العربية',
+          tag: stable.verified === 'verified' ? 'إسطبل موثق' : 'إسطبل ومربط',
+          badgeColor: 'bg-navy text-gold border border-gold/40',
+          price: stable.horseCount ? `${stable.horseCount} خيل متوفر` : 'مرابط وخيول',
+          image: mainImage,
+          actionTab: 'stables',
+          itemType: 'stable',
+          rawItem: stable,
+          isRealAd: true,
+        });
+      });
+
+      // 3. Map Shelters into slides
+      shelters.forEach((shelter) => {
+        const mainImage = shelter.images?.[0] || 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200';
+        realSlides.push({
+          id: `shelter_${shelter.id}`,
+          title: shelter.title,
+          subtitle: shelter.description || 'خدمات إيواء وبوكسات مهواة مع رعاية بيطرية وغذائية كاملة',
+          tag: shelter.type === 'monthly' ? 'إيواء شهري' : 'إيواء يومي',
+          badgeColor: 'bg-indigo-600 text-white',
+          price: 'إيواء ورعاية متكاملة',
+          image: mainImage,
+          actionTab: 'shelter',
+          itemType: 'shelter',
+          rawItem: shelter,
+          isRealAd: true,
+        });
+      });
+
+      // 4. Map Transports into slides
+      transports.forEach((transport) => {
+        const mainImage = 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&q=80&w=1200';
+        const priceLabel = transport.price ? `${transport.price.toLocaleString('ar-SA')} ريال` : 'عند الاتفاق';
+        realSlides.push({
+          id: `transport_${transport.id}`,
+          title: `رحلة نقل: من ${transport.pickupAddress || 'الموقع'} إلى ${transport.deliveryAddress || 'الوجهة'}`,
+          subtitle: `نوع المركبة: ${transport.vehicleType || 'مقطورة شحن'} • سعة الخيل: ${transport.horseCount || 1} • التاريخ: ${transport.date || 'فوري'}`,
+          tag: 'نقل خيول ومقطورات',
+          badgeColor: 'bg-amber-600 text-white',
+          price: priceLabel,
+          image: mainImage,
+          actionTab: 'transport',
+          itemType: 'transport',
+          rawItem: transport,
+          isRealAd: true,
+        });
+      });
+
+      if (realSlides.length > 0) {
+        // Shuffle randomly
+        const randomized = shuffleArray(realSlides);
+        // Take up to 10 slides for optimal performance
+        setSlides(randomized.slice(0, 10));
+      } else {
+        setSlides(shuffleArray(DEFAULT_CURATED_SLIDES));
+      }
+    } catch (err) {
+      console.warn('Failed to load real ads for slider:', err);
+      // Fallback
+      setSlides(shuffleArray(DEFAULT_CURATED_SLIDES));
     }
-  ];
+  }, []);
 
-  // Auto sliding interval (every 4.5 seconds)
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentSlide((prev) => (prev + 1) % slides.length);
-    }, 4500);
-    return () => clearInterval(timer);
-  }, [slides.length]);
+    loadRealAds();
 
-  // Load counts for dynamic counters
-  useEffect(() => {
-    const loadStats = async () => {
-      try {
-        const [horses, stables, shelters, transports] = await Promise.all([
-          FirebaseService.getHorses(),
-          FirebaseService.getStables(),
-          FirebaseService.getShelters(),
-          FirebaseService.getTransports()
-        ]);
-        
-        setStats({
-          horsesCount: horses.length,
-          stablesCount: stables.length,
-          sheltersCount: shelters.length,
-          transportsCount: transports.length,
-        });
-      } catch (err) {
-        console.warn('Failed to fetch stats for home', err);
-        setStats({
-          horsesCount: FirebaseService.getLocalHorses().length,
-          stablesCount: FirebaseService.getLocalStables().length,
-          sheltersCount: FirebaseService.getLocalShelters().length,
-          transportsCount: FirebaseService.getLocalTransports().length,
-        });
-      }
-    };
-    loadStats();
-
-    const handleSync = (e: any) => {
-      if (e?.detail) {
-        setStats({
-          horsesCount: e.detail.horses?.length || 0,
-          stablesCount: e.detail.stables?.length || 0,
-          sheltersCount: e.detail.shelters?.length || 0,
-          transportsCount: e.detail.transports?.length || 0,
-        });
-      }
+    const handleSync = () => {
+      loadRealAds();
     };
 
     window.addEventListener('horses_forum_sync_complete', handleSync);
     return () => {
       window.removeEventListener('horses_forum_sync_complete', handleSync);
     };
-  }, []);
+  }, [loadRealAds]);
 
+  // Auto sliding interval (every 4.5 seconds) unless paused by user interaction
+  useEffect(() => {
+    if (slides.length <= 1 || isPaused) return;
+
+    const timer = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % slides.length);
+    }, 4500);
+
+    return () => clearInterval(timer);
+  }, [slides.length, isPaused]);
+
+  // Manual navigation handlers
   const nextSlide = () => {
     setCurrentSlide((prev) => (prev + 1) % slides.length);
   };
@@ -140,20 +269,67 @@ export default function HomeSection({ onSelectTab }: HomeSectionProps) {
     setCurrentSlide((prev) => (prev - 1 + slides.length) % slides.length);
   };
 
+  // Reshuffle ads manually on request
+  const handleReshuffle = (e: MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation();
+    setSlides((prev) => shuffleArray(prev));
+    setCurrentSlide(0);
+  };
+
+  // Touch Swipe handlers for mobile
+  const handleTouchStart = (e: TouchEvent) => {
+    setTouchStartX(e.touches[0].clientX);
+  };
+
+  const handleTouchEnd = (e: TouchEvent) => {
+    if (touchStartX === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchStartX - touchEndX;
+
+    if (Math.abs(diff) > 40) {
+      if (diff > 0) {
+        // Swiped left -> next
+        nextSlide();
+      } else {
+        // Swiped right -> prev
+        prevSlide();
+      }
+    }
+    setTouchStartX(null);
+  };
+
+  const handleSlideAction = (slide: AdSlide) => {
+    if (slide.rawItem) {
+      setSelectedItemForModal({
+        item: slide.rawItem,
+        type: slide.itemType,
+      });
+    } else {
+      onSelectTab(slide.actionTab);
+    }
+  };
+
   return (
     <div className="space-y-8 pb-12 animate-fade-in" id="home_section_root">
       
-      {/* 1. Animated Advertisement Slider Section */}
-      <div className="relative h-[260px] sm:h-[360px] rounded-3xl overflow-hidden shadow-lg border border-slate-200/50 group bg-slate-900" id="ads_carousel">
+      {/* 1. Animated Advertisement Slider Section with Live Published Ads & Real Controls */}
+      <div 
+        className="relative h-[280px] sm:h-[380px] rounded-3xl overflow-hidden shadow-xl border border-slate-200/60 group bg-slate-950 select-none"
+        id="ads_carousel"
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+      >
         {slides.map((slide, index) => (
           <div
             key={slide.id}
-            className={`absolute inset-0 transition-all duration-1000 ease-in-out ${
-              index === currentSlide ? 'opacity-100 scale-100 pointer-events-auto' : 'opacity-0 scale-95 pointer-events-none'
+            className={`absolute inset-0 transition-all duration-700 ease-out ${
+              index === currentSlide ? 'opacity-100 scale-100 z-10 pointer-events-auto' : 'opacity-0 scale-95 z-0 pointer-events-none'
             }`}
           >
-            {/* Background Image overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/20 z-10" />
+            {/* Background Image overlay with rich contrast gradients */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-black/30 z-10" />
             <img
               src={slide.image}
               alt={slide.title}
@@ -161,65 +337,111 @@ export default function HomeSection({ onSelectTab }: HomeSectionProps) {
               referrerPolicy="no-referrer"
             />
             
-            {/* Slide Details */}
-            <div className="absolute bottom-0 right-0 left-0 p-6 sm:p-10 z-20 text-white text-right space-y-2 sm:space-y-4">
-              <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold ${slide.badgeColor}`}>
-                <Sparkles className="w-3 h-3 text-gold fill-current animate-pulse" />
-                {slide.tag}
-              </span>
+            {/* Slide Details overlay */}
+            <div className="absolute bottom-0 right-0 left-0 p-5 sm:p-10 z-20 text-white text-right space-y-2 sm:space-y-3.5 max-w-4xl">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] sm:text-xs font-bold ${slide.badgeColor}`}>
+                  <Sparkles className="w-3 h-3 text-gold fill-current" />
+                  {slide.tag}
+                </span>
+
+                {slide.isRealAd && (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 backdrop-blur-xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    إعلان منشور
+                  </span>
+                )}
+              </div>
               
-              <h2 className="text-lg sm:text-3xl font-extrabold text-white tracking-tight drop-shadow-md">
+              <h2 className="text-base sm:text-2xl md:text-3xl font-extrabold text-white tracking-tight drop-shadow-lg line-clamp-1">
                 {slide.title}
               </h2>
               
-              <p className="text-xs sm:text-base text-slate-200 max-w-2xl line-clamp-2 leading-relaxed">
+              <p className="text-xs sm:text-sm md:text-base text-slate-200 max-w-2xl line-clamp-2 leading-relaxed drop-shadow-xs">
                 {slide.subtitle}
               </p>
               
-              <div className="pt-2 flex flex-wrap items-center gap-4 justify-between sm:justify-start">
-                <span className="text-gold font-extrabold text-sm sm:text-xl">
+              <div className="pt-2 flex flex-wrap items-center gap-3 sm:gap-4 justify-between sm:justify-start">
+                <span className="text-gold font-black text-sm sm:text-xl font-mono drop-shadow-sm">
                   {slide.price}
                 </span>
                 
-                <button
-                  onClick={() => onSelectTab(slide.actionTab)}
-                  className="bg-gold hover:bg-gold-dark text-navy font-extrabold text-[11px] sm:text-xs px-4 py-2 rounded-xl transition cursor-pointer flex items-center gap-1 shadow"
-                >
-                  <span>عرض التفاصيل</span>
-                  <ArrowLeft className="w-3 h-3" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleSlideAction(slide)}
+                    className="bg-gold hover:bg-gold-dark text-navy font-black text-xs sm:text-sm px-4 sm:px-5 py-2.5 rounded-xl transition cursor-pointer flex items-center gap-1.5 shadow-lg shadow-gold/20 active:scale-95"
+                    title="عرض تفاصيل الإعلان كاملاً"
+                  >
+                    <span>عرض التفاصيل</span>
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                  </button>
+
+                  <button
+                    onClick={() => onSelectTab(slide.actionTab)}
+                    className="bg-white/15 hover:bg-white/25 backdrop-blur-xs text-white text-xs sm:text-sm px-3.5 py-2.5 rounded-xl transition cursor-pointer hidden sm:flex items-center gap-1.5 border border-white/20"
+                    title="الذهاب للقسم"
+                  >
+                    <span>تصفح القسم</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
         ))}
 
-        {/* Carousel Arrow Controls */}
+        {/* --- Carousel Arrow Controls: Right & Left Buttons for Hand/Manual Browsing --- */}
+        {/* Right Arrow (سهم اليمين) */}
         <button
           onClick={prevSlide}
-          className="absolute left-4 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-gold hover:text-navy transition cursor-pointer backdrop-blur-xs opacity-0 group-hover:opacity-100"
+          className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-30 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/65 hover:bg-gold text-white hover:text-navy flex items-center justify-center transition-all duration-200 cursor-pointer backdrop-blur-md border border-white/20 shadow-2xl active:scale-95 group/btn"
           id="prev_slide_btn"
+          title="الإعلان السابق (سهم يمين)"
+          aria-label="Previous Slide"
         >
-          <ChevronLeft className="w-5 h-5" />
-        </button>
-        <button
-          onClick={nextSlide}
-          className="absolute right-4 top-1/2 -translate-y-1/2 z-20 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-black/40 text-white flex items-center justify-center hover:bg-gold hover:text-navy transition cursor-pointer backdrop-blur-xs opacity-0 group-hover:opacity-100"
-          id="next_slide_btn"
-        >
-          <ChevronRight className="w-5 h-5" />
+          <ChevronRight className="w-6 h-6 stroke-[2.5] group-hover/btn:scale-110 transition-transform" />
         </button>
 
-        {/* Indicator dots */}
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-20 flex gap-1.5" id="carousel_indicators">
+        {/* Left Arrow (سهم اليسار) */}
+        <button
+          onClick={nextSlide}
+          className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-30 w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-black/65 hover:bg-gold text-white hover:text-navy flex items-center justify-center transition-all duration-200 cursor-pointer backdrop-blur-md border border-white/20 shadow-2xl active:scale-95 group/btn"
+          id="next_slide_btn"
+          title="الإعلان التالي (سهم يسار)"
+          aria-label="Next Slide"
+        >
+          <ChevronLeft className="w-6 h-6 stroke-[2.5] group-hover/btn:scale-110 transition-transform" />
+        </button>
+
+        {/* Top Floating Controls (Shuffle & Live Badge) */}
+        <div className="absolute top-3 sm:top-4 right-3 sm:right-4 z-30 flex items-center gap-2">
+          <button
+            onClick={handleReshuffle}
+            className="bg-black/60 hover:bg-black/80 backdrop-blur-md text-white text-[11px] font-bold px-3 py-1.5 rounded-full border border-white/20 flex items-center gap-1.5 transition cursor-pointer shadow-md hover:border-gold hover:text-gold active:scale-95"
+            title="إعادة الترتيب عشوائياً"
+          >
+            <Shuffle className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">عرض عشوائي</span>
+          </button>
+        </div>
+
+        {/* Indicator dots (Centered at Top) */}
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex gap-1.5 bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10" id="carousel_indicators">
           {slides.map((_, index) => (
             <button
               key={index}
               onClick={() => setCurrentSlide(index)}
-              className={`w-2 h-2 rounded-full transition-all ${
-                index === currentSlide ? 'bg-gold w-6' : 'bg-white/40 hover:bg-white/70'
+              className={`h-2 rounded-full transition-all duration-300 cursor-pointer ${
+                index === currentSlide ? 'bg-gold w-6 shadow-sm shadow-gold/50' : 'bg-white/40 hover:bg-white/70 w-2'
               }`}
+              title={`إعلان رقم ${index + 1}`}
+              aria-label={`Slide ${index + 1}`}
             />
           ))}
+        </div>
+
+        {/* Current / Total Counter badge (Top Left) */}
+        <div className="absolute top-3 sm:top-4 left-3 sm:left-4 z-30 hidden sm:block bg-black/60 backdrop-blur-md text-slate-200 text-[11px] font-mono font-bold px-2.5 py-1 rounded-full border border-white/15">
+          {currentSlide + 1} / {slides.length}
         </div>
       </div>
 
@@ -407,6 +629,18 @@ export default function HomeSection({ onSelectTab }: HomeSectionProps) {
           </div>
         </div>
       </div>
+
+      {/* Modal for viewing details directly when clicking "عرض التفاصيل" */}
+      {selectedItemForModal && (
+        <DetailModal
+          isOpen={true}
+          onClose={() => setSelectedItemForModal(null)}
+          item={selectedItemForModal.item}
+          type={selectedItemForModal.type}
+          currentUser={currentUser}
+          onRefresh={loadRealAds}
+        />
+      )}
 
     </div>
   );

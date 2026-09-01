@@ -55,7 +55,7 @@ export interface Horse {
   damName: string;
   sireName: string;
   certificate: string; // certificate photo URL or Base64
-  breed: 'arabian' | 'shabi' | 'sisi' | 'foreign'; // عربي, شعبي, سيسي, أجنبي
+  breed: 'arabian' | 'shabi' | 'sisi'; // عربي, شعبي, سيسي
   age: number;
   gender: 'stallion' | 'mare' | 'gelding'; // ذكر, أنثى, مخصى
   color: string;
@@ -80,6 +80,8 @@ export interface Shelter {
   id: string;
   userId: string;
   userName: string;
+  stableId: string; // Associated registered stable ID (required)
+  stableName?: string; // Associated registered stable name
   title: string;
   description: string;
   type: 'monthly' | 'daily'; // شهري / يومي
