@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, ChangeEvent, FormEvent } from 'react';
-import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown, Shield, Building2 } from 'lucide-react';
+import { useState, useEffect, ChangeEvent, FormEvent, useMemo } from 'react';
+import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown, Shield, Building2, Search, MapPin, CheckCircle2, Lock } from 'lucide-react';
 import { Shelter, Stable, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
@@ -37,6 +37,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
   // Form Fields
   const [stableId, setStableId] = useState('');
+  const [stableSearchText, setStableSearchText] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<'monthly' | 'daily'>('monthly');
@@ -92,9 +93,25 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     };
   }, []);
 
+  const filteredStablesForSelection = useMemo(() => {
+    if (!stableSearchText.trim()) return stables;
+    const q = stableSearchText.toLowerCase();
+    return stables.filter((s) => 
+      s.name.toLowerCase().includes(q) ||
+      (s.userName && s.userName.toLowerCase().includes(q)) ||
+      (s.location && s.location.toLowerCase().includes(q)) ||
+      (s.phone && s.phone.includes(q))
+    );
+  }, [stables, stableSearchText]);
+
+  const selectedStable = useMemo(() => {
+    return stables.find((s) => s.id === stableId);
+  }, [stables, stableId]);
+
   const handleOpenAdd = () => {
     setEditingItemId(null);
     setStableId('');
+    setStableSearchText('');
     setTitle('');
     setDescription('');
     setType('monthly');
@@ -112,6 +129,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const handleEditClick = (shelter: Shelter) => {
     setEditingItemId(shelter.id);
     setStableId(shelter.stableId || '');
+    setStableSearchText('');
     setTitle(shelter.title);
     setDescription(shelter.description);
     setType(shelter.type);
@@ -190,8 +208,11 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       }
     }
 
-    if (!title || !description || !phone) {
-      setError('يرجى ملء كافة البيانات المطلوبة.');
+    const linkedStable = stables.find((s) => s.id === stableId);
+    const resolvedTitle = linkedStable ? `مركز إيواء ${linkedStable.name}` : (title.trim() || 'مركز إيواء');
+
+    if (!resolvedTitle || !description || !phone) {
+      setError('يرجى ملء كافة البيانات المطلوبة واختيار الإسطبل.');
       return;
     }
 
@@ -205,6 +226,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     setError('');
 
     const linkedStable = stables.find((s) => s.id === stableId);
+    const resolvedTitle = linkedStable ? `مركز إيواء ${linkedStable.name}` : (title.trim() || 'مركز إيواء');
 
     const shelterData: Shelter = {
       id: editingItemId ? editingItemId : 'shl_' + Date.now(),
@@ -212,7 +234,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       userName: editingItemId ? (shelters.find(s => s.id === editingItemId)?.userName || currentUser.name) : currentUser.name,
       stableId,
       stableName: linkedStable ? linkedStable.name : 'إسطبل مسجل',
-      title: title.trim(),
+      title: resolvedTitle,
       description: description.trim(),
       type,
       nutrition,
@@ -398,66 +420,115 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
               )}
 
               {/* Mandatory Registered Stable Selection Box */}
-              <div className="bg-amber-50/40 border border-amber-200/90 rounded-xl p-3.5 space-y-2">
+              <div className="bg-amber-50/50 border border-amber-200/90 rounded-2xl p-3 sm:p-4 space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-navy flex items-center gap-1.5">
-                    <Building2 className="w-4 h-4 text-gold" />
-                    <span>الإسطبل المسجل التابع له مركز الإيواء * (إلزامي)</span>
+                  <label className="text-xs font-bold text-navy flex items-center gap-1.5">
+                    <Building2 className="w-4 h-4 text-gold shrink-0" />
+                    <span>اختيار الإسطبل المسجل * (إلزامي من القائمة)</span>
                   </label>
-                  <span className="text-[10px] bg-gold-light text-gold-dark px-2 py-0.5 rounded-full font-bold">
+                  <span className="text-[10px] bg-gold-light text-gold-dark px-2 py-0.5 rounded-full font-black border border-gold/30">
                     إسطبل مسجل فقط ✓
                   </span>
                 </div>
 
                 {stables.length === 0 ? (
-                  <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 space-y-1">
+                  <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 space-y-1">
                     <p className="font-bold">⚠️ لا توجد إسطبلات مسجلة حالياً بالمنصة!</p>
                     <p className="text-[11px] leading-relaxed">
-                      يجب عليك أو على صاحب الإسطبل تسجيل الإسطبل أولاً من خلال <strong>قسم الإسطبلات</strong> حتى تتمكن من إضافة مركز إيواء مرتبط به.
+                      يجب تسجيل الإسطبل أولاً من خلال <strong>قسم الإسطبلات</strong> حتى تتمكن من إضافة مركز إيواء تابع له.
                     </p>
                   </div>
                 ) : (
-                  <div>
-                    <select
-                      value={stableId}
-                      onChange={(e) => {
-                        const selectedId = e.target.value;
-                        setStableId(selectedId);
-                        const found = stables.find((s) => s.id === selectedId);
-                        if (found) {
-                          if (!phone) setPhone(found.phone);
-                          if (!title || title.startsWith('مركز إيواء') || title === '') {
+                  <div className="space-y-2">
+                    {/* Quick filter input if list has items */}
+                    {stables.length > 3 && (
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={stableSearchText}
+                          onChange={(e) => setStableSearchText(e.target.value)}
+                          placeholder="🔍 ابحث في قائمة الإسطبلات المسجلة (الاسم، المسؤول، الموقع)..."
+                          className="w-full text-[11px] py-1.5 pr-8 pl-3 bg-white border border-amber-200 rounded-lg focus:outline-none focus:border-navy text-navy placeholder:text-slate-400 font-medium"
+                        />
+                        <Search className="w-3.5 h-3.5 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      </div>
+                    )}
+
+                    {/* Compact Mobile-friendly Select Dropdown */}
+                    <div className="relative">
+                      <select
+                        value={stableId}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          setStableId(selectedId);
+                          const found = stables.find((s) => s.id === selectedId);
+                          if (found) {
+                            if (!phone) setPhone(found.phone || '');
                             setTitle(`مركز إيواء ${found.name}`);
+                          } else {
+                            setTitle('');
                           }
-                        }
-                      }}
-                      required
-                      className="w-full text-xs p-2.5 border border-amber-300 rounded-xl focus:outline-none focus:border-navy bg-white font-bold text-navy"
-                    >
-                      <option value="">-- اختر الإسطبل المسجل في المنصة --</option>
-                      {stables.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          🏛️ {s.name} (المسؤول: {s.userName}) - 📞 {s.phone}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-[10px] text-slate-500 mt-1 block">
-                      اختر الإسطبل المسجل لربط مركز الإيواء به وتوثيق الإعلان تلقائياً.
+                        }}
+                        required
+                        className="w-full text-[11px] sm:text-xs py-2 px-3 border border-amber-300 rounded-xl focus:outline-none focus:border-navy bg-white font-bold text-navy truncate"
+                      >
+                        <option value="">-- اضغط لاختيار الإسطبل المسجل ({filteredStablesForSelection.length} متاح) --</option>
+                        {filteredStablesForSelection.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            🏛️ {s.name} {s.location ? `(${s.location})` : ''} - المسؤول: {s.userName}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Selected Stable Confirmation Card */}
+                    {selectedStable && (
+                      <div className="p-2.5 bg-white border border-amber-200 rounded-xl flex items-center justify-between text-[11px]">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <div>
+                            <span className="font-bold text-navy block text-xs">{selectedStable.name}</span>
+                            <span className="text-[10px] text-slate-500">المسؤول: {selectedStable.userName} | 📞 {selectedStable.phone}</span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-2 py-0.5 rounded-md border border-emerald-200 shrink-0">
+                          تم التوثيق
+                        </span>
+                      </div>
+                    )}
+
+                    <span className="text-[10px] text-slate-500 block leading-tight">
+                      * النظام يربط اسم الإسطبل المعتمد وبياناته تلقائياً ولا يسمح بكتابة إسطبل يدوي خارج القائمة المسجلة.
                     </span>
                   </div>
                 )}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">اسم العرض / اسم مركز الإيواء *</label>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  placeholder="مثال: مركز إيواء إسطبل الأصالة الملكي"
-                  required
-                  className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700 flex items-center gap-1.5">
+                    <span>اسم العرض / عنوان إعلان الإيواء</span>
+                    <span className="text-red-500 font-bold">*</span>
+                  </label>
+                  <span className="text-[10px] bg-slate-100 text-slate-500 font-bold px-2 py-0.5 rounded-full flex items-center gap-1 border border-slate-200">
+                    <Lock className="w-2.5 h-2.5 text-slate-500" />
+                    <span>تلقائي من الإسطبل</span>
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={selectedStable ? `مركز إيواء ${selectedStable.name}` : (title || '')}
+                    readOnly
+                    tabIndex={-1}
+                    placeholder="يتم تعيينه وعرضه تلقائياً فور اختيار الإسطبل من القائمة أعلاه"
+                    required
+                    className="w-full text-xs p-2.5 bg-slate-100/90 border border-slate-200 rounded-xl text-navy font-bold cursor-not-allowed select-none focus:outline-none placeholder:text-slate-400"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  * هذا الحقل مقفل ولا يمكن تعديله يدوياً، حيث يعتمد على اسم الإسطبل المعتمد المختار من القائمة.
+                </p>
               </div>
 
               <div>
