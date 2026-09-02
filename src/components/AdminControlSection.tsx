@@ -37,12 +37,16 @@ import {
   Clock,
   Image as ImageIcon,
   Globe,
-  Bookmark
+  Bookmark,
+  RotateCcw,
+  Tag,
+  CheckCircle2
 } from 'lucide-react';
 import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner, SiteSettings } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { compressImage } from '../lib/imageUtils';
 import ConfirmModal from './ConfirmModal';
+import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
 interface AdminControlSectionProps {
   currentUser: User;
@@ -373,6 +377,50 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       setEditingListing(null);
     } catch (err) {
       showNotify('error', 'فشل حفظ تعديلات الإعلان.');
+    }
+  };
+
+  const handleToggleListingStatus = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => {
+    try {
+      if (type === 'horse') {
+        const updated: Horse = {
+          ...item,
+          isSold: !item.isSold,
+          soldAt: !item.isSold ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveHorse(updated);
+        setHorses(horses.map(h => h.id === updated.id ? updated : h));
+        showNotify('success', `تم ${updated.isSold ? 'تمييز الخيل كمباع' : 'إعادة تنشيط إعلان الخيل'}.`);
+      } else if (type === 'stable') {
+        const updated: Stable = {
+          ...item,
+          isEnded: !item.isEnded,
+          endedAt: !item.isEnded ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveStable(updated);
+        setStables(stables.map(s => s.id === updated.id ? updated : s));
+        showNotify('success', `تم ${updated.isEnded ? 'تمييز الإسطبل كمنتهي' : 'إعادة تنشيط الإسطبل'}.`);
+      } else if (type === 'shelter') {
+        const updated: Shelter = {
+          ...item,
+          isEnded: !item.isEnded,
+          endedAt: !item.isEnded ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveShelter(updated);
+        setShelters(shelters.map(s => s.id === updated.id ? updated : s));
+        showNotify('success', `تم ${updated.isEnded ? 'تمييز خدمة الإيواء كمنتهية' : 'إعادة تنشيط خدمة الإيواء'}.`);
+      } else if (type === 'transport') {
+        const updated: Transport = {
+          ...item,
+          isEnded: !item.isEnded,
+          endedAt: !item.isEnded ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveTransport(updated);
+        setTransports(transports.map(t => t.id === updated.id ? updated : t));
+        showNotify('success', `تم ${updated.isEnded ? 'تمييز رحلة النقل كمنجزة' : 'إعادة تنشيط رحلة النقل'}.`);
+      }
+    } catch (err) {
+      showNotify('error', 'فشل تغيير حالة الإعلان.');
     }
   };
 
@@ -804,6 +852,8 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                     <div className="w-20 h-20 rounded-xl bg-slate-200 overflow-hidden shrink-0 border border-slate-200">
                       {item.images && item.images.length > 0 ? (
                         <img src={item.images[0]} alt={item.title} className="w-full h-full object-cover" />
+                      ) : item.listingType === 'transport' ? (
+                        <img src={defaultTransportImg} alt={item.title} className="w-full h-full object-cover" />
                       ) : (
                         <div className="w-full h-full flex items-center justify-center text-slate-400 text-xs font-bold">بدون صورة</div>
                       )}
@@ -820,6 +870,16 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                         }`}>
                           {item.listingType === 'horse' ? 'خيل' : item.listingType === 'stable' ? 'إسطبل' : item.listingType === 'shelter' ? 'إيواء' : 'نقل'}
                         </span>
+                        {(item.listingType === 'horse' ? item.isSold : item.isEnded) ? (
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-red-100 text-red-700 flex items-center gap-0.5">
+                            <CheckCircle2 className="w-2.5 h-2.5" />
+                            {item.listingType === 'horse' ? 'مباع' : item.listingType === 'transport' ? 'منجز' : 'منتهي'}
+                          </span>
+                        ) : (
+                          <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
+                            متاح / نشط
+                          </span>
+                        )}
                         <span className="text-[10px] text-slate-400 font-mono">{new Date(item.createdAt).toLocaleDateString('ar-SA')}</span>
                       </div>
 
@@ -839,7 +899,29 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                   </div>
 
                   {/* Action Controls */}
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/60">
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200/60">
+                    <button
+                      onClick={() => handleToggleListingStatus(item, item.listingType)}
+                      className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-xs ${
+                        (item.listingType === 'horse' ? item.isSold : item.isEnded)
+                          ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
+                          : 'bg-amber-50 hover:bg-amber-100 text-amber-700'
+                      }`}
+                      title={(item.listingType === 'horse' ? item.isSold : item.isEnded) ? 'إعادة تنشيط الإعلان' : 'تمييز كـ منتهي / مباع'}
+                    >
+                      {(item.listingType === 'horse' ? item.isSold : item.isEnded) ? (
+                        <>
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>إعادة تنشيط</span>
+                        </>
+                      ) : (
+                        <>
+                          <Tag className="w-3.5 h-3.5" />
+                          <span>{item.listingType === 'horse' ? 'تمييز كمباع' : item.listingType === 'transport' ? 'تمييز كمنجز' : 'تمييز كمنتهي'}</span>
+                        </>
+                      )}
+                    </button>
+
                     <button
                       onClick={() => setEditingListing({ type: item.listingType, item })}
                       className="px-3 py-1.5 bg-navy text-white hover:bg-navy-dark rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-xs"

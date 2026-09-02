@@ -43,6 +43,8 @@ export interface Stable {
   horseCount: number;
   rating: number;
   reviews?: Review[];
+  isEnded?: boolean; // هل تم تمييز الإعلان كمنتهي / غير متاح / مكتمل الاستيعاب
+  endedAt?: string;
   createdAt: string;
 }
 
@@ -93,6 +95,8 @@ export interface Shelter {
   images: string[];
   rating: number;
   reviews?: Review[];
+  isEnded?: boolean; // هل تم تمييز الإعلان كمنتهي / محجوز بالكامل / مكتمل
+  endedAt?: string;
   createdAt: string;
 }
 
@@ -109,6 +113,11 @@ export interface Transport {
   pickupCoords?: { lat: number; lng: number };
   deliveryAddress: string;
   deliveryCoords?: { lat: number; lng: number };
+  images?: string[];
+  phone?: string;
+  description?: string;
+  isEnded?: boolean; // هل تم تمييز الرحلة كمنتهية / تم النقل / مكتملة
+  endedAt?: string;
   createdAt: string;
 }
 

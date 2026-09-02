@@ -23,6 +23,7 @@ import {
 import { Horse, Stable, Shelter, Transport, User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import DetailModal from './DetailModal';
+import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
 interface HomeSectionProps {
   onSelectTab: (tab: 'horses' | 'stables' | 'shelter' | 'transport') => void;
@@ -76,7 +77,7 @@ const DEFAULT_CURATED_SLIDES: AdSlide[] = [
     tag: 'خدمات نقل',
     badgeColor: 'bg-emerald-600 text-white',
     price: 'أسعار تبدأ من 500 ريال',
-    image: 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&q=80&w=1200',
+    image: defaultTransportImg,
     actionTab: 'transport',
     itemType: 'transport',
     isRealAd: false,
@@ -105,9 +106,111 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
+function buildSlidesFromData(
+  horses: Horse[],
+  stables: Stable[],
+  shelters: Shelter[],
+  transports: Transport[]
+): AdSlide[] {
+  const realSlides: AdSlide[] = [];
+
+  // 1. Map Horses into slides
+  horses.forEach((horse) => {
+    const breedLabel = horse.breed === 'arabian' ? 'خيل عربي أصيل' : horse.breed === 'shabi' ? 'خيل شعبي' : 'سيسي';
+    const priceLabel = horse.adType === 'sale'
+      ? (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'السعر حسب الاتفاق')
+      : (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'عند التواصل');
+    const healthOrDetails = horse.healthStatus || `العمر: ${horse.age} سنوات • اللون: ${horse.color}`;
+    const mainImage = (horse.images && horse.images.length > 0 && horse.images[0]) || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=1200';
+
+    realSlides.push({
+      id: `horse_${horse.id}`,
+      title: `${horse.name} (${breedLabel})`,
+      subtitle: `${healthOrDetails} • ${horse.stableName || 'إعلان مستخدم'}`,
+      tag: horse.adType === 'sale' ? (horse.isSold ? 'تم البيع' : 'خيل للبيع') : 'خيل للإيجار',
+      badgeColor: horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white',
+      price: priceLabel,
+      image: mainImage,
+      actionTab: 'horses',
+      itemType: 'horse',
+      rawItem: horse,
+      isRealAd: true,
+    });
+  });
+
+  // 2. Map Stables into slides
+  stables.forEach((stable) => {
+    const mainImage = (stable.images && stable.images.length > 0 && stable.images[0]) || 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200';
+    realSlides.push({
+      id: `stable_${stable.id}`,
+      title: stable.name,
+      subtitle: stable.description || 'مربط وإسطبل متكامل لتربية وتدريب الخيول العربية',
+      tag: stable.isEnded ? 'مكتمل / منتهي' : (stable.verified === 'verified' ? 'إسطبل موثق' : 'إسطبل ومربط'),
+      badgeColor: 'bg-navy text-gold border border-gold/40',
+      price: stable.horseCount ? `${stable.horseCount} خيل متوفر` : 'مرابط وخيول',
+      image: mainImage,
+      actionTab: 'stables',
+      itemType: 'stable',
+      rawItem: stable,
+      isRealAd: true,
+    });
+  });
+
+  // 3. Map Shelters into slides
+  shelters.forEach((shelter) => {
+    const mainImage = (shelter.images && shelter.images.length > 0 && shelter.images[0]) || 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200';
+    realSlides.push({
+      id: `shelter_${shelter.id}`,
+      title: shelter.title,
+      subtitle: shelter.description || 'خدمات إيواء وبوكسات مهواة مع رعاية بيطرية وغذائية كاملة',
+      tag: shelter.isEnded ? 'مكتمل / منتهي' : (shelter.type === 'monthly' ? 'إيواء شهري' : 'إيواء يومي'),
+      badgeColor: 'bg-indigo-600 text-white',
+      price: 'إيواء ورعاية متكاملة',
+      image: mainImage,
+      actionTab: 'shelter',
+      itemType: 'shelter',
+      rawItem: shelter,
+      isRealAd: true,
+    });
+  });
+
+  // 4. Map Transports into slides (incorporating user images or defaultTransportImg)
+  transports.forEach((transport) => {
+    const hasCustomImages = transport.images && Array.isArray(transport.images) && transport.images.length > 0 && !!transport.images[0];
+    const mainImage = hasCustomImages ? transport.images![0] : defaultTransportImg;
+    const priceLabel = transport.price ? `${transport.price.toLocaleString('ar-SA')} ريال` : 'عند الاتفاق';
+    realSlides.push({
+      id: `transport_${transport.id}`,
+      title: transport.vehicleType || `رحلة نقل خيل: ${transport.pickupAddress || 'الموقع'} ⟵ ${transport.deliveryAddress || 'الوجهة'}`,
+      subtitle: `من ${transport.pickupAddress || 'موقع الاستلام'} إلى ${transport.deliveryAddress || 'موقع التسليم'} • ${transport.horseCount || 1} خيل • الموعد: ${transport.date || 'مجدول'}`,
+      tag: transport.isEnded ? 'تم النقل (منجز)' : 'نقل خيول ومقطورات',
+      badgeColor: transport.isEnded ? 'bg-red-600 text-white' : 'bg-amber-600 text-white',
+      price: priceLabel,
+      image: mainImage,
+      actionTab: 'transport',
+      itemType: 'transport',
+      rawItem: transport,
+      isRealAd: true,
+    });
+  });
+
+  return realSlides;
+}
+
 export default function HomeSection({ onSelectTab, currentUser = null }: HomeSectionProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [slides, setSlides] = useState<AdSlide[]>(DEFAULT_CURATED_SLIDES);
+  const [slides, setSlides] = useState<AdSlide[]>(() => {
+    try {
+      const horses = FirebaseService.getLocalHorses();
+      const stables = FirebaseService.getLocalStables();
+      const shelters = FirebaseService.getLocalShelters();
+      const transports = FirebaseService.getLocalTransports();
+      const list = buildSlidesFromData(horses, stables, shelters, transports);
+      return list.length > 0 ? shuffleArray(list).slice(0, 12) : shuffleArray(DEFAULT_CURATED_SLIDES);
+    } catch {
+      return DEFAULT_CURATED_SLIDES;
+    }
+  });
   const [isPaused, setIsPaused] = useState(false);
   const [selectedItemForModal, setSelectedItemForModal] = useState<{
     item: Horse | Stable | Shelter | Transport;
@@ -116,11 +219,17 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
 
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
 
-  const [stats, setStats] = useState({
-    horsesCount: 0,
-    stablesCount: 0,
-    sheltersCount: 0,
-    transportsCount: 0,
+  const [stats, setStats] = useState(() => {
+    try {
+      return {
+        horsesCount: FirebaseService.getLocalHorses().length,
+        stablesCount: FirebaseService.getLocalStables().length,
+        sheltersCount: FirebaseService.getLocalShelters().length,
+        transportsCount: FirebaseService.getLocalTransports().length,
+      };
+    } catch {
+      return { horsesCount: 0, stablesCount: 0, sheltersCount: 0, transportsCount: 0 };
+    }
   });
 
   // Load real published ads from all sections and shuffle them randomly
@@ -140,98 +249,31 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
         transportsCount: transports.length,
       });
 
-      const realSlides: AdSlide[] = [];
-
-      // 1. Map Horses into slides
-      horses.forEach((horse) => {
-        const breedLabel = horse.breed === 'arabian' ? 'خيل عربي أصيل' : horse.breed === 'shabi' ? 'خيل شعبي' : 'سيسي';
-        const priceLabel = horse.adType === 'sale'
-          ? (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'السعر حسب الاتفاق')
-          : (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'عند التواصل');
-        const healthOrDetails = horse.healthStatus || `العمر: ${horse.age} سنوات • اللون: ${horse.color}`;
-        const mainImage = horse.images?.[0] || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=1200';
-
-        realSlides.push({
-          id: `horse_${horse.id}`,
-          title: `${horse.name} (${breedLabel})`,
-          subtitle: `${healthOrDetails} • ${horse.stableName || 'إعلان مستخدم'}`,
-          tag: horse.adType === 'sale' ? (horse.isSold ? 'تم البيع' : 'خيل للبيع') : 'خيل للإيجار',
-          badgeColor: horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white',
-          price: priceLabel,
-          image: mainImage,
-          actionTab: 'horses',
-          itemType: 'horse',
-          rawItem: horse,
-          isRealAd: true,
-        });
-      });
-
-      // 2. Map Stables into slides
-      stables.forEach((stable) => {
-        const mainImage = stable.images?.[0] || 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200';
-        realSlides.push({
-          id: `stable_${stable.id}`,
-          title: stable.name,
-          subtitle: stable.description || 'مربط وإسطبل متكامل لتربية وتدريب الخيول العربية',
-          tag: stable.verified === 'verified' ? 'إسطبل موثق' : 'إسطبل ومربط',
-          badgeColor: 'bg-navy text-gold border border-gold/40',
-          price: stable.horseCount ? `${stable.horseCount} خيل متوفر` : 'مرابط وخيول',
-          image: mainImage,
-          actionTab: 'stables',
-          itemType: 'stable',
-          rawItem: stable,
-          isRealAd: true,
-        });
-      });
-
-      // 3. Map Shelters into slides
-      shelters.forEach((shelter) => {
-        const mainImage = shelter.images?.[0] || 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200';
-        realSlides.push({
-          id: `shelter_${shelter.id}`,
-          title: shelter.title,
-          subtitle: shelter.description || 'خدمات إيواء وبوكسات مهواة مع رعاية بيطرية وغذائية كاملة',
-          tag: shelter.type === 'monthly' ? 'إيواء شهري' : 'إيواء يومي',
-          badgeColor: 'bg-indigo-600 text-white',
-          price: 'إيواء ورعاية متكاملة',
-          image: mainImage,
-          actionTab: 'shelter',
-          itemType: 'shelter',
-          rawItem: shelter,
-          isRealAd: true,
-        });
-      });
-
-      // 4. Map Transports into slides
-      transports.forEach((transport) => {
-        const mainImage = 'https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?auto=format&fit=crop&q=80&w=1200';
-        const priceLabel = transport.price ? `${transport.price.toLocaleString('ar-SA')} ريال` : 'عند الاتفاق';
-        realSlides.push({
-          id: `transport_${transport.id}`,
-          title: `رحلة نقل: من ${transport.pickupAddress || 'الموقع'} إلى ${transport.deliveryAddress || 'الوجهة'}`,
-          subtitle: `نوع المركبة: ${transport.vehicleType || 'مقطورة شحن'} • سعة الخيل: ${transport.horseCount || 1} • التاريخ: ${transport.date || 'فوري'}`,
-          tag: 'نقل خيول ومقطورات',
-          badgeColor: 'bg-amber-600 text-white',
-          price: priceLabel,
-          image: mainImage,
-          actionTab: 'transport',
-          itemType: 'transport',
-          rawItem: transport,
-          isRealAd: true,
-        });
-      });
+      const realSlides = buildSlidesFromData(horses, stables, shelters, transports);
 
       if (realSlides.length > 0) {
         // Shuffle randomly
         const randomized = shuffleArray(realSlides);
-        // Take up to 10 slides for optimal performance
-        setSlides(randomized.slice(0, 10));
+        // Take up to 12 slides for optimal performance
+        setSlides(randomized.slice(0, 12));
       } else {
         setSlides(shuffleArray(DEFAULT_CURATED_SLIDES));
       }
     } catch (err) {
       console.warn('Failed to load real ads for slider:', err);
-      // Fallback
+      // Fallback to local cached slides if any
+      try {
+        const list = buildSlidesFromData(
+          FirebaseService.getLocalHorses(),
+          FirebaseService.getLocalStables(),
+          FirebaseService.getLocalShelters(),
+          FirebaseService.getLocalTransports()
+        );
+        if (list.length > 0) {
+          setSlides(shuffleArray(list).slice(0, 12));
+          return;
+        }
+      } catch {}
       setSlides(shuffleArray(DEFAULT_CURATED_SLIDES));
     }
   }, []);

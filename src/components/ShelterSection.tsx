@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, ChangeEvent, FormEvent, useMemo } from 'react';
-import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown, Shield, Building2, Search, MapPin, CheckCircle2, Lock } from 'lucide-react';
+import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent, useMemo } from 'react';
+import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown, Shield, Building2, Search, MapPin, CheckCircle2, Lock, RotateCcw, Tag } from 'lucide-react';
 import { Shelter, Stable, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
@@ -26,6 +26,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const [selectedShelter, setSelectedShelter] = useState<Shelter | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTodayAds, setUserTodayAds] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -220,6 +221,23 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     setIsTermsModalOpen(true);
   };
 
+  const handleToggleEndedStatus = async (shelter: Shelter, e?: MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      const newStatus = !shelter.isEnded;
+      const updated: Shelter = {
+        ...shelter,
+        isEnded: newStatus,
+        endedAt: newStatus ? new Date().toISOString() : undefined,
+      };
+      setShelters((prev) => prev.map((s) => (s.id === shelter.id ? updated : s)));
+      await FirebaseService.saveShelter(updated);
+    } catch (err) {
+      console.error('Failed to toggle shelter status:', err);
+      fetchSheltersAndStables();
+    }
+  };
+
   const handleConfirmedPublishShelter = async () => {
     if (!currentUser) return;
     setIsSubmittingAd(true);
@@ -227,13 +245,14 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
     const linkedStable = stables.find((s) => s.id === stableId);
     const resolvedTitle = linkedStable ? `مركز إيواء ${linkedStable.name}` : (title.trim() || 'مركز إيواء');
+    const existing = editingItemId ? shelters.find(s => s.id === editingItemId) : null;
 
     const shelterData: Shelter = {
       id: editingItemId ? editingItemId : 'shl_' + Date.now(),
-      userId: editingItemId ? (shelters.find(s => s.id === editingItemId)?.userId || currentUser.id) : currentUser.id,
-      userName: editingItemId ? (shelters.find(s => s.id === editingItemId)?.userName || currentUser.name) : currentUser.name,
+      userId: existing ? existing.userId : currentUser.id,
+      userName: existing ? existing.userName : currentUser.name,
       stableId,
-      stableName: linkedStable ? linkedStable.name : 'إسطبل مسجل',
+      stableName: linkedStable ? linkedStable.name : (existing?.stableName || 'إسطبل مسجل'),
       title: resolvedTitle,
       description: description.trim(),
       type,
@@ -243,9 +262,11 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       veterinary,
       phone: phone.trim(),
       images: images.length > 0 ? images : (linkedStable?.images?.length ? linkedStable.images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800']),
-      rating: editingItemId ? (shelters.find(s => s.id === editingItemId)?.rating || 5) : 5,
-      reviews: editingItemId ? (shelters.find(s => s.id === editingItemId)?.reviews || []) : [],
-      createdAt: editingItemId ? (shelters.find(s => s.id === editingItemId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
+      rating: existing?.rating || 5,
+      reviews: existing?.reviews || [],
+      isEnded: existing?.isEnded || false,
+      endedAt: existing?.endedAt,
+      createdAt: existing?.createdAt || new Date().toISOString()
     };
 
     try {
@@ -277,14 +298,17 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     }
   };
 
-  // Filter based on Search
+  // Filter based on Search and statusFilter
   const filteredShelters = shelters.filter((shelter) => {
     const matchesSearch = 
       shelter.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       shelter.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (shelter.stableName && shelter.stableName.toLowerCase().includes(searchQuery.toLowerCase())) ||
       shelter.phone.includes(searchQuery);
-    return matchesSearch;
+    if (!matchesSearch) return false;
+    if (statusFilter === 'active') return !shelter.isEnded;
+    if (statusFilter === 'ended') return !!shelter.isEnded;
+    return true;
   });
 
   return (
@@ -333,18 +357,47 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
         </div>
       </div>
 
-      {/* Title block */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-navy">إيواء الخيول والعناية بها</h2>
-          <p className="text-[11px] text-slate-400">مراكز إيواء مجهزة بالكامل للخيول ورعاية صحية للإسطبلات المسجلة بالمنصة</p>
+      {/* Category / Status Filter & Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-xs">
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'all'
+                ? 'bg-navy text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            جميع خدمات الإيواء ({shelters.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'active'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            المتاحة ({shelters.filter(s => !s.isEnded).length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('ended')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'ended'
+                ? 'bg-red-600 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            المحجوزة بالكامل ({shelters.filter(s => !!s.isEnded).length})
+          </button>
         </div>
+
         <button
           onClick={() => {
             if (!currentUser) onOpenAuth();
             else handleOpenAdd();
           }}
-          className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1 cursor-pointer transition shadow"
+          className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center justify-center gap-1 cursor-pointer transition shadow-xs shrink-0"
         >
           <Plus className="w-4 h-4" /> إضافة إيواء جديد+
         </button>
@@ -676,6 +729,12 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                   إيواء {shelter.type === 'monthly' ? 'شهري' : 'يومي'}
                 </span>
 
+                {shelter.isEnded && (
+                  <span className="absolute top-3 left-3 bg-red-600/95 text-white text-[10px] px-2.5 py-0.5 rounded-full flex items-center gap-1 font-black shadow-md border border-white/20">
+                    <CheckCircle2 className="w-3 h-3" /> محجوز بالكامل
+                  </span>
+                )}
+
                 <div className="absolute bottom-3 left-3 flex gap-1 items-center bg-black/60 backdrop-blur-xs px-2 py-0.5 rounded-full text-white text-[9px]">
                   <Star className="w-3.5 h-3.5 text-amber-500 fill-current" />
                   <span className="font-bold">{shelter.rating || 5} / 5</span>
@@ -712,18 +771,30 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                   </span>
                 </div>
 
-                {/* Edit & Delete Actions for owner/admin */}
+                {/* Edit & Delete & Toggle Status Actions for owner/admin */}
                 {(currentUser?.role === 'admin' || currentUser?.id === shelter.userId) && (
-                  <div className="flex gap-2 pt-2 border-t border-slate-50 justify-end" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-50 justify-end" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => handleToggleEndedStatus(shelter, e)}
+                      className={`px-2 py-1 text-[10px] font-bold rounded-lg flex items-center gap-1 transition cursor-pointer ${
+                        shelter.isEnded
+                          ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                          : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                      }`}
+                      title={shelter.isEnded ? 'إعادة إتاحة خدمة الإيواء' : 'تمييز الخدمة كـ محجوزة بالكامل'}
+                    >
+                      {shelter.isEnded ? <RotateCcw className="w-3 h-3" /> : <Tag className="w-3 h-3" />}
+                      <span>{shelter.isEnded ? 'إعادة إتاحة' : 'تمييز كمحجوز'}</span>
+                    </button>
                     <button
                       onClick={() => handleEditClick(shelter)}
-                      className="px-2 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition"
+                      className="px-2 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
                     >
                       <Edit2 className="w-3 h-3" /> تعديل
                     </button>
                     <button
                       onClick={() => handleDeleteClick(shelter.id)}
-                      className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-1 transition"
+                      className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
                     >
                       <Trash2 className="w-3 h-3" /> حذف
                     </button>

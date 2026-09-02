@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, ChangeEvent, FormEvent } from 'react';
-import { Plus, Search, Shield, Star, Phone, Map, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2, Crown } from 'lucide-react';
+import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
+import { Plus, Search, Shield, Star, Phone, Map, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2, Crown, RotateCcw, Tag, CheckCircle2 } from 'lucide-react';
 import { Stable, User } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import DetailModal from './DetailModal';
@@ -25,6 +25,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [selectedStable, setSelectedStable] = useState<Stable | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTodayAds, setUserTodayAds] = useState(0);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -170,24 +171,46 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     setIsTermsModalOpen(true);
   };
 
+  const handleToggleEndedStatus = async (stable: Stable, e?: MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      const newStatus = !stable.isEnded;
+      const updated: Stable = {
+        ...stable,
+        isEnded: newStatus,
+        endedAt: newStatus ? new Date().toISOString() : undefined,
+      };
+      // Optimistic UI update
+      setStables((prev) => prev.map((s) => (s.id === stable.id ? updated : s)));
+      await FirebaseService.saveStable(updated);
+    } catch (err) {
+      console.error('Failed to toggle stable status:', err);
+      fetchStables();
+    }
+  };
+
   const handleConfirmedPublishStable = async () => {
     if (!currentUser) return;
     setIsSubmittingAd(true);
     setError('');
 
+    const existing = editingItemId ? stables.find(s => s.id === editingItemId) : null;
+
     const stableData: Stable = {
       id: editingItemId ? editingItemId : 'stb_' + Date.now(),
-      userId: editingItemId ? (stables.find(s => s.id === editingItemId)?.userId || currentUser.id) : currentUser.id,
-      userName: editingItemId ? (stables.find(s => s.id === editingItemId)?.userName || currentUser.name) : currentUser.name,
+      userId: existing ? existing.userId : currentUser.id,
+      userName: existing ? existing.userName : currentUser.name,
       name: name.trim(),
       description: description.trim(),
       phone: phone.trim(),
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'],
       verified: editingItemId ? verified : (currentUser.role === 'admin' ? 'verified' : 'pending'),
       horseCount,
-      rating: editingItemId ? (stables.find(s => s.id === editingItemId)?.rating || 5) : 5,
-      reviews: editingItemId ? (stables.find(s => s.id === editingItemId)?.reviews || []) : [],
-      createdAt: editingItemId ? (stables.find(s => s.id === editingItemId)?.createdAt || new Date().toISOString()) : new Date().toISOString(),
+      rating: existing?.rating || 5,
+      reviews: existing?.reviews || [],
+      isEnded: existing?.isEnded || false,
+      endedAt: existing?.endedAt,
+      createdAt: existing?.createdAt || new Date().toISOString(),
     };
 
     try {
@@ -215,13 +238,16 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     }
   };
 
-  // Filter stables based on global search query
+  // Filter stables based on global search query and status filter
   const filteredStables = stables.filter((stable) => {
     const matchesSearch = 
       stable.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       stable.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       stable.phone.includes(searchQuery);
-    return matchesSearch;
+    if (!matchesSearch) return false;
+    if (statusFilter === 'active') return !stable.isEnded;
+    if (statusFilter === 'ended') return !!stable.isEnded;
+    return true;
   });
 
   // Highlight Stats: Outstanding Stables
@@ -267,18 +293,47 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
         </div>
       </div>
 
-      {/* Main Content Action Panel */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-bold text-navy">إسطبلات ومصانع الخيول</h2>
-          <p className="text-[11px] text-slate-400">تصفح وتواصل مع أشهر المرابط والإسطبلات العربية الأصيلة</p>
+      {/* Category / Status Filter & Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-slate-100 shadow-xs">
+        <div className="flex items-center gap-1.5 overflow-x-auto">
+          <button
+            onClick={() => setStatusFilter('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'all'
+                ? 'bg-navy text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            جميع الإسطبلات ({stables.length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('active')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'active'
+                ? 'bg-emerald-600 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            المتاحة ({stables.filter(s => !s.isEnded).length})
+          </button>
+          <button
+            onClick={() => setStatusFilter('ended')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+              statusFilter === 'ended'
+                ? 'bg-red-600 text-white shadow-xs'
+                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+            }`}
+          >
+            المكتملة / المغلقة ({stables.filter(s => !!s.isEnded).length})
+          </button>
         </div>
+
         <button
           onClick={() => {
             if (!currentUser) onOpenAuth();
             else handleOpenAdd();
           }}
-          className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1 cursor-pointer transition-all shadow-sm"
+          className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center justify-center gap-1 cursor-pointer transition-all shadow-xs shrink-0"
         >
           <Plus className="w-4 h-4" /> إضافة إسطبل جديد+
         </button>
@@ -449,6 +504,11 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                     <Shield className="w-3 h-3" /> موثق
                   </span>
                 )}
+                {stable.isEnded && (
+                  <span className="absolute top-3 left-3 bg-red-600/95 text-white text-[10px] px-2.5 py-0.5 rounded-full flex items-center gap-1 font-black shadow-md border border-white/20">
+                    <CheckCircle2 className="w-3 h-3" /> مكتمل الاستيعاب
+                  </span>
+                )}
 
                 <div className="absolute bottom-3 left-3 flex gap-1 items-center bg-black/60 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-white text-[10px]">
                   <Users className="w-3.5 h-3.5 text-gold" />
@@ -476,18 +536,30 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                   </span>
                 </div>
 
-                {/* Edit & Delete Actions for owner/admin */}
+                {/* Edit & Delete & Toggle Status Actions for owner/admin */}
                 {(currentUser?.role === 'admin' || currentUser?.id === stable.userId) && (
-                  <div className="flex gap-2 pt-2 border-t border-slate-50 justify-end" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-50 justify-end" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => handleToggleEndedStatus(stable, e)}
+                      className={`px-2 py-1 text-[10px] font-bold rounded-lg flex items-center gap-1 transition cursor-pointer ${
+                        stable.isEnded
+                          ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                          : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
+                      }`}
+                      title={stable.isEnded ? 'إعادة فتح واستقبال الخيول' : 'تمييز الإسطبل كـ مكتمل / غير متاح'}
+                    >
+                      {stable.isEnded ? <RotateCcw className="w-3 h-3" /> : <Tag className="w-3 h-3" />}
+                      <span>{stable.isEnded ? 'إعادة فتح' : 'تمييز كمكتمل'}</span>
+                    </button>
                     <button
                       onClick={() => handleEditClick(stable)}
-                      className="px-2 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition"
+                      className="px-2 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
                     >
                       <Edit2 className="w-3 h-3" /> تعديل
                     </button>
                     <button
                       onClick={() => handleDeleteClick(stable.id)}
-                      className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-1 transition"
+                      className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
                     >
                       <Trash2 className="w-3 h-3" /> حذف
                     </button>

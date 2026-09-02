@@ -273,20 +273,6 @@ export const FirebaseService = {
   },
   // --- UTILS ---
   initFallbackData() {
-    // Purge any legacy sample demo items (e.g. horse_1, stable_1, shelter_1, transport_1) from local cache
-    try {
-      const demoIds = ['horse_1', 'horse_2', 'stable_1', 'stable_2', 'shelter_1', 'transport_1'];
-      ['horses', 'stables', 'shelters', 'transports'].forEach(node => {
-        const local = getLocal<any>(node);
-        if (local.length > 0) {
-          const filtered = local.filter(item => !demoIds.includes(item.id));
-          if (filtered.length !== local.length) {
-            setLocal(node, filtered);
-          }
-        }
-      });
-    } catch (e) {}
-
     if (localStorage.getItem('horses_forum_initialized_v2')) return;
 
     const sampleUsers: User[] = [
@@ -518,26 +504,22 @@ export const FirebaseService = {
   // --- LOCAL CACHE ACCESSORS ---
   getLocalStables(): Stable[] {
     const deletedIds = getDeletedIds();
-    const demoIds = new Set(['stable_1', 'stable_2']);
-    return getLocal<Stable>('stables').filter(s => !deletedIds.includes(s.id) && !cloudDeletedIdsSet.has(s.id) && !demoIds.has(s.id));
+    return getLocal<Stable>('stables').filter(s => !deletedIds.includes(s.id) && !cloudDeletedIdsSet.has(s.id));
   },
 
   getLocalHorses(): Horse[] {
     const deletedIds = getDeletedIds();
-    const demoIds = new Set(['horse_1', 'horse_2']);
-    return getLocal<Horse>('horses').filter(h => !deletedIds.includes(h.id) && !cloudDeletedIdsSet.has(h.id) && !demoIds.has(h.id));
+    return getLocal<Horse>('horses').filter(h => !deletedIds.includes(h.id) && !cloudDeletedIdsSet.has(h.id));
   },
 
   getLocalShelters(): Shelter[] {
     const deletedIds = getDeletedIds();
-    const demoIds = new Set(['shelter_1']);
-    return getLocal<Shelter>('shelters').filter(sh => !deletedIds.includes(sh.id) && !cloudDeletedIdsSet.has(sh.id) && !demoIds.has(sh.id));
+    return getLocal<Shelter>('shelters').filter(sh => !deletedIds.includes(sh.id) && !cloudDeletedIdsSet.has(sh.id));
   },
 
   getLocalTransports(): Transport[] {
     const deletedIds = getDeletedIds();
-    const demoIds = new Set(['transport_1']);
-    return getLocal<Transport>('transports').filter(t => !deletedIds.includes(t.id) && !cloudDeletedIdsSet.has(t.id) && !demoIds.has(t.id));
+    return getLocal<Transport>('transports').filter(t => !deletedIds.includes(t.id) && !cloudDeletedIdsSet.has(t.id));
   },
 
   /**
@@ -557,12 +539,10 @@ export const FirebaseService = {
         this.getTransports()
       ]);
 
-      // 3. Purge any legacy sample demo items & deleted items
-      const demoIds = new Set(['horse_1', 'horse_2', 'stable_1', 'stable_2', 'shelter_1', 'transport_1']);
-      const cleanHorses = horses.filter(h => !demoIds.has(h.id) && !cloudDeleted.has(h.id));
-      const cleanStables = stables.filter(s => !demoIds.has(s.id) && !cloudDeleted.has(s.id));
-      const cleanShelters = shelters.filter(sh => !demoIds.has(sh.id) && !cloudDeleted.has(sh.id));
-      const cleanTransports = transports.filter(t => !demoIds.has(t.id) && !cloudDeleted.has(t.id));
+      const cleanHorses = horses.filter(h => !cloudDeleted.has(h.id));
+      const cleanStables = stables.filter(s => !cloudDeleted.has(s.id));
+      const cleanShelters = shelters.filter(sh => !cloudDeleted.has(sh.id));
+      const cleanTransports = transports.filter(t => !cloudDeleted.has(t.id));
 
       setLocal('horses', cleanHorses);
       setLocal('stables', cleanStables);

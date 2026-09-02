@@ -11,6 +11,8 @@ import ConfirmModal from './ConfirmModal';
 import ImageLightboxModal from './ImageLightboxModal';
 import { getRentDurationLabel } from './HorsesSection';
 
+import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
+
 interface DetailModalProps {
   item: any; // Stable | Horse | Shelter | Transport
   type: 'stable' | 'horse' | 'shelter' | 'transport';
@@ -21,8 +23,17 @@ interface DetailModalProps {
   onEdit?: (item: any) => void;
 }
 
+const DEFAULT_TRANSPORT_IMG = defaultTransportImg;
+
 export default function DetailModal({ item, type, isOpen, onClose, currentUser, onRefresh, onEdit }: DetailModalProps) {
-  const [activeImage, setActiveImage] = useState(item?.images?.[0] || 'https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800');
+  const defaultFallback = type === 'transport'
+    ? DEFAULT_TRANSPORT_IMG
+    : 'https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800';
+
+  const hasItemImages = item?.images && Array.isArray(item.images) && item.images.length > 0;
+  const initialImage = hasItemImages ? item.images[0] : defaultFallback;
+
+  const [activeImage, setActiveImage] = useState(initialImage);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [error, setError] = useState('');
@@ -39,22 +50,20 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
 
   if (!isOpen || !item) return null;
 
-  const itemImages: string[] = item?.images && item.images.length > 0
-    ? item.images
-    : [activeImage];
+  const itemImages: string[] = hasItemImages ? item.images : [defaultFallback];
 
   const openGalleryAt = (index: number) => {
     setLightboxImages(itemImages);
     setLightboxIndex(Math.max(0, Math.min(index, itemImages.length - 1)));
-    setLightboxTitle(item.name || 'صور الإعلان');
+    setLightboxTitle(item.name || item.title || item.vehicleType || 'صور الإعلان');
     setLightboxSubtitle(
       type === 'horse'
         ? `جواد: ${item.name} (${item.breed === 'arabian' ? 'عربي أصيل' : item.breed === 'shabi' ? 'شعبي' : 'خيل'})`
         : type === 'stable'
         ? `إسطبل: ${item.name}`
         : type === 'shelter'
-        ? `خدمة إيواء: ${item.name}`
-        : `خدمة نقل ومقطورات: ${item.name}`
+        ? `خدمة إيواء: ${item.name || item.title}`
+        : `خدمة نقل ومقطورات: ${item.vehicleType || 'مركبة مجهزة'}`
     );
     setIsLightboxOpen(true);
   };
@@ -90,24 +99,58 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
     }
   };
 
-  const handleToggleSoldStatus = async () => {
-    if (type !== 'horse') return;
+  const handleToggleEndedStatus = async () => {
     try {
-      const newStatus = !item.isSold;
-      const updatedHorse: Horse = {
-        ...item,
-        isSold: newStatus,
-        soldAt: newStatus ? new Date().toISOString() : undefined,
-      };
-      await FirebaseService.saveHorse(updatedHorse);
-      item.isSold = newStatus;
-      item.soldAt = updatedHorse.soldAt;
-      setSuccess(newStatus ? 'تم تحديد الجواد كـ "تم البيع" بنجاح!' : 'تم إعادة تعيين الجواد كـ "متاح" بنجاح!');
+      if (type === 'horse') {
+        const newStatus = !item.isSold;
+        const updatedHorse: Horse = {
+          ...item,
+          isSold: newStatus,
+          soldAt: newStatus ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveHorse(updatedHorse);
+        item.isSold = newStatus;
+        item.soldAt = updatedHorse.soldAt;
+        setSuccess(newStatus ? 'تم تحديد الجواد كـ "تم البيع" بنجاح!' : 'تم إعادة تعيين الجواد كـ "متاح" بنجاح!');
+      } else if (type === 'stable') {
+        const newStatus = !item.isEnded;
+        const updatedStable: Stable = {
+          ...item,
+          isEnded: newStatus,
+          endedAt: newStatus ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveStable(updatedStable);
+        item.isEnded = newStatus;
+        item.endedAt = updatedStable.endedAt;
+        setSuccess(newStatus ? 'تم تمييز الإسطبل كـ "مكتمل / غير متاح" بنجاح!' : 'تم إعادة فتح الإسطبل كـ "متاح ونشط" بنجاح!');
+      } else if (type === 'shelter') {
+        const newStatus = !item.isEnded;
+        const updatedShelter: Shelter = {
+          ...item,
+          isEnded: newStatus,
+          endedAt: newStatus ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveShelter(updatedShelter);
+        item.isEnded = newStatus;
+        item.endedAt = updatedShelter.endedAt;
+        setSuccess(newStatus ? 'تم تمييز الإيواء كـ "محجوز بالكامل" بنجاح!' : 'تم إعادة إتاحة خدمة الإيواء بنجاح!');
+      } else if (type === 'transport') {
+        const newStatus = !item.isEnded;
+        const updatedTransport: Transport = {
+          ...item,
+          isEnded: newStatus,
+          endedAt: newStatus ? new Date().toISOString() : undefined,
+        };
+        await FirebaseService.saveTransport(updatedTransport);
+        item.isEnded = newStatus;
+        item.endedAt = updatedTransport.endedAt;
+        setSuccess(newStatus ? 'تم تمييز رحلة النقل كـ "تم النقل / منتهية" بنجاح!' : 'تم إعادة فتح رحلة النقل كـ "متاحة للحجز" بنجاح!');
+      }
       onRefresh();
       setTimeout(() => setSuccess(''), 3000);
     } catch (e) {
-      console.error('Failed to toggle sold status:', e);
-      setError('حدث خطأ أثناء تعديل حالة البيع.');
+      console.error('Failed to toggle ended status:', e);
+      setError('حدث خطأ أثناء تعديل حالة الإعلان.');
     }
   };
 
@@ -222,7 +265,7 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
             <span className="bg-gold-light text-gold-dark text-xs px-2.5 py-1 rounded-full font-bold">
               {type === 'stable' ? 'إسطبل' : type === 'horse' ? 'جواد' : type === 'shelter' ? 'إيواء' : 'نقل خيل'}
             </span>
-            <h3 className="font-bold text-navy text-base leading-tight">{item.name || item.title || 'تفاصيل الإعلان'}</h3>
+            <h3 className="font-bold text-navy text-base leading-tight">{item.name || item.title || item.vehicleType || 'تفاصيل الإعلان'}</h3>
           </div>
           <button onClick={onClose} className="p-1 rounded-full hover:bg-slate-200 text-slate-500 cursor-pointer">
             <X className="w-5 h-5" />
@@ -232,18 +275,34 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
-          {/* Sold Banner if horse is marked as sold */}
-          {type === 'horse' && item.isSold && (
+          {/* Status Banner when marked as ended / sold / booked */}
+          {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) && (
             <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white p-3.5 rounded-xl flex items-center justify-between shadow-md border border-red-500/30 animate-in fade-in duration-300">
               <div className="flex items-center gap-2.5">
                 <span className="bg-white/20 p-2 rounded-lg text-lg">🏷️</span>
                 <div>
-                  <span className="font-black text-xs sm:text-sm block">تم بيع هذا الجواد بنجاح (مُباع)</span>
-                  <span className="text-[10px] text-white/80">هذا الإعلان معلم كـ "تم البيع" وأصبح غير متاح للشراء حالياً</span>
+                  <span className="font-black text-xs sm:text-sm block">
+                    {type === 'horse'
+                      ? 'تم بيع هذا الجواد بنجاح (مُباع)'
+                      : type === 'stable'
+                      ? 'تم إغلاق استقبال الخيول مؤقتاً (مكتمل الاستيعاب)'
+                      : type === 'shelter'
+                      ? 'خدمة الإيواء محجوزة بالكامل حالياً'
+                      : 'تمت هذه الرحلة بنجاح (رحلة مكتملة / تم النقل)'}
+                  </span>
+                  <span className="text-[10px] text-white/80">
+                    {type === 'horse'
+                      ? 'هذا الإعلان معلم كـ "تم البيع" وأصبح غير متاح للشراء حالياً'
+                      : type === 'stable'
+                      ? 'هذا الإسطبل معلم كـ "مكتمل الاستيعاب" وغير متاح لاستقبال خيول جديدة حالياً'
+                      : type === 'shelter'
+                      ? 'هذه الخدمة معلمة كـ "محجوزة بالكامل" وغير متاحة للحجز حالياً'
+                      : 'طلب النقل هذا معلم كـ "تم النقل / مكتمل"'}
+                  </span>
                 </div>
               </div>
               <span className="bg-white text-red-700 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs shrink-0">
-                تم البيع ✓
+                {type === 'horse' ? 'تم البيع ✓' : type === 'stable' ? 'مكتمل ✓' : type === 'shelter' ? 'محجوز بالكامل ✓' : 'تم النقل ✓'}
               </span>
             </div>
           )}
@@ -263,7 +322,7 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
           )}
 
           {/* Photos Panel */}
-          {item.images && item.images.length > 0 && (
+          {itemImages.length > 0 && (
             <div className="space-y-2">
               <div 
                 className="w-full h-64 sm:h-72 rounded-xl overflow-hidden bg-slate-100 relative group cursor-zoom-in border border-slate-200"
@@ -289,9 +348,10 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     <Shield className="w-3.5 h-3.5" /> موثق
                   </span>
                 )}
-                {type === 'horse' && item.isSold && (
+                {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) && (
                   <span className="absolute top-3 left-3 bg-red-600/95 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black shadow-lg border border-white/20 backdrop-blur-xs">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-white" /> تم البيع
+                    <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                    {type === 'horse' ? 'تم البيع' : type === 'stable' ? 'مكتمل الاستيعاب' : type === 'shelter' ? 'محجوز بالكامل' : 'تم النقل'}
                   </span>
                 )}
 
@@ -306,9 +366,9 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
               </div>
 
               {/* Thumbnails row */}
-              {item.images.length > 1 && (
+              {itemImages.length > 1 && (
                 <div className="flex gap-2 overflow-x-auto pb-1 items-center">
-                  {item.images.map((img: string, idx: number) => (
+                  {itemImages.map((img: string, idx: number) => (
                     <button
                       key={idx}
                       onClick={() => setActiveImage(img)}
@@ -320,7 +380,7 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     >
                       <img src={img} referrerPolicy="no-referrer" alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
                       <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 flex items-center justify-center transition">
-                        <ZoomIn className="w-3 h-3 text-white" />
+                        <ZoomIn className="w-3.5 h-3.5 text-white" />
                       </div>
                     </button>
                   ))}
@@ -330,7 +390,7 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
                     title="فتح معرض الصور بالكامل"
                   >
                     <Maximize2 className="w-3.5 h-3.5 text-navy" />
-                    <span>عرض الكل ({item.images.length})</span>
+                    <span>عرض الكل ({itemImages.length})</span>
                   </button>
                 </div>
               )}
@@ -343,26 +403,38 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
               بواسطة: <strong>{item.userName || 'معلن'}</strong> • {new Date(item.createdAt).toLocaleDateString('ar-SA')}
             </div>
             <div className="flex flex-wrap gap-2">
-              {/* Owner / Admin toggle sold status button */}
-              {type === 'horse' && (isAdmin || isOwner) && (
+              {/* Owner / Admin toggle status button */}
+              {(isAdmin || isOwner) && (
                 <button
-                  onClick={handleToggleSoldStatus}
+                  onClick={handleToggleEndedStatus}
                   className={`p-2 rounded-xl transition text-xs flex items-center gap-1.5 cursor-pointer font-bold border ${
-                    item.isSold
+                    (type === 'horse' ? item.isSold : item.isEnded)
                       ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800'
                       : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800'
                   }`}
-                  title={item.isSold ? 'إلغاء وضع تم البيع وإعادة عرضه كمتاح' : 'وضع علامة تم البيع على الإعلان'}
+                  title={
+                    type === 'horse'
+                      ? item.isSold ? 'إلغاء وضع تم البيع وإعادة عرضه كمتاح' : 'وضع علامة تم البيع على الإعلان'
+                      : type === 'stable'
+                      ? item.isEnded ? 'إعادة فتح الإسطبل واستقبال الخيول' : 'تمييز الإسطبل كـ مكتمل / غير متاح'
+                      : type === 'shelter'
+                      ? item.isEnded ? 'إعادة إتاحة خدمة الإيواء' : 'تمييز الخدمة كـ محجوزة بالكامل'
+                      : item.isEnded ? 'إعادة فتح الرحلة للحجز' : 'تمييز الرحلة كـ تم النقل / منتهية'
+                  }
                 >
-                  {item.isSold ? (
+                  {(type === 'horse' ? item.isSold : item.isEnded) ? (
                     <>
                       <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>إعادة عرض (متاح)</span>
+                      <span>
+                        {type === 'horse' ? 'إعادة عرض (متاح)' : type === 'stable' ? 'إعادة فتح (متاح)' : type === 'shelter' ? 'إعادة إتاحة' : 'إعادة فتح الرحلة'}
+                      </span>
                     </>
                   ) : (
                     <>
                       <Tag className="w-3.5 h-3.5 text-amber-600" />
-                      <span>وضع علامة "تم البيع"</span>
+                      <span>
+                        {type === 'horse' ? 'وضع علامة "تم البيع"' : type === 'stable' ? 'تمييز كـ "مكتمل"' : type === 'shelter' ? 'تمييز كـ "محجوز بالكامل"' : 'تمييز كـ "تم النقل"'}
+                      </span>
                     </>
                   )}
                 </button>
@@ -800,11 +872,89 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
 
         </div>
 
-         {/* Modal Footer */}
-        <div className="p-4 bg-slate-50 border-t border-slate-100 flex justify-end">
+         {/* Modal Footer with Actions for Owner / Admin and Share */}
+        <div className="p-4 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Share button */}
+            <button
+              onClick={handleShare}
+              className="bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold py-2 px-3.5 rounded-xl text-xs flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+              title="مشاركة رابط الإعلان"
+            >
+              <Share2 className="w-3.5 h-3.5 text-navy" />
+              <span>مشاركة</span>
+            </button>
+
+            {/* Owner & Admin Action Controls */}
+            {(isAdmin || isOwner) && (
+              <>
+                {/* Toggle Sold / Ended Status */}
+                <button
+                  onClick={handleToggleEndedStatus}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 cursor-pointer transition shadow-2xs ${
+                    ((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded))
+                      ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200'
+                      : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200'
+                  }`}
+                  title={
+                    ((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded))
+                      ? 'إعادة التنشيط والإتاحة'
+                      : 'تمييز الإعلان كـ منتهي / مكتمل / مباع'
+                  }
+                >
+                  {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) ? (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>إعادة تنشيط</span>
+                    </>
+                  ) : (
+                    <>
+                      <Tag className="w-3.5 h-3.5" />
+                      <span>
+                        {type === 'horse'
+                          ? 'تمييز كمباع'
+                          : type === 'transport'
+                          ? 'تمييز كمنجز'
+                          : type === 'shelter'
+                          ? 'تمييز كمحجوز'
+                          : 'تمييز كمكتمل'}
+                      </span>
+                    </>
+                  )}
+                </button>
+
+                {/* Edit Ad Button */}
+                {onEdit && (
+                  <button
+                    onClick={() => {
+                      onClose();
+                      onEdit(item);
+                    }}
+                    className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-3 rounded-xl text-xs flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                    title="تعديل بيانات الإعلان"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>تعديل</span>
+                  </button>
+                )}
+
+                {/* Delete Ad Button */}
+                <button
+                  onClick={handleDeleteAd}
+                  className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 font-bold py-2 px-3 rounded-xl text-xs flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                  title="حذف الإعلان نهائياً"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>حذف</span>
+                </button>
+              </>
+            )}
+          </div>
+
           <button
             onClick={onClose}
-            className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 px-5 rounded-xl text-xs cursor-pointer transition"
+            className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-2 px-5 rounded-xl text-xs cursor-pointer transition mr-auto"
           >
             إغلاق
           </button>
