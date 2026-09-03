@@ -523,6 +523,154 @@ export const FirebaseService = {
   },
 
   /**
+   * Retrieves a specific ad by its ID and optional type.
+   * Checks fast local storage cache first, then cloud direct document lookup, then collection fallback.
+   */
+  async getAdById(
+    adId: string,
+    preferredType?: 'horse' | 'stable' | 'shelter' | 'transport'
+  ): Promise<{ item: any; type: 'horse' | 'stable' | 'shelter' | 'transport' } | null> {
+    if (!adId) return null;
+    const cleanId = String(adId).trim();
+    if (!cleanId) return null;
+
+    // Check if definitely marked deleted
+    const deletedIds = getDeletedIds();
+    if (deletedIds.includes(cleanId) || cloudDeletedIdsSet.has(cleanId)) {
+      return null;
+    }
+
+    // 1. Fast path: check local storage cache first
+    if (preferredType === 'horse') {
+      const h = this.getLocalHorses().find(i => i.id === cleanId);
+      if (h) return { item: h, type: 'horse' };
+    } else if (preferredType === 'stable') {
+      const s = this.getLocalStables().find(i => i.id === cleanId);
+      if (s) return { item: s, type: 'stable' };
+    } else if (preferredType === 'shelter') {
+      const sh = this.getLocalShelters().find(i => i.id === cleanId);
+      if (sh) return { item: sh, type: 'shelter' };
+    } else if (preferredType === 'transport') {
+      const t = this.getLocalTransports().find(i => i.id === cleanId);
+      if (t) return { item: t, type: 'transport' };
+    }
+
+    // Check all local collections if not found by preferred type
+    const localHorse = this.getLocalHorses().find(i => i.id === cleanId);
+    if (localHorse) return { item: localHorse, type: 'horse' };
+    const localStable = this.getLocalStables().find(i => i.id === cleanId);
+    if (localStable) return { item: localStable, type: 'stable' };
+    const localShelter = this.getLocalShelters().find(i => i.id === cleanId);
+    if (localShelter) return { item: localShelter, type: 'shelter' };
+    const localTransport = this.getLocalTransports().find(i => i.id === cleanId);
+    if (localTransport) return { item: localTransport, type: 'transport' };
+
+    // 2. Direct Cloud Lookup: Fetch the specific single document by ID (Lightning-fast, ~60ms)
+    const fetchDirectDoc = async (node: string): Promise<any | null> => {
+      try {
+        const res = await fetch(`${RTDB_BASE_URL}/${node}/${cleanId}.json`, {
+          signal: AbortSignal.timeout(5000)
+        });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data && typeof data === 'object' && !data.error && (data.name || data.title || data.vehicleType || data.id)) {
+          return { id: cleanId, ...data };
+        }
+      } catch (e) {}
+      return null;
+    };
+
+    try {
+      // First check preferred type directly
+      if (preferredType) {
+        const node = preferredType === 'horse' ? 'horses' : preferredType === 'stable' ? 'stables' : preferredType === 'shelter' ? 'shelters' : 'transports';
+        const doc = await fetchDirectDoc(node);
+        if (doc) {
+          // Cache locally
+          const local = getLocal<any>(node);
+          if (!local.some(i => i.id === doc.id)) {
+            setLocal(node, [doc, ...local]);
+          }
+          return { item: doc, type: preferredType };
+        }
+      }
+
+      // Check all 4 collections directly in parallel
+      const [hDoc, sDoc, shDoc, tDoc] = await Promise.all([
+        preferredType !== 'horse' ? fetchDirectDoc('horses') : Promise.resolve(null),
+        preferredType !== 'stable' ? fetchDirectDoc('stables') : Promise.resolve(null),
+        preferredType !== 'shelter' ? fetchDirectDoc('shelters') : Promise.resolve(null),
+        preferredType !== 'transport' ? fetchDirectDoc('transports') : Promise.resolve(null),
+      ]);
+
+      if (hDoc) {
+        const local = getLocal<any>('horses');
+        if (!local.some(i => i.id === hDoc.id)) setLocal('horses', [hDoc, ...local]);
+        return { item: hDoc, type: 'horse' };
+      }
+      if (sDoc) {
+        const local = getLocal<any>('stables');
+        if (!local.some(i => i.id === sDoc.id)) setLocal('stables', [sDoc, ...local]);
+        return { item: sDoc, type: 'stable' };
+      }
+      if (shDoc) {
+        const local = getLocal<any>('shelters');
+        if (!local.some(i => i.id === shDoc.id)) setLocal('shelters', [shDoc, ...local]);
+        return { item: shDoc, type: 'shelter' };
+      }
+      if (tDoc) {
+        const local = getLocal<any>('transports');
+        if (!local.some(i => i.id === tDoc.id)) setLocal('transports', [tDoc, ...local]);
+        return { item: tDoc, type: 'transport' };
+      }
+    } catch (e) {
+      console.warn('Direct document fetch failed:', e);
+    }
+
+    // 3. Fallback: Full collection scan (if direct key is different or under full scan)
+    try {
+      if (preferredType === 'horse') {
+        const horses = await this.getHorses();
+        const found = horses.find(i => i.id === cleanId);
+        if (found) return { item: found, type: 'horse' };
+      } else if (preferredType === 'stable') {
+        const stables = await this.getStables();
+        const found = stables.find(i => i.id === cleanId);
+        if (found) return { item: found, type: 'stable' };
+      } else if (preferredType === 'shelter') {
+        const shelters = await this.getShelters();
+        const found = shelters.find(i => i.id === cleanId);
+        if (found) return { item: found, type: 'shelter' };
+      } else if (preferredType === 'transport') {
+        const transports = await this.getTransports();
+        const found = transports.find(i => i.id === cleanId);
+        if (found) return { item: found, type: 'transport' };
+      }
+
+      // Check all remote collections
+      const [horses, stables, shelters, transports] = await Promise.all([
+        this.getHorses(),
+        this.getStables(),
+        this.getShelters(),
+        this.getTransports()
+      ]);
+
+      const foundHorse = horses.find(i => i.id === cleanId);
+      if (foundHorse) return { item: foundHorse, type: 'horse' };
+      const foundStable = stables.find(i => i.id === cleanId);
+      if (foundStable) return { item: foundStable, type: 'stable' };
+      const foundShelter = shelters.find(i => i.id === cleanId);
+      if (foundShelter) return { item: foundShelter, type: 'shelter' };
+      const foundTransport = transports.find(i => i.id === cleanId);
+      if (foundTransport) return { item: foundTransport, type: 'transport' };
+    } catch (e) {
+      console.warn('Failed to load ad by ID from cloud collections:', e);
+    }
+
+    return null;
+  },
+
+  /**
    * Performs an immediate, deep cloud synchronization on browser startup.
    * Cleans phantom / deleted ads and syncs all devices with the single source of truth.
    */

@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, FormEvent } from 'react';
-import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2 } from 'lucide-react';
+import { useState, useEffect, FormEvent } from 'react';
+import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2, Copy, Send, MessageCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
 import { Stable, Horse, Shelter, Transport, User, Review } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import ConfirmModal from './ConfirmModal';
@@ -41,12 +41,41 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
   const [isDeleteAdConfirmOpen, setIsDeleteAdConfirmOpen] = useState(false);
   const [deleteReviewId, setDeleteReviewId] = useState<string | null>(null);
 
+  // Share dialog & feedback state
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<'link' | 'full' | null>(null);
+  const [showShareTextPreview, setShowShareTextPreview] = useState(false);
+
   // Lightbox viewer state
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [lightboxImages, setLightboxImages] = useState<string[]>([]);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [lightboxTitle, setLightboxTitle] = useState('');
   const [lightboxSubtitle, setLightboxSubtitle] = useState('');
+
+  // Automatically synchronize current ad ID and type into the browser URL when modal is open
+  useEffect(() => {
+    if (!isOpen || !item?.id) return;
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('type', type);
+      url.searchParams.set('ad', item.id);
+      window.history.replaceState(null, '', url.toString());
+    } catch (e) {
+      console.warn('Could not sync URL state:', e);
+    }
+
+    return () => {
+      try {
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('ad') === item?.id) {
+          url.searchParams.delete('ad');
+          url.searchParams.delete('type');
+          window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+        }
+      } catch (e) {}
+    };
+  }, [isOpen, item?.id, type]);
 
   if (!isOpen || !item) return null;
 
@@ -244,14 +273,296 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
     }
   };
 
-  // Safe share handler
+  // Safe direct share handlers
+  const getDirectShareUrl = () => {
+    try {
+      const cleanPath = (window.location.pathname || '/').replace(/\/index\.html$/i, '') || '/';
+      const url = new URL(cleanPath, window.location.origin);
+      url.searchParams.set('type', type);
+      url.searchParams.set('ad', item.id);
+      return url.toString();
+    } catch (e) {
+      return `${window.location.origin}/?type=${type}&ad=${item.id}`;
+    }
+  };
+
+  const getAdTitle = () => {
+    if (type === 'horse') {
+      const breed = item.breed === 'arabian' ? 'خيل عربي أصيل' : item.breed === 'shabi' ? 'خيل شعبي' : 'سيسي';
+      const priceStr = item.price && item.price > 0 ? ` - ${item.price.toLocaleString('ar-SA')} ريال` : '';
+      return `${item.name} (${breed})${priceStr}`;
+    }
+    if (type === 'stable') {
+      return `إسطبل ومربط: ${item.name}${item.city ? ` - ${item.city}` : ''}`;
+    }
+    if (type === 'shelter') {
+      return `${item.title || item.name}${item.city ? ` - ${item.city}` : ''}`;
+    }
+    return `رحلة نقل خيل: من ${item.pickupAddress || 'الموقع'} إلى ${item.deliveryAddress || 'الوجهة'}${item.price ? ` - ${item.price.toLocaleString('ar-SA')} ريال` : ''}`;
+  };
+
+  const getShareMessage = () => {
+    return getFullAdShareMessage();
+  };
+
+  const getFullAdShareMessage = () => {
+    const shareUrl = getDirectShareUrl();
+    const rawPhone = item.phone || '';
+    const cleanDigits = rawPhone.replace(/[^0-9]/g, '');
+    const waLink = cleanDigits
+      ? `https://wa.me/${cleanDigits.startsWith('0') ? '966' + cleanDigits.substring(1) : cleanDigits}`
+      : '';
+
+    if (type === 'horse') {
+      const breedAr =
+        item.breed === 'arabian'
+          ? 'خيل عربي أصيل 🐎'
+          : item.breed === 'shabi'
+          ? 'خيل شعبي 🐎'
+          : item.breed === 'sisi'
+          ? 'سيسي 🐴'
+          : 'خيل';
+      const genderAr =
+        item.gender === 'stallion'
+          ? 'فحل (حصان ذكر)'
+          : item.gender === 'mare'
+          ? 'فرس (أنثى)'
+          : item.gender === 'gelding'
+          ? 'مخصي'
+          : '';
+      const purposeAr = item.adType === 'sale' ? 'للبيع' : 'للإيجار';
+      const priceText = item.price ? `${item.price.toLocaleString('ar-SA')} ريال` : 'على السوم';
+      const statusText = item.isSold ? '⚠️ تم البيع (مُباع)' : '✅ متاح حالياً';
+
+      const lines: string[] = [
+        `🐴 *إعلان خيل على منصة إستابلي للخيول العربية*`,
+        `═════════════════════════`,
+        `✨ *الاسم:* ${item.name || 'جواد معروض'}`,
+        `🏷️ *القسم:* خيل ${purposeAr} (${statusText})`,
+        `🐎 *السلالة:* ${breedAr}`,
+        genderAr ? `⚧ *الجنس:* ${genderAr}` : '',
+        item.age !== undefined && item.age !== null
+          ? `🎂 *العمر:* ${item.age} ${item.age === 1 ? 'سنة' : item.age === 2 ? 'سنتان' : item.age <= 10 ? 'سنوات' : 'سنة'}`
+          : '',
+        item.color ? `🎨 *اللون:* ${item.color}` : '',
+        item.height ? `📏 *الارتفاع:* ${item.height}` : '',
+        (item.sireName || item.damName)
+          ? `🏆 *الأنساب:* الأب: ${item.sireName || 'غير محدد'} | الأم: ${item.damName || 'غير محدد'}`
+          : '',
+        item.healthStatus ? `🩺 *السلامة والصحة:* ${item.healthStatus}` : '',
+        item.stableName ? `🏡 *الإسطبل / المربط:* ${item.stableName}` : '',
+        item.city ? `📍 *المدينة:* ${item.city}` : '',
+        `💰 *السعر:* ${priceText}`,
+      ].filter(Boolean);
+
+      if (item.description && item.description.trim()) {
+        lines.push(
+          `═════════════════════════`,
+          `📝 *الوصف والملاحظات:*`,
+          item.description.trim()
+        );
+      }
+
+      lines.push(
+        `═════════════════════════`,
+        item.phone ? `📞 *للتواصل المباشر:* ${item.phone}` : '',
+        waLink ? `💬 *محادثة واتساب مباشرة:* ${waLink}` : '',
+        `🔗 *رابط تفاصيل الإعلان والصور بالكامل:*`,
+        `${shareUrl}`
+      );
+
+      return lines.filter(Boolean).join('\n');
+    }
+
+    if (type === 'stable') {
+      const verifiedText = item.verified === 'verified' ? 'موثق ومعتمد ✅' : 'قيد المراجعة';
+      const statusText = item.isEnded ? '⚠️ (مكتمل الاستيعاب مؤقتاً)' : '✅ متاح ويستقبل الخيول';
+
+      const lines: string[] = [
+        `🏡 *إعلان إسطبل ومربط خيول على منصة إستابلي*`,
+        `═════════════════════════`,
+        `✨ *اسم الإسطبل:* ${item.name || 'إسطبل خيول'}`,
+        `📍 *الموقع:* ${item.city || item.address || 'المملكة العربية السعودية'}`,
+        item.horseCount ? `🐴 *الطاقة الاستيعابية:* ${item.horseCount} خيل` : '',
+        `⭐ *التقييم:* ${item.rating || 5} من 5 نجوم`,
+        `🛡️ *حالة التوثيق:* ${verifiedText}`,
+        `📊 *الاستيعاب:* ${statusText}`,
+      ].filter(Boolean);
+
+      if (item.description && item.description.trim()) {
+        lines.push(
+          `═════════════════════════`,
+          `📝 *عن الإسطبل والخدمات:*`,
+          item.description.trim()
+        );
+      }
+
+      lines.push(
+        `═════════════════════════`,
+        item.phone ? `📞 *للحجز والاستفسار:* ${item.phone}` : '',
+        waLink ? `💬 *محادثة واتساب مباشرة:* ${waLink}` : '',
+        `🔗 *رابط تفاصيل الإسطبل والموقع والصور:*`,
+        `${shareUrl}`
+      );
+
+      return lines.filter(Boolean).join('\n');
+    }
+
+    if (type === 'shelter') {
+      const typeAr = item.type === 'monthly' ? 'إيواء شهري' : 'إيواء يومي';
+      const services: string[] = [];
+      if (item.nutrition) services.push('🌾 تغذية مخصصة');
+      if (item.cleaning) services.push('🧼 نظافة دورية');
+      if (item.training) services.push('🏇 تدريب وركوب');
+      if (item.veterinary) services.push('🩺 رعاية بيطرية');
+
+      const lines: string[] = [
+        `🏨 *إعلان خدمة إيواء خيل على منصة إستابلي*`,
+        `═════════════════════════`,
+        `✨ *الخدمة:* ${item.title || 'خدمة إيواء خيل'}`,
+        item.stableName ? `🏡 *الإسطبل المضيف:* ${item.stableName}` : '',
+        `🗓️ *نظام الإيواء:* ${typeAr}`,
+        item.city ? `📍 *المدينة / الموقع:* ${item.city}` : '',
+        services.length > 0 ? `🛠️ *الخدمات المتوفرة:*\n${services.map((s) => '  • ' + s).join('\n')}` : '',
+      ].filter(Boolean);
+
+      if (item.description && item.description.trim()) {
+        lines.push(
+          `═════════════════════════`,
+          `📝 *تفاصيل الإيواء والمزايا:*`,
+          item.description.trim()
+        );
+      }
+
+      lines.push(
+        `═════════════════════════`,
+        item.phone ? `📞 *للحجز والتواصل:* ${item.phone}` : '',
+        waLink ? `💬 *محادثة واتساب مباشرة:* ${waLink}` : '',
+        `🔗 *رابط تفاصيل وحجز خدمة الإيواء:*`,
+        `${shareUrl}`
+      );
+
+      return lines.filter(Boolean).join('\n');
+    }
+
+    if (type === 'transport') {
+      const priceText = item.price ? `${item.price.toLocaleString('ar-SA')} ريال` : 'بالاتفاق';
+      const lines: string[] = [
+        `🚛 *إعلان رحلة نقل خيل على منصة إستابلي*`,
+        `═════════════════════════`,
+        `✨ *نوع وسيلة النقل:* ${item.vehicleType || 'مقطورة نقل خيل'}`,
+        `📍 *خط السير:* من ${item.pickupAddress || 'نقطة الانطلاق'} ⬅️ إلى ${item.deliveryAddress || 'الوجهة'}`,
+        item.date ? `📅 *موعد الرحلة:* ${item.date}` : '',
+        item.capacity ? `🐴 *الاستيعاب المتاح:* ${item.capacity} خيل` : '',
+        `💰 *تكلفة النقل:* ${priceText}`,
+      ].filter(Boolean);
+
+      if (item.description && item.description.trim()) {
+        lines.push(
+          `═════════════════════════`,
+          `📝 *ملاحظات وتفاصيل الرحلة:*`,
+          item.description.trim()
+        );
+      }
+
+      lines.push(
+        `═════════════════════════`,
+        item.phone ? `📞 *للحجز والتنسيق:* ${item.phone}` : '',
+        waLink ? `💬 *محادثة واتساب مباشرة:* ${waLink}` : '',
+        `🔗 *رابط تفاصيل الرحلة والحجز:*`,
+        `${shareUrl}`
+      );
+
+      return lines.filter(Boolean).join('\n');
+    }
+
+    const cityOrLocation = item.city || item.address || item.pickupAddress ? `📍 الموقع: ${item.city || item.address || item.pickupAddress}` : '';
+    const contact = item.phone ? `📞 للتواصل: ${item.phone}` : '';
+    return `🐴 *منصة إستابلي للخيول العربية*
+✨ *${getAdTitle()}*
+${cityOrLocation ? cityOrLocation + '\n' : ''}${contact ? contact + '\n' : ''}
+🔗 شاهد كامل تفاصيل الإعلان والصور مباشرة عبر الرابط:
+${shareUrl}`;
+  };
+
   const handleShare = () => {
-    const text = `شاهد هذا الإعلان الرائع على ملتقى الخيول العربية: ${item.name || item.title}`;
+    setIsShareDialogOpen(true);
+  };
+
+  const handleCopyFullAdDetails = async () => {
+    const fullText = getFullAdShareMessage();
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(fullText);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = fullText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopyFeedback('full');
+      setTimeout(() => setCopyFeedback(null), 3500);
+    } catch (e) {
+      console.warn('Could not copy full ad details:', e);
+    }
+  };
+
+  const handleCopyLinkOnly = async () => {
+    const shareUrl = getDirectShareUrl();
+    try {
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = shareUrl;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      setCopyFeedback('link');
+      setTimeout(() => setCopyFeedback(null), 3500);
+    } catch (e) {
+      alert('الرابط المباشر: ' + shareUrl);
+    }
+  };
+
+  const handleWhatsAppShare = () => {
+    const text = getFullAdShareMessage();
+    const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleTwitterShare = () => {
+    const title = getAdTitle();
+    const shareUrl = getDirectShareUrl();
+    const priceText = item.price ? ` | السعر: ${item.price.toLocaleString('ar-SA')} ريال` : '';
+    const cityText = item.city ? ` | 📍 ${item.city}` : '';
+    const text = `🐴 شاهد إعلان: ${title}${cityText}${priceText}\nعلى منصة إستابلي للخيول العربية الأصيلة`;
+    const url = `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(shareUrl)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleTelegramShare = () => {
+    const shareUrl = getDirectShareUrl();
+    const text = getFullAdShareMessage();
+    const url = `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`;
+    window.open(url, '_blank');
+  };
+
+  const handleNativeDeviceShare = async () => {
     if (navigator.share) {
-      navigator.share({ title: 'ملتقى الخيول العربية', text, url: window.location.href });
-    } else {
-      navigator.clipboard.writeText(`${text} \n ${window.location.href}`);
-      alert('تم نسخ رابط الإعلان بنجاح!');
+      try {
+        await navigator.share({
+          title: getAdTitle(),
+          text: getFullAdShareMessage(),
+          url: getDirectShareUrl(),
+        });
+      } catch (e) {
+        console.warn('Native share cancelled or failed:', e);
+      }
     }
   };
 
@@ -990,6 +1301,241 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         title={lightboxTitle}
         subtitle={lightboxSubtitle}
       />
+
+      {/* Dedicated Rich Share Dialog */}
+      {isShareDialogOpen && (
+        <div className="fixed inset-0 z-60 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-100 overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            
+            {/* Header */}
+            <div className="bg-slate-50 px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2.5">
+                <span className="p-2 bg-navy/10 text-navy rounded-xl flex items-center justify-center">
+                  <Share2 className="w-5 h-5 text-navy" />
+                </span>
+                <div>
+                  <h4 className="font-black text-navy text-sm sm:text-base">مشاركة الإعلان والتفاصيل</h4>
+                  <p className="text-[11px] text-slate-500">إرسال تفاصيل الإعلان وصوره ورابطه المباشر</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsShareDialogOpen(false)}
+                className="p-1.5 rounded-full hover:bg-slate-200 text-slate-400 hover:text-slate-600 transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              
+              {/* Ad Card Snapshot */}
+              <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-100">
+                <img
+                  src={activeImage || defaultFallback}
+                  alt={item.name || item.title || 'صورة الإعلان'}
+                  className="w-16 h-16 rounded-xl object-cover border border-slate-200 shrink-0"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gold-light text-gold-dark">
+                      {type === 'stable' ? 'إسطبل ومربط' : type === 'horse' ? 'جواد' : type === 'shelter' ? 'إيواء خيل' : 'نقل خيل'}
+                    </span>
+                    {item.price ? (
+                      <span className="text-[11px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                        {item.price.toLocaleString('ar-SA')} ريال
+                      </span>
+                    ) : (
+                      <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">
+                        على السوم
+                      </span>
+                    )}
+                  </div>
+                  <h5 className="text-xs sm:text-sm font-black text-navy truncate">{item.name || item.title || item.vehicleType}</h5>
+                  <p className="text-[11px] text-slate-500 truncate mt-0.5">
+                    {item.city || item.address || item.pickupAddress || 'إعلان معتمد في المنصة'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Feedback Alert if copied */}
+              {copyFeedback && (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-3.5 py-2.5 rounded-xl flex items-center gap-2 font-bold animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    {copyFeedback === 'full' 
+                      ? 'تم نسخ تفاصيل الإعلان كاملة مع الروابط والمواصفات بنجاح! جاهز للصق في القروبات والمحادثات.' 
+                      : 'تم نسخ رابط الإعلان المباشر بنجاح!'}
+                  </span>
+                </div>
+              )}
+
+              {/* Main 1-Click WhatsApp Share Button */}
+              <div>
+                <button
+                  onClick={handleWhatsAppShare}
+                  className="w-full bg-[#25D366] hover:bg-[#20ba59] text-white text-xs sm:text-sm font-black py-3 px-4 rounded-xl flex items-center justify-center gap-2.5 cursor-pointer transition shadow-md hover:shadow-lg active:scale-[0.99]"
+                >
+                  <MessageCircle className="w-5 h-5 fill-white" />
+                  <span>إرسال تفاصيل الإعلان كاملاً عبر واتساب (WhatsApp)</span>
+                </button>
+                <p className="text-[10px] text-slate-400 text-center mt-1.5">
+                  يتم إرسال بطاقة الإعلان بكامل مواصفاتها وسعرها وأرقام التواصل والرابط المباشر
+                </p>
+              </div>
+
+              {/* Copy Full Ad Text Button */}
+              <button
+                onClick={handleCopyFullAdDetails}
+                className="w-full bg-navy hover:bg-navy-dark text-white text-xs font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 cursor-pointer transition shadow-xs"
+              >
+                {copyFeedback === 'full' ? (
+                  <>
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span>تم نسخ تفاصيل الإعلان بالكامل!</span>
+                  </>
+                ) : (
+                  <>
+                    <FileText className="w-4 h-4 text-gold-light" />
+                    <span>نسخ تفاصيل الإعلان كاملة (للقروبات والمحادثات)</span>
+                  </>
+                )}
+              </button>
+
+              {/* Direct Link Input Box */}
+              <div>
+                <label className="text-[11px] font-bold text-slate-700 block mb-1.5">
+                  الرابط المباشر لفتح الإعلان:
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={getDirectShareUrl()}
+                    className="flex-1 text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none select-all text-left font-mono"
+                    dir="ltr"
+                    onClick={(e) => (e.target as HTMLInputElement).select()}
+                  />
+                  <button
+                    onClick={handleCopyLinkOnly}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3.5 py-2 rounded-xl flex items-center gap-1.5 cursor-pointer transition shrink-0 border border-slate-200"
+                  >
+                    {copyFeedback === 'link' ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>تم النسخ</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>نسخ الرابط</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Social Channels Grid */}
+              <div className="space-y-2 pt-1">
+                <span className="text-[11px] font-bold text-slate-600 block">
+                  مشاركة عبر قنوات أخرى:
+                </span>
+                
+                <div className="grid grid-cols-3 gap-2">
+                  {/* Twitter / X */}
+                  <button
+                    onClick={handleTwitterShare}
+                    className="bg-black hover:bg-slate-800 text-white text-xs font-bold py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition shadow-xs"
+                  >
+                    <span className="text-xs font-black">𝕏</span>
+                    <span>منصة إكس</span>
+                  </button>
+
+                  {/* Telegram */}
+                  <button
+                    onClick={handleTelegramShare}
+                    className="bg-[#229ED9] hover:bg-[#1d8cc2] text-white text-xs font-bold py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition shadow-xs"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>تيليجرام</span>
+                  </button>
+
+                  {/* Native Device Share Sheet */}
+                  {typeof navigator !== 'undefined' && 'share' in navigator ? (
+                    <button
+                      onClick={handleNativeDeviceShare}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition shadow-xs"
+                    >
+                      <Share2 className="w-3.5 h-3.5 text-navy" />
+                      <span>المزيد...</span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={handleCopyLinkOnly}
+                      className="bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold py-2 px-2.5 rounded-xl flex items-center justify-center gap-1.5 cursor-pointer transition shadow-xs"
+                    >
+                      <Copy className="w-3.5 h-3.5 text-slate-600" />
+                      <span>نسخ الرابط</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Collapsible Live Text Preview */}
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowShareTextPreview(!showShareTextPreview)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold flex items-center justify-between cursor-pointer transition"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-navy" />
+                    <span>معاينة نص وتفاصيل الإعلان الذي يتم إرساله</span>
+                  </span>
+                  {showShareTextPreview ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-slate-400" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                  )}
+                </button>
+
+                {showShareTextPreview && (
+                  <div className="p-3 bg-white text-slate-800 text-[11px] leading-relaxed border-t border-slate-200 font-sans space-y-2">
+                    <div className="bg-[#f0fdf4] border border-[#bbf7d0] p-3 rounded-lg whitespace-pre-wrap font-sans text-slate-700 select-all max-h-48 overflow-y-auto">
+                      {getFullAdShareMessage()}
+                    </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={handleCopyFullAdDetails}
+                        className="text-[10px] text-navy font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>نسخ هذا النص كاملاً</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Informative Note */}
+              <p className="text-[10px] text-slate-500 bg-amber-50/70 p-2.5 rounded-xl border border-amber-100/80 leading-relaxed text-center">
+                💡 الرابط المباشر يحمل المعرّف الخاص بهذا الإعلان ويقوم بفتح بطاقة الإعلان وصوره وتفاصيله مباشرة للمستلم.
+              </p>
+
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-slate-50 px-5 py-3 border-t border-slate-100 flex justify-end shrink-0">
+              <button
+                onClick={() => setIsShareDialogOpen(false)}
+                className="bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold px-4 py-2 rounded-xl cursor-pointer transition"
+              >
+                إغلاق
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );

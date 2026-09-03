@@ -38,6 +38,7 @@ import DriveBackupSection from './components/DriveBackupSection';
 import UserProfileModal from './components/UserProfileModal';
 import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
+import DetailModal from './components/DetailModal';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
 import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
@@ -51,6 +52,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [todayAdsCount, setTodayAdsCount] = useState<number>(0);
+
+  // Direct Shared Ad State
+  const [sharedAdModal, setSharedAdModal] = useState<{
+    item: any;
+    type: 'horse' | 'stable' | 'shelter' | 'transport';
+  } | null>(null);
+  const [sharedAdNotFound, setSharedAdNotFound] = useState(false);
+  const [isSharedAdLoading, setIsSharedAdLoading] = useState(false);
 
   const refreshDailyAdsCount = useCallback(async () => {
     if (currentUser?.id) {
@@ -126,6 +135,62 @@ export default function App() {
         FirebaseService.applySiteSettings(settings);
       }
     }).catch(err => console.warn('Could not load site settings', err));
+  }, []);
+
+  // Deep linking: Automatically open shared ad if 'ad' or 'id' query parameter is present in URL
+  useEffect(() => {
+    const checkUrlForSharedAd = async () => {
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        let adId = searchParams.get('ad') || searchParams.get('id');
+        let adType = searchParams.get('type') as 'horse' | 'stable' | 'shelter' | 'transport' | null;
+
+        // Support hash format fallback e.g. #type=stable&ad=stb_123
+        if (!adId && window.location.hash) {
+          const hashClean = window.location.hash.replace(/^#\/?/, '');
+          const hashParams = new URLSearchParams(hashClean);
+          adId = hashParams.get('ad') || hashParams.get('id');
+          if (!adType) adType = hashParams.get('type') as any;
+        }
+
+        if (!adId) return;
+
+        setIsSharedAdLoading(true);
+        setSharedAdNotFound(false);
+
+        // Fetch ad by ID across collections (fast cache first, then cloud direct lookup)
+        let result = await FirebaseService.getAdById(adId, adType || undefined);
+        
+        // If not immediately found, wait 600ms for startup network sync to establish and try once more
+        if (!result) {
+          await new Promise((res) => setTimeout(res, 600));
+          result = await FirebaseService.getAdById(adId, adType || undefined);
+        }
+
+        setIsSharedAdLoading(false);
+
+        if (result && result.item) {
+          // Switch to corresponding section tab
+          if (result.type === 'horse') setActiveTab('horses');
+          else if (result.type === 'stable') setActiveTab('stables');
+          else if (result.type === 'shelter') setActiveTab('shelter');
+          else if (result.type === 'transport') setActiveTab('transport');
+
+          setSharedAdModal(result);
+          setSharedAdNotFound(false);
+        } else {
+          setSharedAdNotFound(true);
+          setTimeout(() => setSharedAdNotFound(false), 7000);
+        }
+      } catch (err) {
+        console.warn('Error loading shared ad from URL:', err);
+        setIsSharedAdLoading(false);
+      }
+    };
+
+    checkUrlForSharedAd();
+    window.addEventListener('popstate', checkUrlForSharedAd);
+    return () => window.removeEventListener('popstate', checkUrlForSharedAd);
   }, []);
 
   const handleAuthSuccess = (user: User) => {
@@ -692,6 +757,51 @@ export default function App() {
 
       {/* Announcement Banner Modal */}
       <BannerModal banner={banner} />
+
+      {/* Shared Ad Direct Modal (Opened from direct link or deep linking) */}
+      {sharedAdModal && (
+        <DetailModal
+          item={sharedAdModal.item}
+          type={sharedAdModal.type}
+          isOpen={true}
+          onClose={() => {
+            setSharedAdModal(null);
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('ad');
+              url.searchParams.delete('id');
+              url.searchParams.delete('type');
+              window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+            } catch (e) {}
+          }}
+          currentUser={currentUser}
+          onRefresh={() => {
+            // refresh counts or data
+            refreshDailyAdsCount();
+          }}
+        />
+      )}
+
+      {/* Shared Ad Loading Indicator */}
+      {isSharedAdLoading && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-md text-amber-400 font-bold text-xs py-3 px-5 rounded-2xl shadow-2xl flex items-center gap-3 border border-amber-500/30 animate-in fade-in duration-200">
+          <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+          <span className="text-white">جاري فتح الإعلان المطلوب ومزامنة تفاصيله...</span>
+        </div>
+      )}
+
+      {/* Shared Ad Not Found Toast */}
+      {sharedAdNotFound && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white font-bold text-xs py-3 px-5 rounded-2xl shadow-2xl flex items-center gap-3 border border-amber-400/40 animate-in fade-in duration-300">
+          <span>⚠️ عذراً، لم يتم العثور على الإعلان المطلوب أو قد يكون تم حذفه من قبل صاحبه.</span>
+          <button 
+            onClick={() => setSharedAdNotFound(false)} 
+            className="p-1 rounded-full hover:bg-white/20 transition cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
     </div>
   );
