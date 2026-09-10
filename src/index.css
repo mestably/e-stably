@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Noto Kufi Arabic", "Cairo", "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-gold-light: #fefcf3;
+  --color-gold-medium: #e5c158;
+  --color-gold: #d4af37;
+  --color-gold-dark: #b5921f;
+  --color-navy-light: #eff6ff;
+  --color-navy-medium: #2563eb;
+  --color-navy: #1e3a8a;
+  --color-navy-dark: #172554;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f0f2f5;
+  color: #1e293b;
+  direction: rtl;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom styles for nice scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
