@@ -484,21 +484,24 @@ export const FirebaseService = {
       metaDesc.content = settings.siteDescription;
     }
 
-    // 4. Update OpenGraph Tags (for bookmarks, links, social sharing)
-    const setOgMeta = (property: string, content: string) => {
+    // 4. Update OpenGraph and Twitter Tags
+    const setMeta = (attrName: 'property' | 'name', attrValue: string, content: string) => {
       if (!content) return;
-      let meta = document.querySelector(`meta[property='${property}']`) as HTMLMetaElement;
+      let meta = document.querySelector(`meta[${attrName}='${attrValue}']`) as HTMLMetaElement;
       if (!meta) {
         meta = document.createElement('meta');
-        meta.setAttribute('property', property);
+        meta.setAttribute(attrName, attrValue);
         document.head.appendChild(meta);
       }
       meta.content = content;
     };
 
-    setOgMeta('og:title', settings.siteName);
-    setOgMeta('og:description', settings.siteDescription);
-    setOgMeta('og:image', settings.logoUrl);
+    setMeta('property', 'og:title', settings.siteName);
+    setMeta('property', 'og:description', settings.siteDescription);
+    setMeta('property', 'og:image', settings.logoUrl);
+    setMeta('name', 'twitter:title', settings.siteName);
+    setMeta('name', 'twitter:description', settings.siteDescription);
+    setMeta('name', 'twitter:image', settings.logoUrl);
   },
 
   // --- LOCAL CACHE ACCESSORS ---
