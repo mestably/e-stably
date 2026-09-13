@@ -40,13 +40,18 @@ import {
   Bookmark,
   RotateCcw,
   Tag,
-  CheckCircle2
+  CheckCircle2,
+  Timer,
+  Monitor,
+  Play
 } from 'lucide-react';
 import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner, SiteSettings } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { compressImage } from '../lib/imageUtils';
 import ConfirmModal from './ConfirmModal';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
+import { realWhiteHorseClipartUrl, realHorseIconUrl } from './ArabianHorseClipartHelper';
+import { ArabianHorseWhiteOnBlueIcon } from './ArabianHorseWhiteOnBlueIcon';
 
 interface AdminControlSectionProps {
   currentUser: User;
@@ -54,7 +59,7 @@ interface AdminControlSectionProps {
 }
 
 export default function AdminControlSection({ currentUser, onSiteSettingsUpdated }: AdminControlSectionProps) {
-  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'logo' | 'site'>('logo');
+  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'screensaver' | 'logo' | 'site'>('screensaver');
   const [listingCategory, setListingCategory] = useState<'all' | 'horses' | 'stables' | 'shelters' | 'transports'>('all');
   
   // Data State
@@ -64,6 +69,13 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const [shelters, setShelters] = useState<Shelter[]>([]);
   const [transports, setTransports] = useState<Transport[]>([]);
   const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
+
+  // Screensaver Settings State
+  const [screensaverEnabled, setScreensaverEnabled] = useState(true);
+  const [screensaverTimeValue, setScreensaverTimeValue] = useState(60);
+  const [screensaverTimeUnit, setScreensaverTimeUnit] = useState<'seconds' | 'minutes'>('seconds');
+  const [screensaverShowClock, setScreensaverShowClock] = useState(true);
+  const [isSavingScreensaver, setIsSavingScreensaver] = useState(false);
   
   // Banner Form State
   const [bannerEnabled, setBannerEnabled] = useState(true);
@@ -75,10 +87,26 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const [isSavingBanner, setIsSavingBanner] = useState(false);
 
   // Site Identity & Bookmark Icon State
-  const [siteSettings, setSiteSettings] = useState<SiteSettings>({
-    siteName: 'Estably - إستابلي للخيول العربية الأصيلة',
-    siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
-    logoUrl: '/logomaster.jpg'
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('site_settings_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.siteName) {
+            return {
+              ...parsed,
+              logoUrl: (!parsed.logoUrl || parsed.logoUrl === '/logomaster.jpg') ? '/logo.jpg' : parsed.logoUrl
+            };
+          }
+        }
+      } catch (e) {}
+    }
+    return {
+      siteName: 'Estably - إستابلي للخيول العربية الأصيلة',
+      siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
+      logoUrl: '/logo.jpg'
+    };
   });
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isSavingSiteSettings, setIsSavingSiteSettings] = useState(false);
@@ -131,13 +159,61 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         setBannerDuration(b.durationSeconds || 7);
       }
       if (st) {
+        if (!st.logoUrl || st.logoUrl === '/logomaster.jpg') {
+          st.logoUrl = '/logo.jpg';
+        }
         setSiteSettings(st);
+        setScreensaverEnabled(st.screensaverEnabled !== false);
+        const totalSec = st.screensaverTimeoutSeconds ?? 60;
+        if (totalSec >= 60 && totalSec % 60 === 0) {
+          setScreensaverTimeUnit('minutes');
+          setScreensaverTimeValue(Math.floor(totalSec / 60));
+        } else {
+          setScreensaverTimeUnit('seconds');
+          setScreensaverTimeValue(totalSec);
+        }
+        setScreensaverShowClock(st.screensaverShowClock !== false);
       }
     } catch (err) {
       console.error('Failed to load admin data', err);
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSaveScreensaverSettings = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setIsSavingScreensaver(true);
+    try {
+      const calculatedSeconds = screensaverTimeUnit === 'minutes' 
+        ? Math.max(5, Math.round(screensaverTimeValue * 60))
+        : Math.max(5, Math.round(screensaverTimeValue));
+
+      const updatedSettings: SiteSettings = {
+        ...siteSettings,
+        screensaverEnabled,
+        screensaverTimeoutSeconds: calculatedSeconds,
+        screensaverShowClock,
+      };
+
+      const ok = await FirebaseService.saveSiteSettings(updatedSettings);
+      if (ok) {
+        setSiteSettings(updatedSettings);
+        if (onSiteSettingsUpdated) onSiteSettingsUpdated(updatedSettings);
+        showNotify('success', 'تم حفظ إعدادات شاشة توقف الخيول العربية بنجاح وتطبيقها على جميع المستخدمين!');
+      } else {
+        showNotify('error', 'حدث خطأ أثناء حفظ إعدادات شاشة التوقف');
+      }
+    } catch (err) {
+      showNotify('error', 'فشل حفظ الإعدادات');
+    } finally {
+      setIsSavingScreensaver(false);
+    }
+  };
+
+  const handleTestScreensaver = () => {
+    window.dispatchEvent(new CustomEvent('open_horses_screensaver'));
+    showNotify('success', 'جاري إطلاق شاشة توقف الخيول العربية للمعاينة الفورية...');
   };
 
   const handleBannerImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -567,6 +643,26 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
           <span>بنر الإعلان الافتتاحي</span>
           {bannerEnabled && bannerImageUrl && (
             <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse"></span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('screensaver')}
+          className={`px-5 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2.5 cursor-pointer ${
+            activeTab === 'screensaver' ? 'border-amber-500 text-amber-950 font-black bg-amber-50/60' : 'border-transparent text-slate-500 hover:text-slate-800'
+          }`}
+        >
+          <ArabianHorseWhiteOnBlueIcon size="sm" shape="circle" className="shadow-xs shrink-0" />
+          <span>شاشة توقف الخيول الأصيلة</span>
+          {screensaverEnabled ? (
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-md font-extrabold flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+              مفعلة
+            </span>
+          ) : (
+            <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-md font-bold">
+              معطلة
+            </span>
           )}
         </button>
 
@@ -1135,6 +1231,318 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         </div>
       )}
 
+      {/* TAB: HORSES SCREENSAVER MANAGEMENT */}
+      {activeTab === 'screensaver' && (
+        <div className="bg-white rounded-b-2xl p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-6">
+          
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-navy via-navy-dark to-slate-900 border border-gold/30 rounded-2xl p-6 text-white shadow-lg relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-40 h-40 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 relative z-10">
+              <div className="flex items-center gap-4">
+                <ArabianHorseWhiteOnBlueIcon size="xl" shape="rounded" className="border-2 border-blue-400/80 shadow-xl shrink-0" />
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-black text-base text-white">
+                      إعدادات شاشة توقف الخيول العربية الأصيلة (Screensaver)
+                    </h3>
+                    <span className="bg-amber-400 text-navy font-black text-[10px] px-2 py-0.5 rounded-full">
+                      تحكم المدير
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
+                    تظهر شاشة التوقف تلقائياً عندما يتوقف الزائر أو المستخدم عن الحركة أو التفاعل مع الموقع، حيث يركض 3 جياد عربية أصيلة عبر كامل الشاشة في مشهد ليلي ملكي ساحر مع ساعة رقمية.
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick Preview Test Button */}
+              <button
+                type="button"
+                onClick={handleTestScreensaver}
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-gold to-amber-500 hover:from-amber-500 hover:to-gold text-navy font-black text-xs px-5 py-3 rounded-xl shadow-lg transition hover:scale-105 active:scale-95 cursor-pointer shrink-0"
+              >
+                <Play className="w-4 h-4" />
+                <span>معاينة فورية لشاشة التوقف الآن</span>
+              </button>
+            </div>
+          </div>
+
+          <form onSubmit={handleSaveScreensaverSettings} className="space-y-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+              {/* Left Column: Form Controls */}
+              <div className="lg:col-span-7 space-y-6">
+                
+                {/* 1. Toggle Switch */}
+                <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <label className="text-sm font-black text-navy flex items-center gap-2">
+                        <Monitor className="w-4 h-4 text-amber-600" />
+                        <span>تفعيل شاشة التوقف عند عدم وجود حركة أو نشاط</span>
+                      </label>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {screensaverEnabled 
+                          ? 'شاشة التوقف تعمل حالياً لجميع زوار ومستخدمي المنصة عند الخمول' 
+                          : 'شاشة التوقف معطلة حالياً ولن تظهر للزوار'}
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setScreensaverEnabled(!screensaverEnabled)}
+                      className={`relative inline-flex h-7 w-14 items-center rounded-full transition-colors cursor-pointer ${
+                        screensaverEnabled ? 'bg-emerald-500' : 'bg-slate-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+                          screensaverEnabled ? '-translate-x-1' : '-translate-x-8'
+                        }`}
+                      />
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Duration Settings */}
+                <div className={`bg-white border rounded-2xl p-5 space-y-4 transition ${
+                  screensaverEnabled ? 'border-slate-200 shadow-2xs' : 'border-slate-200 opacity-60 pointer-events-none'
+                }`}>
+                  <label className="block text-xs font-black text-slate-800 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-navy" />
+                    <span>تحديد وقت الانتظار المناسب قبل إظهار الخيول:</span>
+                  </label>
+
+                  {/* Input and Unit selector */}
+                  <div className="flex items-center gap-3">
+                    <div className="relative flex-1">
+                      <input
+                        type="number"
+                        min={screensaverTimeUnit === 'seconds' ? 5 : 0.5}
+                        max={screensaverTimeUnit === 'seconds' ? 3600 : 60}
+                        step={screensaverTimeUnit === 'seconds' ? 1 : 0.5}
+                        value={screensaverTimeValue}
+                        onChange={(e) => setScreensaverTimeValue(Math.max(1, Number(e.target.value)))}
+                        className="w-full text-sm font-bold p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-navy bg-slate-50 focus:bg-white text-navy"
+                        placeholder="أدخل المدة"
+                      />
+                    </div>
+
+                    <div className="w-40">
+                      <select
+                        value={screensaverTimeUnit}
+                        onChange={(e) => {
+                          const newUnit = e.target.value as 'seconds' | 'minutes';
+                          if (newUnit === 'minutes' && screensaverTimeUnit === 'seconds') {
+                            setScreensaverTimeValue(Math.max(1, Math.round(screensaverTimeValue / 60) || 1));
+                          } else if (newUnit === 'seconds' && screensaverTimeUnit === 'minutes') {
+                            setScreensaverTimeValue(Math.max(15, Math.round(screensaverTimeValue * 60)));
+                          }
+                          setScreensaverTimeUnit(newUnit);
+                        }}
+                        className="w-full text-xs font-bold p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-navy bg-white text-slate-800"
+                      >
+                        <option value="seconds">⏱️ بالثواني (Seconds)</option>
+                        <option value="minutes">⏳ بالدقائق (Minutes)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Quick Preset Buttons */}
+                  <div className="space-y-1.5 pt-1">
+                    <span className="text-[11px] font-bold text-slate-400 block">
+                      خيارات سريعة مقترحة لمدير النظام:
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => { setScreensaverTimeUnit('seconds'); setScreensaverTimeValue(15); }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border font-bold transition cursor-pointer ${
+                          screensaverTimeUnit === 'seconds' && screensaverTimeValue === 15 
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
+                        }`}
+                      >
+                        15 ثانية (لتجربة سريعة)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setScreensaverTimeUnit('seconds'); setScreensaverTimeValue(30); }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border font-bold transition cursor-pointer ${
+                          screensaverTimeUnit === 'seconds' && screensaverTimeValue === 30 
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
+                        }`}
+                      >
+                        30 ثانية
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setScreensaverTimeUnit('minutes'); setScreensaverTimeValue(1); }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border font-bold transition cursor-pointer ${
+                          (screensaverTimeUnit === 'minutes' && screensaverTimeValue === 1) || (screensaverTimeUnit === 'seconds' && screensaverTimeValue === 60)
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
+                        }`}
+                      >
+                        1 دقيقة (60 ثانية)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setScreensaverTimeUnit('minutes'); setScreensaverTimeValue(2); }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border font-bold transition cursor-pointer ${
+                          (screensaverTimeUnit === 'minutes' && screensaverTimeValue === 2) || (screensaverTimeUnit === 'seconds' && screensaverTimeValue === 120)
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
+                        }`}
+                      >
+                        2 دقيقة
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => { setScreensaverTimeUnit('minutes'); setScreensaverTimeValue(5); }}
+                        className={`text-xs px-3 py-1.5 rounded-lg border font-bold transition cursor-pointer ${
+                          (screensaverTimeUnit === 'minutes' && screensaverTimeValue === 5) || (screensaverTimeUnit === 'seconds' && screensaverTimeValue === 300)
+                            ? 'bg-amber-500 text-white border-amber-600 shadow-xs' 
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border-slate-200'
+                        }`}
+                      >
+                        5 دقائق
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Visual Clock Option */}
+                  <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">
+                        إظهار الساعة الرقمية والتاريخين (الهجري والميلادي)
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        عرض توقيت مكة المكرمة المباشر مع التاريخ الهجري (أم القرى) والتاريخ الميلادي
+                      </span>
+                    </div>
+
+                    <input
+                      type="checkbox"
+                      checked={screensaverShowClock}
+                      onChange={(e) => setScreensaverShowClock(e.target.checked)}
+                      className="w-4 h-4 text-navy rounded border-slate-300 focus:ring-navy cursor-pointer"
+                    />
+                  </div>
+
+                </div>
+
+                {/* Explanation Card */}
+                <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-4 text-xs text-amber-950 space-y-1.5">
+                  <span className="font-extrabold flex items-center gap-1 text-amber-900">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                    <span>كيف تعمل شاشة التوقف للمستخدمين؟</span>
+                  </span>
+                  <p className="text-[11px] leading-relaxed text-amber-900/90">
+                    عندما يترك المستخدم جهازه أو يتوقف عن تحريك الفأرة أو لمس الشاشة أو الضغط على المفاتيح لمدة <strong>{screensaverTimeValue} {screensaverTimeUnit === 'minutes' ? 'دقيقة' : 'ثانية'}</strong>، ستظهر شاشة التوقف تلقائياً بمشهد ركض الجياد العربية الأصيلة (البيضاء والبنية) في الصحراء مع عرض التاريخ الهجري والميلادي. وبمجرد تحريك الفأرة أو لمس الشاشة، تختفي فوراً ويعود المستخدم لصفحته دون أي مقاطعة.
+                  </p>
+                </div>
+
+              </div>
+
+              {/* Right Column: Live Status & Simulation Card */}
+              <div className="lg:col-span-5 space-y-4">
+                <div className="bg-slate-900 text-white rounded-2xl p-5 border border-slate-800 shadow-xl space-y-4">
+                  
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <span className="text-xs font-bold text-amber-400 flex items-center gap-2">
+                      <Eye className="w-4 h-4" />
+                      <span>بطاقة ملخص شاشة التوقف:</span>
+                    </span>
+                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold ${
+                      screensaverEnabled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                    }`}>
+                      {screensaverEnabled ? 'جاهزة ومفعلة' : 'متوقفة حالياً'}
+                    </span>
+                  </div>
+
+                  {/* Summary Details */}
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                      <span className="text-slate-400">حالة التفعيل:</span>
+                      <span className="font-black text-white">{screensaverEnabled ? 'نعم (مفعلة لجميع الزوار)' : 'معطلة'}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                      <span className="text-slate-400">مدة الانتظار المضبوطة:</span>
+                      <span className="font-mono font-black text-amber-400">
+                        {screensaverTimeValue} {screensaverTimeUnit === 'minutes' ? 'دقيقة' : 'ثانية'}
+                        {screensaverTimeUnit === 'minutes' ? ` (${screensaverTimeValue * 60} ثانية)` : ''}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                      <span className="text-slate-400">الساعة والتقويم:</span>
+                      <span className="font-bold text-white">{screensaverShowClock ? 'نعم (هجري وميلادي وساعة حية)' : 'بدون ساعة'}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-800/60 border border-slate-700/60">
+                      <span className="text-slate-400">الجياد المشاركة:</span>
+                      <span className="font-bold text-amber-300">جياد عربية في الصحراء (أشهب أبيض، كميت بني، وأشقر)</span>
+                    </div>
+                  </div>
+
+                  {/* Preview Button */}
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleTestScreensaver}
+                      className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2 cursor-pointer text-xs"
+                    >
+                      <Play className="w-4 h-4 fill-white" />
+                      <span>تجربة ومعاينة شاشة التوقف الآن (Live Preview)</span>
+                    </button>
+                    <p className="text-[10px] text-slate-400 text-center mt-2">
+                      انقر لتجربة شكل الخيول العربية بالصحراء والتاريخين الهجري والميلادي
+                    </p>
+                  </div>
+
+                </div>
+              </div>
+
+            </div>
+
+            {/* Action Buttons */}
+            <div className="pt-4 border-t border-slate-200 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  setScreensaverEnabled(true);
+                  setScreensaverTimeUnit('seconds');
+                  setScreensaverTimeValue(60);
+                  setScreensaverShowClock(true);
+                }}
+                className="text-xs text-slate-500 hover:text-navy underline font-bold cursor-pointer"
+              >
+                استعادة الإعدادات الافتراضية (60 ثانية)
+              </button>
+
+              <button
+                type="submit"
+                disabled={isSavingScreensaver}
+                className="bg-navy hover:bg-navy-dark text-white font-extrabold py-3 px-8 rounded-xl transition text-xs flex items-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+              >
+                <Save className="w-4 h-4 text-gold" />
+                <span>{isSavingScreensaver ? 'جاري الحفظ والتطبيق...' : 'حفظ وتطبيق إعدادات شاشة التوقف'}</span>
+              </button>
+            </div>
+
+          </form>
+
+        </div>
+      )}
+
       {/* TAB 4: STANDALONE TOP-RIGHT HEADER LOGO MANAGEMENT */}
       {activeTab === 'logo' && (
         <div className="bg-white rounded-b-2xl p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-6">
@@ -1212,7 +1620,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                     type="text"
                     value={siteSettings.logoUrl}
                     onChange={(e) => setSiteSettings({ ...siteSettings, logoUrl: e.target.value })}
-                    placeholder="/logomaster.jpg أو https://example.com/logo.png"
+                    placeholder="/logo.jpg أو https://example.com/logo.png"
                     className="w-full text-xs p-3 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-mono dir-ltr bg-white"
                   />
                   <p className="text-[10px] text-slate-400">
@@ -1225,7 +1633,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                   <button
                     type="button"
                     onClick={() => {
-                      const updated = { ...siteSettings, logoUrl: '/logomaster.jpg' };
+                      const updated = { ...siteSettings, logoUrl: '/logo.jpg' };
                       setSiteSettings(updated);
                       FirebaseService.saveSiteSettings(updated);
                       if (onSiteSettingsUpdated) onSiteSettingsUpdated(updated);
@@ -1233,7 +1641,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                     }}
                     className="text-xs text-slate-600 hover:text-slate-900 font-bold underline cursor-pointer"
                   >
-                    إعادة للشعار الافتراضي (/logomaster.jpg)
+                    إعادة للشعار الافتراضي (/logo.jpg)
                   </button>
 
                   <button
@@ -1287,10 +1695,10 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                     {/* Top Right Logo Preview */}
                     <div className="flex items-center gap-2 border-2 border-dashed border-gold p-1 rounded-lg bg-white">
                       <img 
-                        src={siteSettings.logoUrl || '/logomaster.jpg'} 
+                        src={siteSettings.logoUrl || '/logo.jpg'} 
                         alt="شعار أعلى اليمين" 
                         className="h-10 max-w-[140px] object-contain rounded-md"
-                        onError={(e) => { (e.target as HTMLImageElement).src = '/logomaster.jpg'; }}
+                        onError={(e) => { (e.target as HTMLImageElement).src = '/logo.jpg'; }}
                       />
                     </div>
 
@@ -1440,10 +1848,10 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                   {/* Browser Tab preview */}
                   <div className="bg-slate-800/80 rounded-xl p-2.5 flex items-center gap-3 border border-slate-700">
                     <img 
-                      src={siteSettings.logoUrl || '/logomaster.jpg'} 
+                      src={siteSettings.logoUrl || '/logo.jpg'} 
                       alt="Favicon Preview" 
                       className="w-6 h-6 rounded-lg object-cover border border-gold/40 shrink-0 bg-white"
-                      onError={(e) => { (e.target as HTMLImageElement).src = '/logomaster.jpg'; }}
+                      onError={(e) => { (e.target as HTMLImageElement).src = '/logo.jpg'; }}
                     />
                     <div className="truncate">
                       <div className="text-xs font-bold text-white truncate">{siteSettings.siteName || 'اسم الموقع'}</div>
@@ -1460,10 +1868,10 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                   <div className="flex items-center gap-4 bg-slate-800/40 p-3 rounded-xl border border-slate-800">
                     <div className="flex flex-col items-center gap-1.5">
                       <img 
-                        src={siteSettings.logoUrl || '/logomaster.jpg'} 
+                        src={siteSettings.logoUrl || '/logo.jpg'} 
                         alt="Mobile App Icon" 
                         className="w-14 h-14 rounded-2xl object-cover border-2 border-gold/60 shadow-lg bg-white"
-                        onError={(e) => { (e.target as HTMLImageElement).src = '/logomaster.jpg'; }}
+                        onError={(e) => { (e.target as HTMLImageElement).src = '/logo.jpg'; }}
                       />
                       <span className="text-[10px] font-bold text-slate-300 max-w-[70px] truncate text-center">
                         {siteSettings.siteName?.split('-')[0]?.trim() || 'Estably'}

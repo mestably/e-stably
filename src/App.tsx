@@ -39,6 +39,7 @@ import UserProfileModal from './components/UserProfileModal';
 import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 import DetailModal from './components/DetailModal';
+import { HorsesScreensaver } from './components/HorsesScreensaver';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
 import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
@@ -52,6 +53,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [todayAdsCount, setTodayAdsCount] = useState<number>(0);
+  const [isScreensaverOpen, setIsScreensaverOpen] = useState(false);
 
   // Direct Shared Ad State
   const [sharedAdModal, setSharedAdModal] = useState<{
@@ -76,11 +78,33 @@ export default function App() {
 
   const remainingDailyAds = Math.max(0, DAILY_FREE_ADS_LIMIT - todayAdsCount);
 
-  const [siteSettings, setSiteSettings] = useState<SiteSettings>({
-    id: 'main_site_settings',
-    siteName: 'Estably - منصة الخيول العربية الأصيلة',
-    siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
-    logoUrl: '/logomaster.jpg'
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('site_settings_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.siteName) {
+            return {
+              ...parsed,
+              logoUrl: (!parsed.logoUrl || parsed.logoUrl === '/logomaster.jpg') ? '/logo.jpg' : parsed.logoUrl,
+              screensaverEnabled: parsed.screensaverEnabled !== undefined ? parsed.screensaverEnabled : true,
+              screensaverTimeoutSeconds: parsed.screensaverTimeoutSeconds || 60,
+              screensaverShowClock: parsed.screensaverShowClock !== undefined ? parsed.screensaverShowClock : true,
+            };
+          }
+        }
+      } catch (e) {}
+    }
+    return {
+      id: 'main_site_settings',
+      siteName: 'Estably - منصة الخيول العربية الأصيلة',
+      siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
+      logoUrl: '/logo.jpg',
+      screensaverEnabled: true,
+      screensaverTimeoutSeconds: 60,
+      screensaverShowClock: true
+    };
   });
 
   // Initialize data cache & perform real-time cloud sync on startup
@@ -128,14 +152,69 @@ export default function App() {
 
     FirebaseService.getSiteSettings().then((settings) => {
       if (settings) {
-        if (!settings.logoUrl || settings.logoUrl === '/logo.jpg') {
-          settings.logoUrl = '/logomaster.jpg';
+        if (!settings.logoUrl || settings.logoUrl === '/logomaster.jpg') {
+          settings.logoUrl = '/logo.jpg';
         }
         setSiteSettings(settings);
         FirebaseService.applySiteSettings(settings);
       }
     }).catch(err => console.warn('Could not load site settings', err));
   }, []);
+
+  // Listen for admin live preview trigger
+  useEffect(() => {
+    const handleOpenScreensaver = () => setIsScreensaverOpen(true);
+    window.addEventListener('open_horses_screensaver', handleOpenScreensaver);
+    return () => window.removeEventListener('open_horses_screensaver', handleOpenScreensaver);
+  }, []);
+
+  // Idle Screensaver detection: automatically triggers running horses when user is inactive
+  useEffect(() => {
+    // If screensaver is disabled by admin, don't run the countdown
+    if (siteSettings.screensaverEnabled === false) {
+      return;
+    }
+
+    const timeoutSec = siteSettings.screensaverTimeoutSeconds && siteSettings.screensaverTimeoutSeconds > 0
+      ? siteSettings.screensaverTimeoutSeconds
+      : 60;
+    const timeoutMs = timeoutSec * 1000;
+
+    let timerId: any = null;
+
+    const resetIdleTimer = () => {
+      if (timerId) clearTimeout(timerId);
+      timerId = setTimeout(() => {
+        if (siteSettings.screensaverEnabled !== false) {
+          setIsScreensaverOpen(true);
+        }
+      }, timeoutMs);
+    };
+
+    const handleUserActivity = () => {
+      // If screensaver is active, waking up dismisses it
+      if (isScreensaverOpen) {
+        setIsScreensaverOpen(false);
+      }
+      resetIdleTimer();
+    };
+
+    // Initialize idle timer
+    resetIdleTimer();
+
+    // Track user inputs to reset the idle countdown
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+    events.forEach((evt) => {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    });
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      events.forEach((evt) => {
+        window.removeEventListener(evt, handleUserActivity);
+      });
+    };
+  }, [siteSettings.screensaverEnabled, siteSettings.screensaverTimeoutSeconds, isScreensaverOpen]);
 
   // Deep linking: Automatically open shared ad if 'ad' or 'id' query parameter is present in URL
   useEffect(() => {
@@ -224,12 +303,12 @@ export default function App() {
                 alt={siteSettings.siteName || 'شعار الموقع'} 
                 className="h-10 sm:h-12 max-w-[180px] object-contain rounded-lg transition-transform group-hover:scale-105"
                 onError={(e) => {
-                  (e.target as HTMLImageElement).src = '/logomaster.jpg';
+                  (e.target as HTMLImageElement).src = '/logo.jpg';
                 }}
               />
             ) : (
               <img 
-                src="/logomaster.jpg" 
+                src="/logo.jpg" 
                 alt="شعار الموقع" 
                 className="h-10 sm:h-12 max-w-[180px] object-contain rounded-lg transition-transform group-hover:scale-105" 
               />
@@ -802,6 +881,13 @@ export default function App() {
           </button>
         </div>
       )}
+
+      {/* Arabian Horses Screensaver (Activated when idle or previewed by Admin) */}
+      <HorsesScreensaver
+        isOpen={isScreensaverOpen}
+        onDismiss={() => setIsScreensaverOpen(false)}
+        siteSettings={siteSettings}
+      />
 
     </div>
   );

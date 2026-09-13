@@ -23,6 +23,7 @@ import {
 import { Horse, Stable, Shelter, Transport, User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import DetailModal from './DetailModal';
+import { RunningHorsesLoader } from './RunningHorsesLoader';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
 interface HomeSectionProps {
@@ -218,6 +219,34 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
   } | null>(null);
 
   const [touchStartX, setTouchStartX] = useState<number | null>(null);
+
+  // 3 Running Horses Navigation & Loading State
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigatingTarget, setNavigatingTarget] = useState<string>('قسم الخيول العربية الأصيلة');
+  const [showHorsesTrack, setShowHorsesTrack] = useState(false);
+
+  const handleStartNavigating = (
+    tab: 'horses' | 'stables' | 'shelter' | 'transport' = 'horses',
+    title: string = 'قسم الخيول العربية الأصيلة'
+  ) => {
+    setNavigatingTarget(title);
+    setIsNavigating(true);
+
+    // Scroll to the running horses section smoothly if not in viewport
+    const enterArea = document.getElementById('enter_sections_container');
+    if (enterArea) {
+      const rect = enterArea.getBoundingClientRect();
+      if (rect.top < 0 || rect.bottom > window.innerHeight) {
+        enterArea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    // High-speed sprint duration
+    setTimeout(() => {
+      onSelectTab(tab);
+      setIsNavigating(false);
+    }, 1300);
+  };
 
   const [stats, setStats] = useState(() => {
     try {
@@ -487,7 +516,7 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
         </div>
       </div>
 
-      {/* 2. Main Entry Action Area (الدخول للأقسام) */}
+      {/* 2. Main Entry Action Area (الدخول للأقسام) - مزود بأسكريبت ركض 3 أحصنة عربية أصيلة عند التنقل أو التحميل */}
       <div className="text-center space-y-4 max-w-2xl mx-auto py-4" id="main_enter_action_area">
         <h3 className="text-lg sm:text-2xl font-black text-navy tracking-tight">
           ملتقى الخيول العربية الأصيلة
@@ -496,19 +525,72 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
           المنصة العربية الأولى المتكاملة لعرض وطلب الخيل العربي الأصيل، خدمات الإيواء الفاخر، الإسطبلات المسجلة، ونقل وتأمين الجياد بجميع مدن ومناطق المملكة.
         </p>
         
-        <div className="pt-2">
-          <button
-            onClick={() => onSelectTab('horses')}
-            className="relative inline-flex items-center gap-3 bg-navy hover:bg-navy-dark text-white font-extrabold text-sm sm:text-base px-10 py-4.5 rounded-2xl shadow-xl transition-all duration-300 hover:shadow-gold/20 hover:-translate-y-0.5 cursor-pointer group overflow-hidden"
-            id="enter_sections_btn"
-          >
-            {/* Radiant Pulse Glow */}
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-gold/20 to-transparent opacity-0 group-hover:opacity-100 transition duration-500" />
-            
-            <Sparkles className="w-5 h-5 text-gold animate-bounce" />
-            <span>الدخول للأقسام وتصفح الإعلانات</span>
-            <ArrowLeft className="w-4 h-4 text-gold group-hover:-translate-x-1 transition-transform" />
-          </button>
+        {/* الحاوية المعلمة بالمستطيل لركض الجياد الثلاثة */}
+        <div className="pt-2 max-w-xl mx-auto" id="enter_sections_container">
+          {isNavigating ? (
+            <div className="animate-in fade-in zoom-in-95 duration-200" id="horses_sprint_active_box">
+              <RunningHorsesLoader 
+                mode="inline"
+                isSprinting={true}
+                loadingText={`جاري الانطلاق وتجهيز ${navigatingTarget}...`}
+                height={115}
+              />
+            </div>
+          ) : showHorsesTrack ? (
+            <div className="space-y-3 animate-in fade-in duration-300" id="horses_continuous_track_box">
+              <RunningHorsesLoader 
+                mode="inline"
+                isSprinting={false}
+                loadingText="سباق الجياد العربية الثلاثة (الشامخ، الأصيل، والأدهم)"
+                height={105}
+                onClick={() => handleStartNavigating('horses', 'قسم الخيول العربية الأصيلة')}
+              />
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  onClick={() => handleStartNavigating('horses', 'قسم الخيول العربية الأصيلة')}
+                  className="relative inline-flex items-center gap-2.5 bg-navy hover:bg-navy-dark text-white font-extrabold text-xs sm:text-sm px-7 py-3 rounded-xl shadow-lg transition-all duration-300 hover:shadow-gold/20 hover:-translate-y-0.5 cursor-pointer group"
+                >
+                  <Sparkles className="w-4 h-4 text-gold animate-bounce" />
+                  <span>انطلاق سريع للأقسام والإعلانات</span>
+                  <ArrowLeft className="w-4 h-4 text-gold group-hover:-translate-x-1 transition-transform" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowHorsesTrack(false)}
+                  className="text-xs text-slate-500 hover:text-slate-700 bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-3 rounded-xl cursor-pointer transition font-medium"
+                >
+                  إخفاء المضمار
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center gap-2.5">
+              <button
+                onClick={() => handleStartNavigating('horses', 'قسم الخيول العربية الأصيلة')}
+                className="relative inline-flex items-center gap-3 bg-navy hover:bg-navy-dark text-white font-extrabold text-sm sm:text-base px-10 py-4.5 rounded-2xl shadow-xl transition-all duration-300 hover:shadow-gold/20 hover:-translate-y-0.5 cursor-pointer group overflow-hidden"
+                id="enter_sections_btn"
+              >
+                {/* Radiant Pulse Glow */}
+                <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-gold/20 to-transparent opacity-0 group-hover:opacity-100 transition duration-500" />
+                
+                <Sparkles className="w-5 h-5 text-gold animate-bounce" />
+                <span>الدخول للأقسام وتصفح الإعلانات</span>
+                <ArrowLeft className="w-4 h-4 text-gold group-hover:-translate-x-1 transition-transform" />
+              </button>
+
+              {/* زر سريع لمعاينة ركض الجياد الثلاثة في نفس المكان */}
+              <button
+                type="button"
+                onClick={() => setShowHorsesTrack(true)}
+                className="inline-flex items-center gap-1.5 text-[11px] text-slate-500 hover:text-navy font-bold bg-white hover:bg-slate-50 border border-slate-200 px-3.5 py-1.5 rounded-full shadow-2xs transition cursor-pointer"
+                title="عرض مضمار ركض 3 أحصنة"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>عرض ركض الجياد العربية الأصيلة</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -526,7 +608,7 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
           
           {/* Card 1: Horses */}
           <div
-            onClick={() => onSelectTab('horses')}
+            onClick={() => handleStartNavigating('horses', 'قسم الخيول العربية الأصيلة')}
             className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
           >
             <div>
@@ -553,7 +635,7 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
 
           {/* Card 2: Stables */}
           <div
-            onClick={() => onSelectTab('stables')}
+            onClick={() => handleStartNavigating('stables', 'دليل الإسطبلات والمرابط')}
             className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
           >
             <div>
@@ -580,7 +662,7 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
 
           {/* Card 3: Shelters */}
           <div
-            onClick={() => onSelectTab('shelter')}
+            onClick={() => handleStartNavigating('shelter', 'خدمات الإيواء الفاخر')}
             className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
           >
             <div>
@@ -607,7 +689,7 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
 
           {/* Card 4: Transports */}
           <div
-            onClick={() => onSelectTab('transport')}
+            onClick={() => handleStartNavigating('transport', 'خدمات نقل وتأمين الخيول')}
             className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
           >
             <div>

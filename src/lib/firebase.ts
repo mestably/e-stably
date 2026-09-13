@@ -407,18 +407,41 @@ export const FirebaseService = {
       id: 'main_site_settings',
       siteName: 'Estably - إستابلي للخيول العربية الأصيلة',
       siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
-      logoUrl: '/logomaster.jpg',
+      logoUrl: '/logo.jpg',
+      screensaverEnabled: true,
+      screensaverTimeoutSeconds: 60,
+      screensaverShowClock: true,
       updatedAt: new Date().toISOString()
     };
 
     try {
       const list = await getCollection<SiteSettings>('site_settings');
       if (list && list.length > 0 && list[0].siteName) {
-        return { ...defaultSettings, ...list[0] };
+        const item: SiteSettings = { 
+          ...defaultSettings, 
+          ...list[0],
+          screensaverEnabled: list[0].screensaverEnabled !== undefined ? list[0].screensaverEnabled : true,
+          screensaverTimeoutSeconds: list[0].screensaverTimeoutSeconds || 60,
+          screensaverShowClock: list[0].screensaverShowClock !== undefined ? list[0].screensaverShowClock : true,
+        };
+        if (!item.logoUrl || item.logoUrl === '/logomaster.jpg') {
+          item.logoUrl = '/logo.jpg';
+        }
+        return item;
       }
       const local = getLocal<SiteSettings>('site_settings');
       if (local && local.length > 0 && local[0].siteName) {
-        return { ...defaultSettings, ...local[0] };
+        const item: SiteSettings = { 
+          ...defaultSettings, 
+          ...local[0],
+          screensaverEnabled: local[0].screensaverEnabled !== undefined ? local[0].screensaverEnabled : true,
+          screensaverTimeoutSeconds: local[0].screensaverTimeoutSeconds || 60,
+          screensaverShowClock: local[0].screensaverShowClock !== undefined ? local[0].screensaverShowClock : true,
+        };
+        if (!item.logoUrl || item.logoUrl === '/logomaster.jpg') {
+          item.logoUrl = '/logo.jpg';
+        }
+        return item;
       }
     } catch (e) {
       console.warn('Could not fetch site settings, using default', e);

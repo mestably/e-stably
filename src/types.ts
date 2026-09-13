@@ -147,4 +147,8 @@ export interface SiteSettings {
   siteDescription: string;
   logoUrl: string;
   updatedAt?: string;
+  // Screensaver Settings
+  screensaverEnabled?: boolean;
+  screensaverTimeoutSeconds?: number;
+  screensaverShowClock?: boolean;
 }
