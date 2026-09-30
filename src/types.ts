@@ -17,9 +17,31 @@ export interface User {
   isSuspended?: boolean;
   isVerified?: boolean;
   isGold?: boolean;
+  isSubscribed?: boolean; // هل المستخدم لديه اشتراك مفعل
+  subscriptionTier?: 'free' | 'silver' | 'gold' | 'platinum'; // باقة الاشتراك
+  subscriptionExpiresAt?: string; // تاريخ انتهاء الاشتراك
+  extraAdCredits?: number; // رصيد إعلانات إضافي متاح للمستخدم من الأكواد
   password?: string;
   authProvider?: 'google' | 'email';
   updatedAt?: string;
+}
+
+export interface SubscriptionCode {
+  id: string;
+  code: string; // مثل EST-84912
+  userId?: string;
+  userName?: string;
+  userPhone?: string;
+  userEmail?: string;
+  status: 'pending' | 'active' | 'used'; // قيد الانتظار للتفعيل، نشط جاهز للاستخدام، تم استخدامه
+  allowedAdsCount: number; // عدد الإعلانات المسموح بها بهذا الكود (افتراضيا 1)
+  usedAdsCount: number; // عدد الإعلانات التي استخدمت الكود
+  createdAt: string;
+  activatedAt?: string;
+  usedAt?: string;
+  usedByAdId?: string;
+  usedByAdType?: 'horse' | 'stable' | 'shelter' | 'transport' | string;
+  note?: string;
 }
 
 export interface Review {

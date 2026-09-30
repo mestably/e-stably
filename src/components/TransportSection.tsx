@@ -6,10 +6,12 @@
 import { useState, useEffect, FormEvent, ChangeEvent, MouseEvent } from 'react';
 import { Plus, Check, Calendar, MapPin, Truck, AlertCircle, DollarSign, ArrowLeftRight, HelpCircle, Navigation, Trash2, Edit2, Crown, Camera, Image, Upload, X, Phone, FileText, RotateCcw, Tag, CheckCircle2 } from 'lucide-react';
 import { Transport, User } from '../types';
-import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
+import { FirebaseService } from '../lib/firebase';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
 import TermsAgreementModal from './TermsAgreementModal';
+import SubscriptionCodeField from './SubscriptionCodeField';
 import { compressImage } from '../lib/imageUtils';
 import transportBgImage from '../assets/images/horse_transport_bg_1784414679042.jpg';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
@@ -23,20 +25,26 @@ interface TransportSectionProps {
   onOpenAuth: () => void;
   searchQuery: string;
   onAdCreated?: () => void;
+  onOpenSubscriptions?: () => void;
 }
 
-export default function TransportSection({ currentUser, onOpenAuth, searchQuery, onAdCreated }: TransportSectionProps) {
+export default function TransportSection({ currentUser, onOpenAuth, searchQuery, onAdCreated, onOpenSubscriptions }: TransportSectionProps) {
   const [transports, setTransports] = useState<Transport[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedTransport, setSelectedTransport] = useState<Transport | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [userTodayAds, setUserTodayAds] = useState(0);
+  const [userTotalAds, setUserTotalAds] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
+
+  // Subscription code state
+  const [subscriptionCode, setSubscriptionCode] = useState('');
+  const [isCodeValid, setIsCodeValid] = useState(false);
+  const [validatedCodeObj, setValidatedCodeObj] = useState<any>(null);
 
   useEffect(() => {
     if (currentUser?.id) {
-      FirebaseService.getUserTodayAdsCount(currentUser.id).then((cnt) => {
-        setUserTodayAds(cnt);
+      SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
+        setUserTotalAds(cnt);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -209,13 +217,19 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
       return;
     }
 
-    const isUnlimited = currentUser?.role === 'admin' || currentUser?.isGold;
+    const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      const cnt = await FirebaseService.getUserTodayAdsCount(currentUser.id);
-      if (cnt >= DAILY_FREE_ADS_LIMIT) {
-        setError(`عذراً! لقد استنفذت الحد الأقصى للإعلانات المجانية اليومية (${DAILY_FREE_ADS_LIMIT} إعلانات اليوم). يقتصر الحد اليومي على الحسابات العادية. يمكنك الترقية للعضوية الذهبية 👑 لنشر إعلانات بلا حدود!`);
-        return;
+      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+        if (!subscriptionCode.trim()) {
+          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          return;
+        }
+        const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
+        if (!val.valid) {
+          setError(val.message);
+          return;
+        }
       }
     }
 
@@ -275,6 +289,17 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
 
     try {
       await FirebaseService.saveTransport(transportData);
+
+      // Consume subscription code if used for additional ad
+      const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
+      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+        try {
+          await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, transportData.id, 'transport');
+        } catch (e) {
+          console.warn('Failed to mark code as redeemed', e);
+        }
+      }
+
       setSuccess(editingItemId ? 'تم تعديل عملية النقل بنجاح!' : 'تم إضافة عملية النقل المجدولة بنجاح!');
       setIsTermsModalOpen(false);
       
@@ -289,6 +314,9 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
       setImages([]);
       setPickupAddress('');
       setDeliveryAddress('');
+      setSubscriptionCode('');
+      setIsCodeValid(false);
+      setValidatedCodeObj(null);
 
       setTimeout(() => {
         setIsAddOpen(false);
@@ -302,16 +330,30 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     }
   };
 
+  // Check if current user is authorized to view ended/completed trips (only admin or the ad owner)
+  const canViewEnded = (userId: string) => {
+    if (!currentUser) return false;
+    return currentUser.role === 'admin' || currentUser.id === userId;
+  };
+
   const filteredTransports = transports.filter((trans) => {
+    // Hide ended/completed trips unless viewer is admin or the ad owner
+    if (trans.isEnded && !canViewEnded(trans.userId)) {
+      return false;
+    }
+
     const matchesSearch = 
       trans.vehicleType.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trans.pickupAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
       trans.deliveryAddress.toLowerCase().includes(searchQuery.toLowerCase());
     if (!matchesSearch) return false;
     if (statusFilter === 'active') return !trans.isEnded;
-    if (statusFilter === 'ended') return !!trans.isEnded;
+    if (statusFilter === 'ended') return !!trans.isEnded && canViewEnded(trans.userId);
     return true;
   });
+
+  const visibleTransports = transports.filter((t) => !t.isEnded || canViewEnded(t.userId));
+  const visibleEndedTransportsCount = transports.filter((t) => !!t.isEnded && canViewEnded(t.userId)).length;
 
   // Simulated Coordinates Picker for cities in Saudi Arabia
   const handleCitySelect = (city: string, type: 'pickup' | 'delivery') => {
@@ -367,7 +409,7 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
                 : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
             }`}
           >
-            جميع رحلات النقل ({transports.length})
+            جميع رحلات النقل ({visibleTransports.length})
           </button>
           <button
             onClick={() => setStatusFilter('active')}
@@ -379,16 +421,18 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
           >
             المتاحة ({transports.filter(t => !t.isEnded).length})
           </button>
-          <button
-            onClick={() => setStatusFilter('ended')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              statusFilter === 'ended'
-                ? 'bg-red-600 text-white shadow-xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
-            }`}
-          >
-            المنجزة / المنتهية ({transports.filter(t => !!t.isEnded).length})
-          </button>
+          {(currentUser?.role === 'admin' || visibleEndedTransportsCount > 0) && (
+            <button
+              onClick={() => setStatusFilter('ended')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                statusFilter === 'ended'
+                  ? 'bg-red-600 text-white shadow-xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+              }`}
+            >
+              المنجزة / المنتهية ({visibleEndedTransportsCount})
+            </button>
+          )}
         </div>
 
         <button
@@ -414,35 +458,19 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
 
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-4">
               {!editingItemId && (
-                (currentUser?.role === 'admin' || currentUser?.isGold) ? (
-                  <div className="p-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-gold-light/40 text-amber-900 text-xs font-bold flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <Crown className="w-4 h-4 text-amber-600 animate-bounce" />
-                      <span>{currentUser?.role === 'admin' ? 'حساب مدير النظام 🛡️' : 'العضوية الذهبية المميزة 👑'}: نشر إعلانات غير محدود</span>
-                    </div>
-                    <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
-                      بلا حدود
-                    </span>
-                  </div>
-                ) : (
-                  <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${
-                    userTodayAds >= DAILY_FREE_ADS_LIMIT 
-                      ? 'bg-red-50 border-red-200 text-red-700' 
-                      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                  }`}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>المتبقي من الإعلانات المجانية اليومية (حساب عادي):</span>
-                    </div>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
-                      userTodayAds >= DAILY_FREE_ADS_LIMIT 
-                        ? 'bg-red-600 text-white' 
-                        : 'bg-emerald-600 text-white shadow-2xs'
-                    }`}>
-                      {Math.max(0, DAILY_FREE_ADS_LIMIT - userTodayAds)} من {DAILY_FREE_ADS_LIMIT} إعلانات
-                    </span>
-                  </div>
-                )
+                <SubscriptionCodeField
+                  currentUser={currentUser}
+                  code={subscriptionCode}
+                  onChangeCode={setSubscriptionCode}
+                  isCodeValid={isCodeValid}
+                  setIsCodeValid={setIsCodeValid}
+                  validatedCodeObj={validatedCodeObj}
+                  setValidatedCodeObj={setValidatedCodeObj}
+                  adType="نقل"
+                  totalAdsCount={userTotalAds}
+                  onOpenSubscriptions={onOpenSubscriptions}
+                  onOpenAuth={onOpenAuth}
+                />
               )}
 
               {error && (

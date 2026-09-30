@@ -43,10 +43,15 @@ import {
   CheckCircle2,
   Timer,
   Monitor,
-  Play
+  Play,
+  Key,
+  MessageCircle,
+  Copy,
+  Check
 } from 'lucide-react';
-import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner, SiteSettings } from '../types';
+import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner, SiteSettings, SubscriptionCode } from '../types';
 import { FirebaseService } from '../lib/firebase';
+import { SubscriptionService } from '../lib/subscriptionService';
 import { compressImage } from '../lib/imageUtils';
 import ConfirmModal from './ConfirmModal';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
@@ -59,7 +64,7 @@ interface AdminControlSectionProps {
 }
 
 export default function AdminControlSection({ currentUser, onSiteSettingsUpdated }: AdminControlSectionProps) {
-  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'screensaver' | 'logo' | 'site'>('screensaver');
+  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'screensaver' | 'logo' | 'site' | 'subscriptions'>('screensaver');
   const [listingCategory, setListingCategory] = useState<'all' | 'horses' | 'stables' | 'shelters' | 'transports'>('all');
   
   // Data State
@@ -69,6 +74,16 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const [shelters, setShelters] = useState<Shelter[]>([]);
   const [transports, setTransports] = useState<Transport[]>([]);
   const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
+  const [subscriptionCodes, setSubscriptionCodes] = useState<SubscriptionCode[]>([]);
+  const [codesFilter, setCodesFilter] = useState<'all' | 'pending' | 'active' | 'used'>('all');
+  const [codesSearch, setCodesSearch] = useState('');
+
+  // Subscription code generator form state
+  const [newCodeCount, setNewCodeCount] = useState<number>(1);
+  const [newCodePrefix, setNewCodePrefix] = useState<string>('EST');
+  const [newCodeNote, setNewCodeNote] = useState<string>('');
+  const [isGeneratingCodes, setIsGeneratingCodes] = useState(false);
+  const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
 
   // Screensaver Settings State
   const [screensaverEnabled, setScreensaverEnabled] = useState(true);
@@ -136,20 +151,22 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [u, h, s, sh, t, b, st] = await Promise.all([
+      const [u, h, s, sh, t, b, st, codes] = await Promise.all([
         FirebaseService.getUsers(),
         FirebaseService.getHorses(),
         FirebaseService.getStables(),
         FirebaseService.getShelters(),
         FirebaseService.getTransports(),
         FirebaseService.getBanner(),
-        FirebaseService.getSiteSettings()
+        FirebaseService.getSiteSettings(),
+        SubscriptionService.getAllCodes()
       ]);
       setUsers(u);
       setHorses(h);
       setStables(s);
       setShelters(sh);
       setTransports(t);
+      setSubscriptionCodes(codes);
       if (b) {
         setBanner(b);
         setBannerEnabled(b.enabled ?? true);
@@ -179,6 +196,70 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Subscription code action handlers
+  const handleApproveCode = async (codeId: string) => {
+    try {
+      const ok = await SubscriptionService.adminApproveCode(codeId);
+      if (ok) {
+        showNotify('success', 'تم اعتماد وتفعيل كود الاشتراك بنجاح! يمكن للمستخدم الآن استخدامه لنشر إعلانه.');
+        const updated = await SubscriptionService.getAllCodes();
+        setSubscriptionCodes(updated);
+      } else {
+        showNotify('error', 'فشل اعتماد الكود.');
+      }
+    } catch {
+      showNotify('error', 'حدث خطأ أثناء اعتماد الكود.');
+    }
+  };
+
+  const handleRevokeCode = async (codeId: string) => {
+    try {
+      const ok = await SubscriptionService.adminRevokeCode(codeId);
+      if (ok) {
+        showNotify('success', 'تم إبطال الكود وتحويله إلى مستخدم.');
+        const updated = await SubscriptionService.getAllCodes();
+        setSubscriptionCodes(updated);
+      }
+    } catch {
+      showNotify('error', 'حدث خطأ أثناء إبطال الكود.');
+    }
+  };
+
+  const handleDeleteCode = async (codeId: string) => {
+    try {
+      const ok = await SubscriptionService.adminDeleteCode(codeId);
+      if (ok) {
+        showNotify('success', 'تم حذف الكود نهائياً.');
+        setSubscriptionCodes(prev => prev.filter(c => c.id !== codeId));
+      }
+    } catch {
+      showNotify('error', 'حدث خطأ أثناء حذف الكود.');
+    }
+  };
+
+  const handleGenerateBatchCodes = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsGeneratingCodes(true);
+    try {
+      const count = Math.max(1, Math.min(50, newCodeCount));
+      const created = await SubscriptionService.adminGenerateBatchCodes(count, newCodePrefix || 'EST', newCodeNote);
+      showNotify('success', `تم توليد واعتماد ${created.length} كود اشتراك بنجاح! الأكواد جاهزة للمشاركة والاستخدام.`);
+      setNewCodeNote('');
+      const updated = await SubscriptionService.getAllCodes();
+      setSubscriptionCodes(updated);
+    } catch {
+      showNotify('error', 'حدث خطأ أثناء توليد الأكواد.');
+    } finally {
+      setIsGeneratingCodes(false);
+    }
+  };
+
+  const handleCopyCodeText = (codeId: string, codeStr: string) => {
+    navigator.clipboard.writeText(codeStr);
+    setCopiedCodeId(codeId);
+    setTimeout(() => setCopiedCodeId(null), 2000);
   };
 
   const handleSaveScreensaverSettings = async (e?: React.FormEvent) => {
@@ -532,6 +613,8 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     return matchesCat && matchesSearch;
   });
 
+  const pendingCodesCount = subscriptionCodes.filter(c => c.status === 'pending').length;
+
   return (
     <div className="space-y-6">
       
@@ -568,124 +651,254 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         </button>
       </div>
 
-      {/* Statistics Header Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-xs flex items-center justify-between">
+      {/* Prominent Alert Ribbon for Pending Subscription Codes */}
+      {pendingCodesCount > 0 && (
+        <div 
+          onClick={() => setActiveTab('subscriptions')}
+          className="bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 text-white p-3.5 sm:p-4 rounded-2xl shadow-lg border border-amber-300 flex items-center justify-between gap-3 cursor-pointer hover:shadow-xl hover:brightness-105 transition active:scale-[0.99]"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+              <Crown className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-black flex items-center gap-2">
+                <span>تنبيه الاشتراكات والأكواد: يوجد {pendingCodesCount} كود جديد بانتظار الاعتماد والتفعيل الفوري</span>
+                <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping"></span>
+              </div>
+              <p className="text-[11px] text-amber-100 mt-0.5">انقر هنا للانتقال مباشرة لجدول اعتماد الأكواد وتفعيلها</p>
+            </div>
+          </div>
+          <button className="bg-white text-amber-900 text-xs font-black px-4 py-2 rounded-xl shadow-xs shrink-0 hover:bg-amber-50 transition cursor-pointer">
+            اعتماد الأكواد ←
+          </button>
+        </div>
+      )}
+
+      {/* Statistics Header Cards (Clickable shortcuts to admin sections) */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        <div 
+          onClick={() => setActiveTab('users')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between ${
+            activeTab === 'users' ? 'bg-navy/5 border-navy ring-1 ring-navy' : 'bg-white hover:bg-slate-50 border-slate-200/60'
+          }`}
+          title="انقر للانتقال لإدارة المستخدمين"
+        >
           <div>
             <span className="text-[11px] font-bold text-slate-400 block">إجمالي المستخدمين</span>
-            <span className="text-xl font-extrabold text-navy">{users.length}</span>
+            <span className="text-xl font-extrabold text-navy font-mono">{users.length}</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-navy/5 text-navy flex items-center justify-center">
             <Users className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-xs flex items-center justify-between">
+        <div 
+          onClick={() => setActiveTab('users')}
+          className="bg-white hover:bg-red-50/40 p-4 rounded-2xl border border-slate-200/60 transition-all cursor-pointer shadow-xs flex items-center justify-between"
+          title="عرض الحسابات الموقوفة"
+        >
           <div>
             <span className="text-[11px] font-bold text-slate-400 block">الحسابات الموقوفة</span>
-            <span className="text-xl font-extrabold text-red-600">{users.filter(u => u.isSuspended).length}</span>
+            <span className="text-xl font-extrabold text-red-600 font-mono">{users.filter(u => u.isSuspended).length}</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center">
             <UserX className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-xs flex items-center justify-between">
+        <div 
+          onClick={() => setActiveTab('listings')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between ${
+            activeTab === 'listings' ? 'bg-amber-50/70 border-gold ring-1 ring-gold' : 'bg-white hover:bg-slate-50 border-slate-200/60'
+          }`}
+          title="انقر للانتقال لإدارة الإعلانات والخدمات"
+        >
           <div>
             <span className="text-[11px] font-bold text-slate-400 block">إجمالي الإعلانات</span>
-            <span className="text-xl font-extrabold text-gold-dark">{allListings.length}</span>
+            <span className="text-xl font-extrabold text-gold-dark font-mono">{allListings.length}</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-gold-light text-gold-dark flex items-center justify-center">
             <FileText className="w-5 h-5" />
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-2xl border border-slate-200/60 shadow-xs flex items-center justify-between">
+        <div 
+          onClick={() => setActiveTab('listings')}
+          className="bg-white hover:bg-slate-50 p-4 rounded-2xl border border-slate-200/60 transition-all cursor-pointer shadow-xs flex items-center justify-between"
+          title="انقر للانتقال لإعلانات الخيل"
+        >
           <div>
-            <span className="text-[11px] font-bold text-slate-400 block">عدد الخيول المعروضة</span>
-            <span className="text-xl font-extrabold text-navy">{horses.length}</span>
+            <span className="text-[11px] font-bold text-slate-400 block">الخيول المعروضة</span>
+            <span className="text-xl font-extrabold text-navy font-mono">{horses.length}</span>
           </div>
           <div className="w-10 h-10 rounded-xl bg-navy/5 text-navy flex items-center justify-center">
             <Award className="w-5 h-5" />
           </div>
         </div>
+
+        {/* 5th Card: Subscriptions & Codes shortcut */}
+        <div 
+          onClick={() => setActiveTab('subscriptions')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between col-span-2 sm:col-span-1 ${
+            activeTab === 'subscriptions' 
+              ? 'bg-amber-100/70 border-amber-500 ring-2 ring-amber-400/40' 
+              : 'bg-gradient-to-br from-amber-50/80 to-white hover:bg-amber-50 border-amber-200/80'
+          }`}
+          title="انقر للانتقال لإدارة الاشتراكات والأكواد"
+        >
+          <div>
+            <span className="text-[11px] font-bold text-amber-800 block">أكواد واشتراكات</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-xl font-extrabold text-amber-950 font-mono">{subscriptionCodes.length}</span>
+              {pendingCodesCount > 0 && (
+                <span className="text-[10px] bg-red-600 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
+                  {pendingCodesCount} مطلوب
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center">
+            <Crown className="w-5 h-5" />
+          </div>
+        </div>
       </div>
 
-      {/* Main Tabs Navigation */}
-      <div className="flex border-b border-slate-200 bg-white rounded-t-2xl px-4 pt-3">
-        <button
-          onClick={() => setActiveTab('users')}
-          className={`px-6 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'users' ? 'border-navy text-navy font-extrabold' : 'border-transparent text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Users className="w-4 h-4" />
-          <span>إدارة المستخدمين ({users.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('listings')}
-          className={`px-6 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'listings' ? 'border-navy text-navy font-extrabold' : 'border-transparent text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <FileText className="w-4 h-4" />
-          <span>إدارة الإعلانات والخدمات ({allListings.length})</span>
-        </button>
-
-        <button
-          onClick={() => setActiveTab('banner')}
-          className={`px-6 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'banner' ? 'border-navy text-navy font-extrabold' : 'border-transparent text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Megaphone className="w-4 h-4 text-gold-dark" />
-          <span>بنر الإعلان الافتتاحي</span>
-          {bannerEnabled && bannerImageUrl && (
-            <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse"></span>
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('screensaver')}
-          className={`px-5 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2.5 cursor-pointer ${
-            activeTab === 'screensaver' ? 'border-amber-500 text-amber-950 font-black bg-amber-50/60' : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <ArabianHorseWhiteOnBlueIcon size="sm" shape="circle" className="shadow-xs shrink-0" />
-          <span>شاشة توقف الخيول الأصيلة</span>
-          {screensaverEnabled ? (
-            <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-md font-extrabold flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
-              مفعلة
+      {/* Main Tabs Navigation - Fully Responsive, Scrollable, and Subscriptions Visible in Priority Position */}
+      <div className="bg-white rounded-t-2xl border-b border-slate-200/80 shadow-xs overflow-hidden">
+        
+        {/* Mobile Dropdown for small screens */}
+        <div className="p-3 sm:hidden border-b border-slate-100 bg-slate-50/80">
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+              <span>الانتقال السريع للقسم:</span>
             </span>
-          ) : (
-            <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-md font-bold">
-              معطلة
-            </span>
-          )}
-        </button>
+            {pendingCodesCount > 0 && (
+              <span className="text-[10px] font-black bg-red-600 text-white px-2 py-0.5 rounded-full animate-pulse">
+                {pendingCodesCount} كود بانتظار الاعتماد
+              </span>
+            )}
+          </div>
+          <select
+            value={activeTab}
+            onChange={(e) => setActiveTab(e.target.value as any)}
+            className="w-full bg-white border border-slate-300 rounded-xl py-2 px-3 text-xs font-bold text-slate-800 shadow-xs focus:outline-none focus:border-navy"
+          >
+            <option value="subscriptions">👑 إدارة الاشتراكات والأكواد ({subscriptionCodes.length}) {pendingCodesCount > 0 ? `(${pendingCodesCount} بانتظار الاعتماد)` : ''}</option>
+            <option value="users">👥 إدارة المستخدمين ({users.length})</option>
+            <option value="listings">📄 إدارة الإعلانات والخدمات ({allListings.length})</option>
+            <option value="screensaver">🐎 شاشة توقف الخيول الأصيلة ({screensaverEnabled ? 'مفعلة' : 'معطلة'})</option>
+            <option value="banner">📢 بنر الإعلان الافتتاحي</option>
+            <option value="logo">📷 شعار أعلى يمين الشاشة</option>
+            <option value="site">🌐 هوية الموقع والـ Bookmark Icon</option>
+          </select>
+        </div>
 
-        <button
-          onClick={() => setActiveTab('logo')}
-          className={`px-5 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'logo' ? 'border-gold-dark text-gold-dark font-black bg-gold/5' : 'border-transparent text-slate-500 hover:text-slate-800'
-          }`}
-        >
-          <Camera className="w-4 h-4 text-gold-dark" />
-          <span>شعار أعلى يمين الشاشة</span>
-          <span className="bg-gold/20 text-gold-dark text-[10px] px-1.5 py-0.5 rounded-md font-extrabold">مستقل</span>
-        </button>
+        {/* Scrollable Tabs Bar with High-Priority Subscriptions Tab in 3rd Position */}
+        <div className="flex items-stretch overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent px-2 sm:px-4 pt-2 gap-1 sm:gap-2">
+          
+          {/* TAB 1: Users */}
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'users' ? 'border-navy text-navy font-extrabold bg-navy/5' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <Users className="w-4 h-4" />
+            <span>إدارة المستخدمين ({users.length})</span>
+          </button>
 
-        <button
-          onClick={() => setActiveTab('site')}
-          className={`px-5 py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer ${
-            activeTab === 'site' ? 'border-navy text-navy font-extrabold' : 'border-transparent text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Globe className="w-4 h-4 text-navy" />
-          <span>هوية الموقع والـ Bookmark Icon</span>
-        </button>
+          {/* TAB 2: Listings */}
+          <button
+            onClick={() => setActiveTab('listings')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'listings' ? 'border-navy text-navy font-extrabold bg-navy/5' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            <span>إدارة الإعلانات والخدمات ({allListings.length})</span>
+          </button>
+
+          {/* TAB 3: SUBSCRIPTIONS & CODES (Placed in top priority row, fully visible and accessible!) */}
+          <button
+            onClick={() => setActiveTab('subscriptions')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl shadow-xs ${
+              activeTab === 'subscriptions' 
+                ? 'border-amber-500 text-amber-950 font-black bg-gradient-to-t from-amber-100/90 via-amber-50 to-amber-50 ring-1 ring-amber-400/40' 
+                : 'border-amber-300/80 text-amber-900 bg-amber-50/60 hover:bg-amber-100/70 hover:text-amber-950'
+            }`}
+          >
+            <Crown className={`w-4 h-4 ${activeTab === 'subscriptions' ? 'text-amber-600 fill-amber-500/20' : 'text-amber-600'}`} />
+            <span>إدارة الاشتراكات والأكواد ({subscriptionCodes.length})</span>
+            {pendingCodesCount > 0 ? (
+              <span className="bg-red-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse shadow-xs">
+                {pendingCodesCount} بانتظار الاعتماد
+              </span>
+            ) : (
+              <span className="bg-amber-200/80 text-amber-900 text-[10px] px-1.5 py-0.2 rounded-md font-bold">
+                تفعيل
+              </span>
+            )}
+          </button>
+
+          {/* TAB 4: Screensaver */}
+          <button
+            onClick={() => setActiveTab('screensaver')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'screensaver' ? 'border-amber-500 text-amber-950 font-black bg-amber-50/60' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <ArabianHorseWhiteOnBlueIcon size="sm" shape="circle" className="shadow-xs shrink-0" />
+            <span>شاشة توقف الخيول الأصيلة</span>
+            {screensaverEnabled ? (
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.5 rounded-md font-extrabold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block animate-pulse"></span>
+                مفعلة
+              </span>
+            ) : (
+              <span className="bg-slate-100 text-slate-500 text-[10px] px-1.5 py-0.5 rounded-md font-bold">
+                معطلة
+              </span>
+            )}
+          </button>
+
+          {/* TAB 5: Banner */}
+          <button
+            onClick={() => setActiveTab('banner')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'banner' ? 'border-navy text-navy font-extrabold bg-navy/5' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <Megaphone className="w-4 h-4 text-gold-dark" />
+            <span>بنر الإعلان الافتتاحي</span>
+            {bannerEnabled && bannerImageUrl && (
+              <span className="w-2 h-2 rounded-full bg-green-500 inline-block animate-pulse"></span>
+            )}
+          </button>
+
+          {/* TAB 6: Logo */}
+          <button
+            onClick={() => setActiveTab('logo')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'logo' ? 'border-gold-dark text-gold-dark font-black bg-gold/10' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <Camera className="w-4 h-4 text-gold-dark" />
+            <span>شعار أعلى يمين الشاشة</span>
+            <span className="bg-gold/20 text-gold-dark text-[10px] px-1.5 py-0.5 rounded-md font-extrabold">مستقل</span>
+          </button>
+
+          {/* TAB 7: Site & Bookmark Icon */}
+          <button
+            onClick={() => setActiveTab('site')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'site' ? 'border-navy text-navy font-extrabold bg-navy/5' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
+            }`}
+          >
+            <Globe className="w-4 h-4 text-navy" />
+            <span>هوية الموقع والـ Bookmark Icon</span>
+          </button>
+        </div>
       </div>
 
       {/* TAB 1: USERS MANAGEMENT */}
@@ -799,7 +1012,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold px-2.5 py-1 rounded-lg text-[10px]">
-                            عادي (5 يومياً)
+                            عضو عادي (إعلان 1 مجاناً)
                           </span>
                         )}
                       </td>
@@ -1908,7 +2121,310 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         </div>
       )}
 
-      {/* --- EDIT USER MODAL FOR ADMIN --- */}
+      {/* TAB: SUBSCRIPTIONS & CODES MANAGEMENT */}
+      {activeTab === 'subscriptions' && (
+        <div className="bg-white rounded-b-2xl p-4 sm:p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-6">
+          
+          {/* Header Title */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-700 flex items-center justify-center font-bold">
+                <Crown className="w-5 h-5 text-amber-600" />
+              </div>
+              <div>
+                <h2 className="font-black text-slate-800 text-sm sm:text-base">إدارة الاشتراكات وأكواد نشر الإعلانات الإضافية</h2>
+                <p className="text-xs text-slate-400">اعتماد الأكواد المطلوبة عبر واتساب الإدارة وتوليد أكواد مسبقة للمستخدمين</p>
+              </div>
+            </div>
+
+            <button
+              onClick={loadData}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2 px-3.5 rounded-xl transition cursor-pointer flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
+              <span>تحديث الأكواد</span>
+            </button>
+          </div>
+
+          {/* Stats Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/60 shadow-2xs">
+              <span className="text-[11px] font-bold text-slate-500 block">إجمالي الأكواد</span>
+              <span className="text-xl font-black text-navy">{subscriptionCodes.length}</span>
+            </div>
+
+            <div className="bg-amber-50/70 p-4 rounded-2xl border border-amber-200 shadow-2xs">
+              <span className="text-[11px] font-bold text-amber-800 block">بانتظار الاعتماد (واتساب)</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-black text-amber-900">
+                  {subscriptionCodes.filter(c => c.status === 'pending').length}
+                </span>
+                {subscriptionCodes.filter(c => c.status === 'pending').length > 0 && (
+                  <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                )}
+              </div>
+            </div>
+
+            <div className="bg-emerald-50/70 p-4 rounded-2xl border border-emerald-200 shadow-2xs">
+              <span className="text-[11px] font-bold text-emerald-800 block">أكواد نشطة وجاهزة</span>
+              <span className="text-xl font-black text-emerald-900">
+                {subscriptionCodes.filter(c => c.status === 'active').length}
+              </span>
+            </div>
+
+            <div className="bg-slate-100/70 p-4 rounded-2xl border border-slate-200 shadow-2xs">
+              <span className="text-[11px] font-bold text-slate-500 block">أكواد تم استهلاكها</span>
+              <span className="text-xl font-black text-slate-700">
+                {subscriptionCodes.filter(c => c.status === 'used').length}
+              </span>
+            </div>
+          </div>
+
+          {/* Generate Batch Codes Form Box */}
+          <div className="bg-gradient-to-r from-amber-50/60 via-gold/10 to-slate-50 border border-amber-300/80 rounded-2xl p-5 space-y-3.5">
+            <div className="flex items-center gap-2">
+              <Key className="w-4 h-4 text-amber-700" />
+              <h3 className="font-extrabold text-xs sm:text-sm text-amber-950">توليد أكواد اشتراك جديدة معتمدة فوراً</h3>
+            </div>
+            
+            <form onSubmit={handleGenerateBatchCodes} className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">بادئة الكود (Prefix)</label>
+                <input
+                  type="text"
+                  value={newCodePrefix}
+                  onChange={(e) => setNewCodePrefix(e.target.value.toUpperCase())}
+                  placeholder="EST"
+                  maxLength={6}
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-mono uppercase font-black text-navy focus:outline-none focus:border-navy"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">العدد المطلوب توليده</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={newCodeCount}
+                  onChange={(e) => setNewCodeCount(parseInt(e.target.value) || 1)}
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl font-bold text-slate-800 focus:outline-none focus:border-navy"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">ملاحظة / اسم المستفيد (اختياري)</label>
+                <input
+                  type="text"
+                  value={newCodeNote}
+                  onChange={(e) => setNewCodeNote(e.target.value)}
+                  placeholder="مثال: كود ترويجي لإسطبل الأندلس"
+                  className="w-full p-2.5 bg-white border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:border-navy"
+                />
+              </div>
+
+              <div className="flex items-end">
+                <button
+                  type="submit"
+                  disabled={isGeneratingCodes}
+                  className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-extrabold py-2.5 px-4 rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  <Sparkles className="w-4 h-4 text-white" />
+                  <span>{isGeneratingCodes ? 'جاري التوليد...' : 'توليد واعتماد الأكواد ⚡'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Search & Status Filters */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2">
+            <div className="relative w-full sm:w-80">
+              <Search className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+              <input
+                type="text"
+                placeholder="بحث بكود الاشتراك، اسم المستخدم، أو رقم الهاتف..."
+                value={codesSearch}
+                onChange={(e) => setCodesSearch(e.target.value)}
+                className="w-full pr-9 pl-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:outline-none focus:border-navy"
+              />
+            </div>
+
+            <div className="flex items-center gap-1.5 self-stretch sm:self-auto overflow-x-auto pb-1 sm:pb-0">
+              {(['all', 'pending', 'active', 'used'] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setCodesFilter(st)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 ${
+                    codesFilter === st 
+                      ? 'bg-navy text-white shadow-2xs' 
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {st === 'all' && `الكل (${subscriptionCodes.length})`}
+                  {st === 'pending' && `بانتظار الاعتماد (${subscriptionCodes.filter(c => c.status === 'pending').length})`}
+                  {st === 'active' && `نشطة (${subscriptionCodes.filter(c => c.status === 'active').length})`}
+                  {st === 'used' && `تم الاستخدام (${subscriptionCodes.filter(c => c.status === 'used').length})`}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Table of Subscription Codes */}
+          <div className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold">
+                  <tr>
+                    <th className="p-3.5">الكود المتغير</th>
+                    <th className="p-3.5">صاحب الطلب / المستخدم</th>
+                    <th className="p-3.5">الحالة</th>
+                    <th className="p-3.5">تاريخ الطلب / الإنشاء</th>
+                    <th className="p-3.5">الملاحظة / تفاصيل الاستخدام</th>
+                    <th className="p-3.5 text-center">الإجراءات</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {subscriptionCodes
+                    .filter((c) => {
+                      if (codesFilter !== 'all' && c.status !== codesFilter) return false;
+                      if (!codesSearch.trim()) return true;
+                      const q = codesSearch.toLowerCase();
+                      return (
+                        c.code.toLowerCase().includes(q) ||
+                        (c.userName && c.userName.toLowerCase().includes(q)) ||
+                        (c.userPhone && c.userPhone.includes(q)) ||
+                        (c.userEmail && c.userEmail.toLowerCase().includes(q)) ||
+                        (c.note && c.note.toLowerCase().includes(q))
+                      );
+                    })
+                    .map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition">
+                        
+                        {/* Code and Copy Button */}
+                        <td className="p-3.5 font-mono font-black text-navy text-sm">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-slate-100 border border-slate-300 px-2.5 py-1 rounded-lg select-all">
+                              {item.code}
+                            </span>
+                            <button
+                              onClick={() => handleCopyCodeText(item.id, item.code)}
+                              className="p-1.5 hover:bg-slate-200 rounded-md text-slate-500 hover:text-navy transition cursor-pointer"
+                              title="نسخ الكود"
+                            >
+                              {copiedCodeId === item.id ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </td>
+
+                        {/* User Details */}
+                        <td className="p-3.5">
+                          {item.userName ? (
+                            <div>
+                              <span className="font-bold text-slate-800 block">{item.userName}</span>
+                              <span className="text-[11px] text-slate-500 font-mono block">{item.userPhone || 'بدون هاتف'}</span>
+                              {item.userEmail && <span className="text-[10px] text-slate-400 block">{item.userEmail}</span>}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 italic font-medium">كود عام من الإدارة</span>
+                          )}
+                        </td>
+
+                        {/* Status Badge */}
+                        <td className="p-3.5">
+                          {item.status === 'pending' ? (
+                            <span className="inline-flex items-center gap-1.5 bg-amber-100 text-amber-900 border border-amber-300 font-black px-2.5 py-1 rounded-full text-[10px]">
+                              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                              بانتظار الاعتماد
+                            </span>
+                          ) : item.status === 'active' ? (
+                            <span className="inline-flex items-center gap-1.5 bg-emerald-100 text-emerald-800 border border-emerald-300 font-black px-2.5 py-1 rounded-full text-[10px]">
+                              <CheckCircle className="w-3 h-3 text-emerald-600" />
+                              نشط وجاهز
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 bg-slate-100 text-slate-600 border border-slate-200 font-bold px-2.5 py-1 rounded-full text-[10px]">
+                              تم الاستخدام ✓
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Date */}
+                        <td className="p-3.5 text-slate-500 text-[11px]">
+                          {new Date(item.createdAt).toLocaleDateString('ar-SA', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </td>
+
+                        {/* Note & Used Details */}
+                        <td className="p-3.5 text-[11px] text-slate-600 max-w-[200px]">
+                          {item.note && <div className="truncate">{item.note}</div>}
+                          {item.usedAt && (
+                            <div className="text-[10px] text-slate-400 mt-0.5">
+                              استخدم في: {item.usedByAdType || 'إعلان'} ({new Date(item.usedAt).toLocaleDateString('ar-SA')})
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Actions */}
+                        <td className="p-3.5">
+                          <div className="flex items-center justify-center gap-1.5">
+                            
+                            {/* Approve Button */}
+                            {item.status === 'pending' && (
+                              <button
+                                onClick={() => handleApproveCode(item.id)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] px-3 py-1.5 rounded-lg transition cursor-pointer shadow-xs flex items-center gap-1"
+                                title="اعتماد وتفعيل هذا الكود للمستخدم"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>اعتماد الكود ✅</span>
+                              </button>
+                            )}
+
+                            {/* Revoke Button if active */}
+                            {item.status === 'active' && (
+                              <button
+                                onClick={() => handleRevokeCode(item.id)}
+                                className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-[11px] px-2.5 py-1.5 rounded-lg transition cursor-pointer"
+                                title="تعطيل الكود"
+                              >
+                                <span>إبطال</span>
+                              </button>
+                            )}
+
+                            {/* Delete Button */}
+                            <button
+                              onClick={() => handleDeleteCode(item.id)}
+                              className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition cursor-pointer"
+                              title="حذف الكود نهائياً"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+
+                          </div>
+                        </td>
+
+                      </tr>
+                    ))}
+
+                  {subscriptionCodes.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400">
+                        لا توجد أكواد اشتراك مسجلة حالياً. استخدم النموذج بالأعلى لتوليد أكواد جديدة أو انتظر طلبات المستخدمين عبر الواتساب.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
       {editingUser && (
         <EditUserAdminModal
           user={editingUser}

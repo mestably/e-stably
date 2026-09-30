@@ -6,10 +6,12 @@
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
 import { Plus, Search, Shield, Star, Phone, Map, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2, Crown, RotateCcw, Tag, CheckCircle2 } from 'lucide-react';
 import { Stable, User } from '../types';
-import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
+import { FirebaseService } from '../lib/firebase';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
 import TermsAgreementModal from './TermsAgreementModal';
+import SubscriptionCodeField from './SubscriptionCodeField';
 import { compressImage } from '../lib/imageUtils';
 
 interface StablesSectionProps {
@@ -17,20 +19,26 @@ interface StablesSectionProps {
   onOpenAuth: () => void;
   searchQuery: string;
   onAdCreated?: () => void;
+  onOpenSubscriptions?: () => void;
 }
 
-export default function StablesSection({ currentUser, onOpenAuth, searchQuery, onAdCreated }: StablesSectionProps) {
+export default function StablesSection({ currentUser, onOpenAuth, searchQuery, onAdCreated, onOpenSubscriptions }: StablesSectionProps) {
   const [stables, setStables] = useState<Stable[]>([]);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedStable, setSelectedStable] = useState<Stable | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [userTodayAds, setUserTodayAds] = useState(0);
+  const [userTotalAds, setUserTotalAds] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
+
+  // Subscription code state
+  const [subscriptionCode, setSubscriptionCode] = useState('');
+  const [isCodeValid, setIsCodeValid] = useState(false);
+  const [validatedCodeObj, setValidatedCodeObj] = useState<any>(null);
 
   useEffect(() => {
     if (currentUser?.id) {
-      FirebaseService.getUserTodayAdsCount(currentUser.id).then((cnt) => {
-        setUserTodayAds(cnt);
+      SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
+        setUserTotalAds(cnt);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -152,13 +160,19 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       return;
     }
 
-    const isUnlimited = currentUser?.role === 'admin' || currentUser?.isGold;
+    const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      const cnt = await FirebaseService.getUserTodayAdsCount(currentUser.id);
-      if (cnt >= DAILY_FREE_ADS_LIMIT) {
-        setError(`عذراً! لقد استنفذت الحد الأقصى للإعلانات المجانية اليومية (${DAILY_FREE_ADS_LIMIT} إعلانات اليوم). يقتصر الحد اليومي على الحسابات العادية. يمكنك الترقية للعضوية الذهبية 👑 لنشر إعلانات بلا حدود!`);
-        return;
+      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+        if (!subscriptionCode.trim()) {
+          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          return;
+        }
+        const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
+        if (!val.valid) {
+          setError(val.message);
+          return;
+        }
       }
     }
 
@@ -215,6 +229,17 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
 
     try {
       await FirebaseService.saveStable(stableData);
+
+      // Consume subscription code if used for additional ad
+      const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
+      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+        try {
+          await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, stableData.id, 'stable');
+        } catch (e) {
+          console.warn('Failed to mark code as redeemed', e);
+        }
+      }
+
       setSuccess(editingItemId ? 'تم تعديل الإسطبل بنجاح!' : 'تم إضافة الإسطبل بنجاح! سيتم مراجعته وتوثيقه قريباً.');
       setIsTermsModalOpen(false);
       
@@ -225,6 +250,9 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       setImages([]);
       setHorseCount(0);
       setVerified('unverified');
+      setSubscriptionCode('');
+      setIsCodeValid(false);
+      setValidatedCodeObj(null);
 
       setTimeout(() => {
         setIsAddOpen(false);
@@ -238,17 +266,31 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     }
   };
 
+  // Check if current user is authorized to view ended/completed items (only admin or the ad owner)
+  const canViewEnded = (userId: string) => {
+    if (!currentUser) return false;
+    return currentUser.role === 'admin' || currentUser.id === userId;
+  };
+
   // Filter stables based on global search query and status filter
   const filteredStables = stables.filter((stable) => {
+    // Hide ended/completed stables unless viewer is admin or the stable owner
+    if (stable.isEnded && !canViewEnded(stable.userId)) {
+      return false;
+    }
+
     const matchesSearch = 
       stable.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       stable.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       stable.phone.includes(searchQuery);
     if (!matchesSearch) return false;
     if (statusFilter === 'active') return !stable.isEnded;
-    if (statusFilter === 'ended') return !!stable.isEnded;
+    if (statusFilter === 'ended') return !!stable.isEnded && canViewEnded(stable.userId);
     return true;
   });
+
+  const visibleStables = stables.filter((s) => !s.isEnded || canViewEnded(s.userId));
+  const visibleEndedCount = stables.filter((s) => !!s.isEnded && canViewEnded(s.userId)).length;
 
   // Highlight Stats: Outstanding Stables
   const verifiedCount = stables.filter((s) => s.verified === 'verified').length;
@@ -304,7 +346,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                 : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
             }`}
           >
-            جميع الإسطبلات ({stables.length})
+            جميع الإسطبلات ({visibleStables.length})
           </button>
           <button
             onClick={() => setStatusFilter('active')}
@@ -316,16 +358,18 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
           >
             المتاحة ({stables.filter(s => !s.isEnded).length})
           </button>
-          <button
-            onClick={() => setStatusFilter('ended')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-              statusFilter === 'ended'
-                ? 'bg-red-600 text-white shadow-xs'
-                : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
-            }`}
-          >
-            المكتملة / المغلقة ({stables.filter(s => !!s.isEnded).length})
-          </button>
+          {(currentUser?.role === 'admin' || visibleEndedCount > 0) && (
+            <button
+              onClick={() => setStatusFilter('ended')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                statusFilter === 'ended'
+                  ? 'bg-red-600 text-white shadow-xs'
+                  : 'bg-slate-50 hover:bg-slate-100 text-slate-600'
+              }`}
+            >
+              المكتملة / المغلقة ({visibleEndedCount})
+            </button>
+          )}
         </div>
 
         <button
@@ -351,35 +395,19 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
 
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-4">
               {!editingItemId && (
-                (currentUser?.role === 'admin' || currentUser?.isGold) ? (
-                  <div className="p-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-gold-light/40 text-amber-900 text-xs font-bold flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <Crown className="w-4 h-4 text-amber-600 animate-bounce" />
-                      <span>{currentUser?.role === 'admin' ? 'حساب مدير النظام 🛡️' : 'العضوية الذهبية المميزة 👑'}: نشر إعلانات غير محدود</span>
-                    </div>
-                    <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
-                      بلا حدود
-                    </span>
-                  </div>
-                ) : (
-                  <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${
-                    userTodayAds >= DAILY_FREE_ADS_LIMIT 
-                      ? 'bg-red-50 border-red-200 text-red-700' 
-                      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                  }`}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>المتبقي من الإعلانات المجانية اليومية (حساب عادي):</span>
-                    </div>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
-                      userTodayAds >= DAILY_FREE_ADS_LIMIT 
-                        ? 'bg-red-600 text-white' 
-                        : 'bg-emerald-600 text-white shadow-2xs'
-                    }`}>
-                      {Math.max(0, DAILY_FREE_ADS_LIMIT - userTodayAds)} من {DAILY_FREE_ADS_LIMIT} إعلانات
-                    </span>
-                  </div>
-                )
+                <SubscriptionCodeField
+                  currentUser={currentUser}
+                  code={subscriptionCode}
+                  onChangeCode={setSubscriptionCode}
+                  isCodeValid={isCodeValid}
+                  setIsCodeValid={setIsCodeValid}
+                  validatedCodeObj={validatedCodeObj}
+                  setValidatedCodeObj={setValidatedCodeObj}
+                  adType="إسطبل"
+                  totalAdsCount={userTotalAds}
+                  onOpenSubscriptions={onOpenSubscriptions}
+                  onOpenAuth={onOpenAuth}
+                />
               )}
 
               {error && (

@@ -18,24 +18,31 @@ import {
   Save,
   Shield,
   Crown,
-  FileText
+  FileText,
+  Key,
+  MessageCircle,
+  ArrowRight
 } from 'lucide-react';
 import { User } from '../types';
-import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
+import { FirebaseService } from '../lib/firebase';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import { compressImage } from '../lib/imageUtils';
+import RequestSubscriptionCodeModal from './RequestSubscriptionCodeModal';
 
 interface UserProfileModalProps {
   isOpen: boolean;
   currentUser: User;
   onClose: () => void;
   onUpdateUser: (updatedUser: User) => void;
+  onOpenSubscriptions?: () => void;
 }
 
 export default function UserProfileModal({
   isOpen,
   currentUser,
   onClose,
-  onUpdateUser
+  onUpdateUser,
+  onOpenSubscriptions
 }: UserProfileModalProps) {
   const [name, setName] = useState(currentUser.name || '');
   const [email, setEmail] = useState(currentUser.email || '');
@@ -50,9 +57,10 @@ export default function UserProfileModal({
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [todayAdsCount, setTodayAdsCount] = useState(0);
+  const [totalAdsCount, setTotalAdsCount] = useState(0);
+  const [isRequestCodeOpen, setIsRequestCodeOpen] = useState(false);
 
-  // Reset form and fetch daily ads count when modal opens or user changes
+  // Reset form and fetch total ads count when modal opens or user changes
   useEffect(() => {
     setName(currentUser.name || '');
     setEmail(currentUser.email || '');
@@ -66,15 +74,16 @@ export default function UserProfileModal({
     setSuccess('');
 
     if (isOpen && currentUser?.id) {
-      FirebaseService.getUserTodayAdsCount(currentUser.id).then((cnt) => {
-        setTodayAdsCount(cnt);
+      SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
+        setTotalAdsCount(cnt);
       });
     }
   }, [currentUser, isOpen]);
 
   if (!isOpen) return null;
 
-  const remainingDailyAds = Math.max(0, DAILY_FREE_ADS_LIMIT - todayAdsCount);
+  const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
+  const remainingFreeAds = Math.max(0, FREE_USER_ADS_LIMIT - totalAdsCount);
 
   const handleImageUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -348,53 +357,115 @@ export default function UserProfileModal({
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Daily Free Ads Remaining Card */}
-              <div className="bg-gradient-to-r from-emerald-50 via-teal-50 to-slate-50 border border-emerald-200 p-3.5 rounded-xl space-y-2">
+              {/* Free Ads 1-Ad-Limit Status Card */}
+              <div className={`p-4 rounded-2xl border space-y-2.5 ${
+                totalAdsCount >= FREE_USER_ADS_LIMIT 
+                  ? 'bg-red-50/80 border-red-200 text-red-900' 
+                  : 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
+              }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center font-bold text-xs shrink-0">
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
+                      totalAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+                    }`}>
                       <Sparkles className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-xs font-extrabold text-slate-800 block">المتبقي من الإعلانات المجانية اليومية (للمستخدم العادي)</span>
-                      <span className="text-[10px] text-slate-500 block">الحد الأقصى المسموح به مجاناً هو {DAILY_FREE_ADS_LIMIT} إعلانات يومياً</span>
+                      <span className="text-xs font-black block">
+                        رصيد الإعلانات المتاح (للمستخدم المجاني)
+                      </span>
+                      <span className="text-[11px] text-slate-500 block">
+                        الحد المسموح به مجاناً هو <strong>إعلان واحد فقط</strong>
+                      </span>
                     </div>
                   </div>
-                  <span className={`font-black text-xs px-2.5 py-1 rounded-full shadow-2xs ${
-                    remainingDailyAds > 0 ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
+                  <span className={`font-black text-xs px-3 py-1 rounded-full shadow-2xs ${
+                    totalAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
                   }`}>
-                    {remainingDailyAds} من {DAILY_FREE_ADS_LIMIT} إعلانات
+                    {totalAdsCount} من {FREE_USER_ADS_LIMIT} إعلان مستهلك
                   </span>
                 </div>
 
                 {/* Progress Bar */}
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full transition-all duration-300 ${remainingDailyAds > 0 ? 'bg-emerald-600' : 'bg-red-600'}`}
-                    style={{ width: `${(remainingDailyAds / DAILY_FREE_ADS_LIMIT) * 100}%` }}
+                    className={`h-full transition-all duration-300 ${totalAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600' : 'bg-emerald-600'}`}
+                    style={{ width: `${Math.min(100, (totalAdsCount / FREE_USER_ADS_LIMIT) * 100)}%` }}
                   ></div>
                 </div>
+
+                {totalAdsCount >= FREE_USER_ADS_LIMIT && (
+                  <div className="text-[11px] text-red-700 bg-red-100/60 p-2 rounded-xl flex items-center gap-1.5 font-bold">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>لقد استنفدت إعلانك المجاني المتاح. لنشر إعلان آخر، قم بترقية اشتراكك أو اطلب كود نشر متغير بالأسفل.</span>
+                  </div>
+                )}
               </div>
 
-              {/* Gold Membership Subscription Offer Box */}
-              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300/80 p-3.5 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              {/* Action Buttons: Go to Subscriptions Page & Request Dynamic Code */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                
+                {/* Button 1: Go to Subscriptions Page */}
+                {onOpenSubscriptions && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenSubscriptions();
+                    }}
+                    className="p-3.5 rounded-2xl bg-gradient-to-r from-navy via-navy to-slate-900 hover:from-navy-dark hover:to-slate-800 text-white flex items-center justify-between transition cursor-pointer shadow-xs text-right group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-gold/20 border border-gold/40 flex items-center justify-center text-gold shrink-0">
+                        <Crown className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-black block text-white group-hover:text-gold transition">صفحة الاشتراكات والترقية</span>
+                        <span className="text-[10px] text-slate-300 block">عرض جميع الباقات وتفعيلها</span>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-gold transform rotate-180 shrink-0" />
+                  </button>
+                )}
+
+                {/* Button 2: Request Dynamic Code */}
+                <button
+                  type="button"
+                  onClick={() => setIsRequestCodeOpen(true)}
+                  className="p-3.5 rounded-2xl bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white flex items-center justify-between transition cursor-pointer shadow-xs text-right group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+                      <Key className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-black block text-white">طلب كود نشر إضافي</span>
+                      <span className="text-[10px] text-blue-100 block">كود متغير يرسل لواتساب الإدارة</span>
+                    </div>
+                  </div>
+                  <MessageCircle className="w-4 h-4 text-white shrink-0" />
+                </button>
+              </div>
+
+              {/* Direct WhatsApp Upgrade Link Card */}
+              <div className="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300/80 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-amber-500 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs mt-0.5 sm:mt-0">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs mt-0.5 sm:mt-0">
                     <Crown className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-extrabold text-amber-900 block">ترقية إلى العضوية الذهبية 👑</span>
-                    <span className="text-[10px] text-amber-800 block">احصل على إعلانات غير محدودة يومياً وبدون أي قيود باشتراك مميز!</span>
+                    <span className="text-xs font-extrabold text-amber-900 block">تفعيل الترقية عبر واتساب الإدارة</span>
+                    <span className="text-[10px] text-amber-800 block">راسل الإدارة مباشرة لتفعيل إعلانات غير محدودة لحسابك فوراً</span>
                   </div>
                 </div>
                 <a
-                  href={`https://wa.me/966559595055?text=${encodeURIComponent(`السلام عليكم، أرغب في الاشتراك في العضوية الذهبية (إعلانات غير محدودة) لحسابي: ${currentUser.name} (${currentUser.phone || currentUser.email})`)}`}
+                  href={SubscriptionService.getUpgradeWhatsAppUrl(currentUser, 'العضوية الذهبية VIP (إعلانات غير محدودة)')}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="w-full sm:w-auto text-center bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs px-3.5 py-2 rounded-lg transition shadow-xs flex items-center justify-center gap-1.5 shrink-0"
+                  className="w-full sm:w-auto text-center bg-[#25D366] hover:bg-[#1ebc59] text-white font-black text-xs px-4 py-2.5 rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 shrink-0"
                 >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  <span>طلب الترقية الآن</span>
+                  <MessageCircle className="w-4 h-4" />
+                  <span>مراسلة الإدارة بالواتساب</span>
                 </a>
               </div>
             </div>
@@ -404,7 +475,7 @@ export default function UserProfileModal({
           <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
             <div className="flex items-center gap-2">
               <Shield className="w-4 h-4 text-navy" />
-              <span>نوع الحساب: <strong className="text-navy">{currentUser.role === 'admin' ? 'مدير نظام 🛡️' : currentUser.isGold ? 'عضوية ذهبية 👑' : 'عضو عادي (5 إعلانات/يوم)'}</strong></span>
+              <span>نوع الحساب: <strong className="text-navy">{currentUser.role === 'admin' ? 'مدير نظام 🛡️' : currentUser.isGold ? 'عضوية ذهبية 👑 (إعلانات غير محدودة)' : currentUser.isSubscribed ? 'مشترك باقة' : 'عضو عادي (إعلان 1 فقط)'}</strong></span>
             </div>
             <div>
               تاريخ الانضمام: {new Date(currentUser.createdAt).toLocaleDateString('ar-SA')}
@@ -431,6 +502,13 @@ export default function UserProfileModal({
           </div>
 
         </form>
+
+        {/* Dynamic Code Request Modal */}
+        <RequestSubscriptionCodeModal
+          isOpen={isRequestCodeOpen}
+          currentUser={currentUser}
+          onClose={() => setIsRequestCodeOpen(false)}
+        />
       </div>
     </div>
   );

@@ -39,20 +39,24 @@ import UserProfileModal from './components/UserProfileModal';
 import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 import DetailModal from './components/DetailModal';
+import SubscriptionsSection from './components/SubscriptionsSection';
 import { HorsesScreensaver } from './components/HorsesScreensaver';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
 import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from './lib/subscriptionService';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin' | 'subscriptions'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isSubscriptionsModalOpen, setIsSubscriptionsModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [todayAdsCount, setTodayAdsCount] = useState<number>(0);
+  const [userTotalAds, setUserTotalAds] = useState<number>(0);
   const [isScreensaverOpen, setIsScreensaverOpen] = useState(false);
 
   // Direct Shared Ad State
@@ -65,10 +69,15 @@ export default function App() {
 
   const refreshDailyAdsCount = useCallback(async () => {
     if (currentUser?.id) {
-      const cnt = await FirebaseService.getUserTodayAdsCount(currentUser.id);
+      const [cnt, total] = await Promise.all([
+        FirebaseService.getUserTodayAdsCount(currentUser.id),
+        SubscriptionService.getUserTotalAdsCount(currentUser.id)
+      ]);
       setTodayAdsCount(cnt);
+      setUserTotalAds(total);
     } else {
       setTodayAdsCount(0);
+      setUserTotalAds(0);
     }
   }, [currentUser?.id]);
 
@@ -77,6 +86,7 @@ export default function App() {
   }, [refreshDailyAdsCount, activeTab]);
 
   const remainingDailyAds = Math.max(0, DAILY_FREE_ADS_LIMIT - todayAdsCount);
+  const remainingFreeAds = Math.max(0, FREE_USER_ADS_LIMIT - userTotalAds);
 
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
     if (typeof window !== 'undefined') {
@@ -363,11 +373,25 @@ export default function App() {
                       👑 ذهبي: غير محدود
                     </span>
                   ) : (
-                    <span className="text-[8px] font-extrabold text-emerald-800 bg-emerald-100/90 px-1.5 py-0.2 rounded border border-emerald-300 mt-0.5 block truncate" title={`المتبقي من الإعلانات المجانية اليومية: ${remainingDailyAds} من ${DAILY_FREE_ADS_LIMIT}`}>
-                      المتبقي اليومي: {remainingDailyAds} من {DAILY_FREE_ADS_LIMIT}
+                    <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded border mt-0.5 block truncate ${
+                      userTotalAds >= FREE_USER_ADS_LIMIT 
+                        ? 'text-red-800 bg-red-100 border-red-300' 
+                        : 'text-emerald-800 bg-emerald-100/90 border-emerald-300'
+                    }`} title={`المستهلك من الإعلانات: ${userTotalAds} من ${FREE_USER_ADS_LIMIT} إعلان مسموح به مجاناً`}>
+                      مجاني: {userTotalAds}/{FREE_USER_ADS_LIMIT} إعلان
                     </span>
                   )}
                 </div>
+              </button>
+
+              {/* Subscriptions page shortcut */}
+              <button
+                onClick={() => setIsSubscriptionsModalOpen(true)}
+                className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 rounded-lg transition cursor-pointer shrink-0 text-xs flex items-center gap-1 font-extrabold"
+                title="باقات الاشتراكات والترقية"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline text-[10px]">الاشتراكات</span>
               </button>
 
               {/* Edit profile icon */}
@@ -402,13 +426,23 @@ export default function App() {
               </button>
             </div>
           ) : (
-            <button
-              onClick={() => setIsAuthOpen(true)}
-              className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
-            >
-              <UserIcon className="w-3.5 h-3.5" />
-              <span>دخول / اشتراك</span>
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsSubscriptionsModalOpen(true)}
+                className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold py-2 px-3 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-600" />
+                <span className="hidden sm:inline">الاشتراكات</span>
+              </button>
+
+              <button
+                onClick={() => setIsAuthOpen(true)}
+                className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>دخول / اشتراك</span>
+              </button>
+            </div>
           )}
 
           {/* Mobile navigation drawer toggle */}
@@ -488,6 +522,23 @@ export default function App() {
             >
               <Truck className={`w-4 h-4 ${activeTab === 'transport' ? 'text-gold' : 'text-navy'}`} />
               <span>نقل الخيول والمقطورات</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('subscriptions'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'subscriptions' 
+                  ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md' 
+                  : 'text-amber-900 bg-amber-50/70 hover:bg-amber-100 border border-amber-200/70'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Crown className={`w-4 h-4 ${activeTab === 'subscriptions' ? 'text-white' : 'text-amber-600'}`} />
+                <span>باقات الاشتراكات والترقية</span>
+              </div>
+              <span className="bg-amber-200/90 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                VIP
+              </span>
             </button>
 
             {/* Admin navigation tab if user is Admin */}
@@ -576,9 +627,15 @@ export default function App() {
                           <span>👑 عضوية ذهبية: إعلانات غير محدودة</span>
                         </div>
                       ) : (
-                        <div className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200 mt-1 inline-flex items-center gap-1">
-                          <span>المتبقي من الإعلانات المجانية اليومية:</span>
-                          <span className="font-black text-emerald-900 bg-emerald-200/80 px-1.5 py-0.5 rounded">{remainingDailyAds} من {DAILY_FREE_ADS_LIMIT}</span>
+                        <div className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border mt-1 inline-flex items-center gap-1 ${
+                          userTotalAds >= FREE_USER_ADS_LIMIT 
+                            ? 'bg-red-50 text-red-900 border-red-200' 
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        }`}>
+                          <span>رصيد الإعلانات المجانية:</span>
+                          <span className="font-black px-1.5 py-0.5 rounded">
+                            {userTotalAds} من {FREE_USER_ADS_LIMIT} إعلان مستهلك
+                          </span>
                         </div>
                       )}
                     </div>
@@ -633,6 +690,23 @@ export default function App() {
               >
                 <Truck className="w-4 h-4 text-gold" />
                 <span>نقل الخيول والمقطورات</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('subscriptions'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition ${
+                  activeTab === 'subscriptions' 
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white' 
+                    : 'text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Crown className="w-4 h-4 text-amber-600" />
+                  <span>باقات الاشتراكات والترقية</span>
+                </div>
+                <span className="bg-amber-200 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                  VIP
+                </span>
               </button>
 
               <button
@@ -705,6 +779,7 @@ export default function App() {
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
               onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
             />
           )}
 
@@ -714,6 +789,7 @@ export default function App() {
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
               onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
             />
           )}
 
@@ -723,6 +799,7 @@ export default function App() {
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
               onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
             />
           )}
 
@@ -732,6 +809,15 @@ export default function App() {
               onOpenAuth={() => setIsAuthOpen(true)} 
               searchQuery={searchQuery} 
               onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'subscriptions' && (
+            <SubscriptionsSection 
+              currentUser={currentUser}
+              onOpenAuth={() => setIsAuthOpen(true)}
+              onNavigateToTab={(t: string) => setActiveTab(t as any)}
             />
           )}
 
@@ -830,6 +916,24 @@ export default function App() {
           onUpdateUser={(updatedUser) => {
             setCurrentUser(updatedUser);
             localStorage.setItem('horses_forum_session', JSON.stringify(updatedUser));
+          }}
+          onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+        />
+      )}
+
+      {/* Subscriptions Modal Dialog */}
+      {isSubscriptionsModalOpen && (
+        <SubscriptionsSection
+          isModal={true}
+          currentUser={currentUser}
+          onClose={() => setIsSubscriptionsModalOpen(false)}
+          onOpenAuth={() => {
+            setIsSubscriptionsModalOpen(false);
+            setIsAuthOpen(true);
+          }}
+          onNavigateToTab={(t: string) => {
+            setIsSubscriptionsModalOpen(false);
+            setActiveTab(t as any);
           }}
         />
       )}

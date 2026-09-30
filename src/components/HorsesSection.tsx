@@ -6,10 +6,12 @@
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
 import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse, Sparkles } from 'lucide-react';
 import { Horse, Stable, User } from '../types';
-import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
+import { FirebaseService } from '../lib/firebase';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
 import TermsAgreementModal from './TermsAgreementModal';
+import SubscriptionCodeField from './SubscriptionCodeField';
 import { compressImage } from '../lib/imageUtils';
 
 const SALE_HEALTH_CONDITIONS = [
@@ -50,22 +52,28 @@ interface HorsesSectionProps {
   onOpenAuth: () => void;
   searchQuery: string;
   onAdCreated?: () => void;
+  onOpenSubscriptions?: () => void;
 }
 
-export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, onAdCreated }: HorsesSectionProps) {
+export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, onAdCreated, onOpenSubscriptions }: HorsesSectionProps) {
   const [horses, setHorses] = useState<Horse[]>([]);
   const [stables, setStables] = useState<Stable[]>([]);
   const [filterType, setFilterType] = useState<'all' | 'sale' | 'rent' | 'sold'>('all');
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [selectedHorse, setSelectedHorse] = useState<Horse | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [userTodayAds, setUserTodayAds] = useState(0);
+  const [userTotalAds, setUserTotalAds] = useState(0);
 
-  // Fetch user daily ads count when modal opens or user changes
+  // Subscription code state for posting additional ads
+  const [subscriptionCode, setSubscriptionCode] = useState('');
+  const [isCodeValid, setIsCodeValid] = useState(false);
+  const [validatedCodeObj, setValidatedCodeObj] = useState<any>(null);
+
+  // Fetch user total ads count when modal opens or user changes
   useEffect(() => {
     if (currentUser?.id) {
-      FirebaseService.getUserTodayAdsCount(currentUser.id).then((cnt) => {
-        setUserTodayAds(cnt);
+      SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
+        setUserTotalAds(cnt);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -350,13 +358,19 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       return;
     }
 
-    const isUnlimited = currentUser?.role === 'admin' || currentUser?.isGold;
+    const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      const cnt = await FirebaseService.getUserTodayAdsCount(currentUser.id);
-      if (cnt >= DAILY_FREE_ADS_LIMIT) {
-        setError(`عذراً! لقد استنفذت الحد الأقصى للإعلانات المجانية اليومية (${DAILY_FREE_ADS_LIMIT} إعلانات اليوم). يقتصر الحد اليومي على الحسابات العادية. يمكنك الترقية للعضوية الذهبية 👑 لنشر إعلانات بلا حدود!`);
-        return;
+      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+        if (!subscriptionCode.trim()) {
+          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          return;
+        }
+        const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
+        if (!val.valid) {
+          setError(val.message);
+          return;
+        }
       }
     }
 
@@ -427,13 +441,24 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       rentType: adType === 'rent' ? rentType : undefined,
       rentStart: adType === 'rent' && rentStart ? rentStart : undefined,
       rentEnd: adType === 'rent' && rentEnd ? rentEnd : undefined,
-      isSold,
-      soldAt: isSold ? (editingItemId ? (horses.find(h => h.id === editingItemId)?.soldAt || new Date().toISOString()) : new Date().toISOString()) : undefined,
+      isSold: editingItemId ? isSold : false,
+      soldAt: (editingItemId && isSold) ? (horses.find(h => h.id === editingItemId)?.soldAt || new Date().toISOString()) : undefined,
       createdAt: editingItemId ? (horses.find(h => h.id === editingItemId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
     };
 
     try {
       await FirebaseService.saveHorse(horseData);
+
+      // Consume subscription code if used for additional ad
+      const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
+      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+        try {
+          await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, horseData.id, 'horse');
+        } catch (e) {
+          console.warn('Failed to mark code as redeemed', e);
+        }
+      }
+
       setSuccess(editingItemId ? 'تم تعديل الإعلان بنجاح!' : 'تم إضافة إعلان الجواد بنجاح!');
       setIsTermsModalOpen(false);
       
@@ -456,6 +481,9 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       setRentStart('');
       setRentEnd('');
       setIsSold(false);
+      setSubscriptionCode('');
+      setIsCodeValid(false);
+      setValidatedCodeObj(null);
 
       setTimeout(() => {
         setIsAddOpen(false);
@@ -469,13 +497,24 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     }
   };
 
-  // Filter based on Type Tab and Global Search Query
+  // Check if current user is authorized to view ended/sold items (only admin or the ad owner)
+  const canViewEnded = (userId: string) => {
+    if (!currentUser) return false;
+    return currentUser.role === 'admin' || currentUser.id === userId;
+  };
+
+  // Filter based on Type Tab, Authorization, and Global Search Query
   const filteredHorses = horses.filter((horse) => {
+    // Hide sold items unless viewer is the admin or the owner of this ad
+    if (horse.isSold && !canViewEnded(horse.userId)) {
+      return false;
+    }
+
     const matchesTab = 
       filterType === 'all' || 
       (filterType === 'sale' && horse.adType === 'sale' && !horse.isSold) ||
       (filterType === 'rent' && horse.adType === 'rent') ||
-      (filterType === 'sold' && horse.isSold);
+      (filterType === 'sold' && horse.isSold && canViewEnded(horse.userId));
 
     const matchesSearch = 
       horse.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -485,6 +524,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
 
     return matchesTab && matchesSearch;
   });
+
+  const visibleSoldHorsesCount = horses.filter(h => h.isSold && canViewEnded(h.userId)).length;
 
   return (
     <div className="space-y-6">
@@ -518,20 +559,22 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
           >
             خيول للإيجار
           </button>
-          <button
-            onClick={() => setFilterType('sold')}
-            className={`flex-1 sm:flex-initial py-1.5 px-3.5 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 ${
-              filterType === 'sold' ? 'bg-red-600 text-white shadow-xs' : 'text-slate-500 hover:text-navy'
-            }`}
-          >
-            <Tag className="w-3.5 h-3.5" />
-            <span>تم البيع</span>
-            {horses.filter(h => h.isSold).length > 0 && (
-              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${filterType === 'sold' ? 'bg-white/30 text-white' : 'bg-red-100 text-red-700'}`}>
-                {horses.filter(h => h.isSold).length}
-              </span>
-            )}
-          </button>
+          {(currentUser?.role === 'admin' || visibleSoldHorsesCount > 0) && (
+            <button
+              onClick={() => setFilterType('sold')}
+              className={`flex-1 sm:flex-initial py-1.5 px-3.5 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 ${
+                filterType === 'sold' ? 'bg-red-600 text-white shadow-xs' : 'text-slate-500 hover:text-navy'
+              }`}
+            >
+              <Tag className="w-3.5 h-3.5" />
+              <span>تم البيع</span>
+              {visibleSoldHorsesCount > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${filterType === 'sold' ? 'bg-white/30 text-white' : 'bg-red-100 text-red-700'}`}>
+                  {visibleSoldHorsesCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
 
         {/* Add Button */}
@@ -577,35 +620,19 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
 
             <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-4">
               {!editingItemId && (
-                (currentUser?.role === 'admin' || currentUser?.isGold) ? (
-                  <div className="p-3 rounded-xl border border-amber-300 bg-gradient-to-r from-amber-50 to-gold-light/40 text-amber-900 text-xs font-bold flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <Crown className="w-4 h-4 text-amber-600 animate-bounce" />
-                      <span>{currentUser?.role === 'admin' ? 'حساب مدير النظام 🛡️' : 'العضوية الذهبية المميزة 👑'}: نشر إعلانات غير محدود</span>
-                    </div>
-                    <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white px-2.5 py-0.5 rounded-full text-[10px] font-black shadow-2xs">
-                      بلا حدود
-                    </span>
-                  </div>
-                ) : (
-                  <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-bold ${
-                    userTodayAds >= DAILY_FREE_ADS_LIMIT 
-                      ? 'bg-red-50 border-red-200 text-red-700' 
-                      : 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                  }`}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                      <span>المتبقي من الإعلانات المجانية اليومية (حساب عادي):</span>
-                    </div>
-                    <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-black ${
-                      userTodayAds >= DAILY_FREE_ADS_LIMIT 
-                        ? 'bg-red-600 text-white' 
-                        : 'bg-emerald-600 text-white shadow-2xs'
-                    }`}>
-                      {Math.max(0, DAILY_FREE_ADS_LIMIT - userTodayAds)} من {DAILY_FREE_ADS_LIMIT} إعلانات
-                    </span>
-                  </div>
-                )
+                <SubscriptionCodeField
+                  currentUser={currentUser}
+                  code={subscriptionCode}
+                  onChangeCode={setSubscriptionCode}
+                  isCodeValid={isCodeValid}
+                  setIsCodeValid={setIsCodeValid}
+                  validatedCodeObj={validatedCodeObj}
+                  setValidatedCodeObj={setValidatedCodeObj}
+                  adType="خيل"
+                  totalAdsCount={userTotalAds}
+                  onOpenSubscriptions={onOpenSubscriptions}
+                  onOpenAuth={onOpenAuth}
+                />
               )}
 
               {error && (
@@ -1125,26 +1152,6 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                     ))}
                   </div>
                 )}
-              </div>
-
-              {/* Is Sold Switch (available during edit or new ad) */}
-              <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-xl flex items-center justify-between">
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-amber-900">
-                    <Tag className="w-3.5 h-3.5 text-amber-700" />
-                    <span>تمييز الإعلان كـ "تم البيع"</span>
-                  </div>
-                  <p className="text-[10px] text-amber-700">تفعيل هذا الخيار يعلم المشترين بأن الجواد قد بيع بالفعل.</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isSold}
-                    onChange={(e) => setIsSold(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-10 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-red-600"></div>
-                </label>
               </div>
 
               <button

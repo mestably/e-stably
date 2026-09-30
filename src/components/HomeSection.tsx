@@ -106,16 +106,25 @@ function shuffleArray<T>(array: T[]): T[] {
   return shuffled;
 }
 
+function canViewEnded(itemUserId: string, currentUser?: User | null) {
+  if (!currentUser) return false;
+  return currentUser.role === 'admin' || currentUser.id === itemUserId;
+}
+
 function buildSlidesFromData(
   horses: Horse[],
   stables: Stable[],
   shelters: Shelter[],
-  transports: Transport[]
+  transports: Transport[],
+  currentUser?: User | null
 ): AdSlide[] {
   const realSlides: AdSlide[] = [];
 
-  // 1. Map Horses into slides
+  // 1. Map Horses into slides (exclude sold unless admin or author)
   horses.forEach((horse) => {
+    if (horse.isSold && !canViewEnded(horse.userId, currentUser)) {
+      return;
+    }
     const breedLabel = horse.breed === 'arabian' ? 'خيل عربي أصيل' : horse.breed === 'shabi' ? 'خيل شعبي' : 'سيسي';
     const priceLabel = horse.adType === 'sale'
       ? (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'السعر حسب الاتفاق')
@@ -138,8 +147,11 @@ function buildSlidesFromData(
     });
   });
 
-  // 2. Map Stables into slides
+  // 2. Map Stables into slides (exclude completed/ended unless admin or author)
   stables.forEach((stable) => {
+    if (stable.isEnded && !canViewEnded(stable.userId, currentUser)) {
+      return;
+    }
     const mainImage = (stable.images && stable.images.length > 0 && stable.images[0]) || 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200';
     realSlides.push({
       id: `stable_${stable.id}`,
@@ -156,8 +168,11 @@ function buildSlidesFromData(
     });
   });
 
-  // 3. Map Shelters into slides
+  // 3. Map Shelters into slides (exclude ended/occupied unless admin or author)
   shelters.forEach((shelter) => {
+    if (shelter.isEnded && !canViewEnded(shelter.userId, currentUser)) {
+      return;
+    }
     const mainImage = (shelter.images && shelter.images.length > 0 && shelter.images[0]) || 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200';
     realSlides.push({
       id: `shelter_${shelter.id}`,
@@ -174,8 +189,11 @@ function buildSlidesFromData(
     });
   });
 
-  // 4. Map Transports into slides (incorporating user images or defaultTransportImg)
+  // 4. Map Transports into slides (exclude ended unless admin or author)
   transports.forEach((transport) => {
+    if (transport.isEnded && !canViewEnded(transport.userId, currentUser)) {
+      return;
+    }
     const hasCustomImages = transport.images && Array.isArray(transport.images) && transport.images.length > 0 && !!transport.images[0];
     const mainImage = hasCustomImages ? transport.images![0] : defaultTransportImg;
     const priceLabel = transport.price ? `${transport.price.toLocaleString('ar-SA')} ريال` : 'عند الاتفاق';
@@ -249,7 +267,7 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
         transportsCount: transports.length,
       });
 
-      const realSlides = buildSlidesFromData(horses, stables, shelters, transports);
+      const realSlides = buildSlidesFromData(horses, stables, shelters, transports, currentUser);
 
       if (realSlides.length > 0) {
         // Shuffle randomly
