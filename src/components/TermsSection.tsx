@@ -72,8 +72,8 @@ export default function TermsSection() {
             <div className="text-xs text-slate-700 leading-relaxed whitespace-pre-line font-medium flex-1">
               {term}
 
-              {index === 11 && (
-                <div className="mt-3 p-3.5 bg-red-50/90 border border-red-200/90 rounded-xl text-red-600 font-black text-xs leading-relaxed space-y-1.5 shadow-xs">
+              {index === 15 && (
+                <div className="mt-3.5 p-4 bg-red-50/90 border border-red-200/90 rounded-2xl text-red-600 font-black text-xs leading-relaxed space-y-1.5 shadow-xs">
                   <p className="font-black text-red-600 text-xs sm:text-[13px]">
                     اتعهد واقسم بالله أنا المعلن أن أدفع عمولة المنصة
                   </p>
@@ -84,7 +84,7 @@ export default function TermsSection() {
                     أتعهد بذلك
                   </p>
                   <div className="pt-2 mt-1 border-t border-red-200 text-red-700 text-[11px] sm:text-xs font-bold leading-normal">
-                    بسم اللّٰه الرحمن الرحِيم قال اللّٰه تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot; صدق الله العظيم
+                    بسم الله الرحمن الرحيم قال الله تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot; صدق الله العظيم
                   </div>
                 </div>
               )}

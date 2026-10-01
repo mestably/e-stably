@@ -185,19 +185,19 @@ export default function TermsAgreementModal({
                       <h4 className="font-bold text-navy text-xs">{t.title}</h4>
                       <p className="text-slate-600 text-[11px] leading-relaxed whitespace-pre-line">{t.desc}</p>
                       
-                      {idx === 11 && (
-                        <div className="mt-2.5 p-3 bg-red-50/90 border border-red-200 rounded-xl text-red-600 font-black text-xs leading-relaxed space-y-1">
-                          <p className="font-black text-red-600 text-[11px] sm:text-xs">
+                      {idx === 15 && (
+                        <div className="mt-3 p-3.5 bg-red-50/90 border border-red-200/90 rounded-2xl text-red-600 font-black text-xs leading-relaxed space-y-1.5 shadow-xs">
+                          <p className="font-black text-red-600 text-xs sm:text-[13px]">
                             اتعهد واقسم بالله أنا المعلن أن أدفع عمولة المنصة
                           </p>
-                          <p className="font-extrabold text-red-600 text-[11px] sm:text-xs">
+                          <p className="font-extrabold text-red-600 text-xs sm:text-[13px]">
                             وكما أتعهد بدفع الرسوم خلال 10 أيام من استلام مبلغ المبايعة
                           </p>
-                          <p className="font-black text-red-700 text-[11px] sm:text-xs">
+                          <p className="font-black text-red-700 text-xs sm:text-[13px]">
                             أتعهد بذلك
                           </p>
-                          <div className="pt-1.5 mt-1 border-t border-red-200 text-red-700 text-[10px] sm:text-[11px] font-bold leading-normal">
-                            بسم اللّٰه الرحمن الرحِيم قال اللّٰه تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot; صدق الله العظيم
+                          <div className="pt-2 mt-1 border-t border-red-200 text-red-700 text-[11px] sm:text-xs font-bold leading-normal">
+                            بسم الله الرحمن الرحيم قال الله تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot; صدق الله العظيم
                           </div>
                         </div>
                       )}

@@ -274,7 +274,7 @@ export const AuthService = {
         id: 'admin_mfc',
         name: 'المدير العام (MFC)',
         email: 'mfc@m-estably.com',
-        phone: '00201010049450',
+        phone: '0559595055',
         nickname: 'mfc',
         password: '1155',
         role: 'admin',

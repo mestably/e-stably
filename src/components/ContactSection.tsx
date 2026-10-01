@@ -70,12 +70,12 @@ export default function ContactSection() {
                 <div className="flex-1 flex justify-between items-center">
                   <div>
                     <span className="text-[9px] text-slate-400 block">رقم الاتصال المباشر والواتساب للإدارة</span>
-                    <a href="tel:00201010049450" className="text-xs font-bold text-slate-700 hover:text-navy transition font-mono">
-                      00201010049450
+                    <a href="tel:0559595055" className="text-xs font-bold text-slate-700 hover:text-navy transition font-mono">
+                      0559595055
                     </a>
                   </div>
                   <a
-                    href="https://wa.me/201010049450"
+                    href="https://wa.me/966559595055"
                     target="_blank"
                     rel="noreferrer"
                     className="bg-green-500 hover:bg-green-600 text-white p-1.5 rounded-lg text-xs"

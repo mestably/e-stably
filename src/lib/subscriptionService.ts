@@ -7,8 +7,8 @@ import { User, SubscriptionCode } from '../types';
 import { FirebaseService } from './firebase';
 
 export const FREE_USER_ADS_LIMIT = 1;
-export const ADMIN_WHATSAPP_NUMBER = '201010049450'; // 00201010049450
-export const ADMIN_PHONE_DISPLAY = '00201010049450';
+export const ADMIN_WHATSAPP_NUMBER = '966559595055';
+export const ADMIN_PHONE_DISPLAY = '0559595055';
 const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
 // Local storage key for fallback

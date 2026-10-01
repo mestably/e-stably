@@ -79,31 +79,31 @@ export default function SubscriptionsSection({
     <div className="space-y-8 max-w-5xl mx-auto py-2 px-1">
       
       {/* Hero / Header Card with Yellow Background, Sky-Blue Border, Crisp Dark Text, and Luminous Glowing Buttons */}
-      <div className="bg-gradient-to-br from-amber-100 via-yellow-100 to-amber-200 rounded-3xl p-6 sm:p-8 text-slate-900 shadow-xl relative overflow-hidden border-4 border-sky-400">
+      <div className="bg-gradient-to-br from-amber-100 via-yellow-100 to-amber-200 rounded-3xl p-5 sm:p-7 lg:p-8 text-slate-900 shadow-xl relative overflow-hidden border-4 border-sky-400 text-right">
         <div className="absolute -top-12 -left-12 w-48 h-48 bg-sky-300/25 rounded-full blur-3xl pointer-events-none"></div>
         <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-yellow-400/35 rounded-full blur-3xl pointer-events-none"></div>
 
-        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6 text-center md:text-right">
-          <div className="space-y-2.5">
-            <div className="inline-flex items-center gap-2 bg-sky-200/70 text-sky-950 border border-sky-400 px-3.5 py-1.5 rounded-full text-xs font-black shadow-2xs">
-              <Crown className="w-3.5 h-3.5 text-amber-700" />
+        <div className="relative z-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 text-right">
+          <div className="space-y-3 flex-1 min-w-0 max-w-2xl text-right">
+            <div className="inline-flex items-center gap-2 bg-sky-200/80 text-sky-950 border border-sky-400 px-3.5 py-1.5 rounded-full text-xs font-black shadow-2xs">
+              <Crown className="w-3.5 h-3.5 text-amber-700 shrink-0" />
               <span>منظومة الاشتراكات والترقية - منصة إستابلي</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black text-slate-950 leading-tight">
+            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-950 leading-snug">
               باقات الاشتراكات وأكواد نشر الإعلانات
             </h1>
-            <p className="text-xs sm:text-sm text-slate-800 font-bold max-w-xl leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-800 font-bold leading-relaxed">
               يحق لكل مستخدم مجاني نشر <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">إعلان واحد فقط</strong>. يمكنك ترقية اشتراكك للاستمتاع بإعلانات غير محدودة، أو طلب <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">كود اشتراك متغير</strong> لنشر إعلان إضافي وتفعيله فوراً عبر واتساب الإدارة.
             </p>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-3.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-start xl:justify-end shrink-0 pt-1 xl:pt-0">
             {/* Glowing Luminous Amber Request Button */}
             <button
               onClick={() => setIsRequestCodeOpen(true)}
-              className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs sm:text-sm px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-yellow-100 shadow-[0_0_20px_rgba(245,158,11,0.65)] hover:shadow-[0_0_30px_rgba(245,158,11,0.9)] ring-2 ring-amber-400/60 hover:scale-[1.02] active:scale-95"
+              className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs sm:text-sm px-4 sm:px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-yellow-100 shadow-[0_0_20px_rgba(245,158,11,0.65)] hover:shadow-[0_0_30px_rgba(245,158,11,0.9)] ring-2 ring-amber-400/60 hover:scale-[1.02] active:scale-95 shrink-0 whitespace-nowrap"
             >
-              <Key className="w-4 h-4 text-slate-950" />
+              <Key className="w-4 h-4 text-slate-950 shrink-0" />
               <span>طلب كود نشر إضافي 📲</span>
             </button>
 
@@ -112,9 +112,9 @@ export default function SubscriptionsSection({
               href={SubscriptionService.getUpgradeWhatsAppUrl(currentUser, 'العضوية الذهبية VIP')}
               target="_blank"
               rel="noopener noreferrer"
-              className="bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-400 hover:from-emerald-400 hover:to-green-400 text-white font-black text-xs sm:text-sm px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.7)] hover:shadow-[0_0_30px_rgba(16,185,129,0.95)] ring-2 ring-emerald-400/60 hover:scale-[1.02] active:scale-95"
+              className="bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-400 hover:from-emerald-400 hover:to-green-400 text-white font-black text-xs sm:text-sm px-4 sm:px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.7)] hover:shadow-[0_0_30px_rgba(16,185,129,0.95)] ring-2 ring-emerald-400/60 hover:scale-[1.02] active:scale-95 shrink-0 whitespace-nowrap"
             >
-              <MessageCircle className="w-4 h-4 text-white" />
+              <MessageCircle className="w-4 h-4 text-white shrink-0" />
               <span>تفعيل عبر واتساب الإدارة</span>
             </a>
           </div>
@@ -191,8 +191,8 @@ export default function SubscriptionsSection({
         </div>
       )}
 
-      {/* Subscription Pricing Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {/* Subscription Pricing Cards Grid - Responsive on Zoom & Resizing */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
         
         {/* Card 1: Free Tier */}
         <div className="bg-white rounded-3xl p-6 border-2 border-slate-200 shadow-sm flex flex-col justify-between relative hover:border-slate-300 transition">
@@ -305,7 +305,7 @@ export default function SubscriptionsSection({
         </div>
 
         {/* Card 3: Gold VIP Tier */}
-        <div className="bg-gradient-to-b from-amber-50/60 to-white rounded-3xl p-6 border-2 border-amber-400 shadow-md flex flex-col justify-between relative hover:shadow-lg transition">
+        <div className="bg-gradient-to-b from-amber-50/60 to-white rounded-3xl p-6 border-2 border-amber-400 shadow-md flex flex-col justify-between relative hover:shadow-lg transition md:col-span-2 xl:col-span-1">
           <div className="absolute -top-3 right-6 bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-black px-3 py-0.5 rounded-full shadow-xs flex items-center gap-1">
             <Crown className="w-3 h-3" />
             عضوية الـ VIP الملكية
@@ -375,7 +375,7 @@ export default function SubscriptionsSection({
             <Key className="w-4 h-4" />
           </div>
           <div>
-            <h3 className="text-sm font-extrabold text-slate-800">فحص وصلاحية كود الاشتراك</h3>
+            <h3 className="text-sm font-extrabold text-slate-800">فحص وصلاحية كود الاشتراك وتفعيله</h3>
             <p className="text-[11px] text-slate-500">لديك كود وترغب في التأكد من تفعيله وجاهزيته للنشر؟</p>
           </div>
         </div>
