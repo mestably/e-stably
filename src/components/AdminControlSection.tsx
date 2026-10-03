@@ -57,6 +57,7 @@ import ConfirmModal from './ConfirmModal';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 import { realWhiteHorseClipartUrl, realHorseIconUrl } from './ArabianHorseClipartHelper';
 import { ArabianHorseWhiteOnBlueIcon } from './ArabianHorseWhiteOnBlueIcon';
+import { getVipRemainingTime } from '../lib/countdownHelper';
 
 interface AdminControlSectionProps {
   currentUser: User;
@@ -84,6 +85,15 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const [newCodeNote, setNewCodeNote] = useState<string>('');
   const [isGeneratingCodes, setIsGeneratingCodes] = useState(false);
   const [copiedCodeId, setCopiedCodeId] = useState<string | null>(null);
+
+  // Live timer tick to update all subscription countdown timers in real time
+  const [, setTimerTick] = useState(0);
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimerTick(t => t + 1);
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Screensaver Settings State
   const [screensaverEnabled, setScreensaverEnabled] = useState(true);
@@ -120,11 +130,18 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     return {
       siteName: 'Estably - إستابلي للخيول العربية الأصيلة',
       siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
-      logoUrl: '/logo.jpg'
+      logoUrl: '/logo.jpg',
+      adminPhone: '0559595055',
+      adminWhatsApp: '966559595055'
     };
   });
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [isSavingSiteSettings, setIsSavingSiteSettings] = useState(false);
+
+  // Dynamic Admin Phone and WhatsApp Management
+  const [adminPhoneInput, setAdminPhoneInput] = useState<string>(() => siteSettings.adminPhone || '0559595055');
+  const [adminWhatsAppInput, setAdminWhatsAppInput] = useState<string>(() => siteSettings.adminWhatsApp || '966559595055');
+  const [isSavingAdminPhone, setIsSavingAdminPhone] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -180,6 +197,8 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
           st.logoUrl = '/logo.jpg';
         }
         setSiteSettings(st);
+        if (st.adminPhone) setAdminPhoneInput(st.adminPhone);
+        if (st.adminWhatsApp) setAdminWhatsAppInput(st.adminWhatsApp);
         setScreensaverEnabled(st.screensaverEnabled !== false);
         const totalSec = st.screensaverTimeoutSeconds ?? 60;
         if (totalSec >= 60 && totalSec % 60 === 0) {
@@ -407,6 +426,38 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     }
   };
 
+  const handleSaveAdminContact = async () => {
+    if (!adminPhoneInput.trim()) {
+      showNotify('error', 'يرجى إدخال رقم هاتف الإدارة.');
+      return;
+    }
+    setIsSavingAdminPhone(true);
+    try {
+      const cleanPhone = adminPhoneInput.trim();
+      const cleanWa = adminWhatsAppInput.trim() || cleanPhone.replace(/^0/, '966');
+      const updated: SiteSettings = {
+        ...siteSettings,
+        adminPhone: cleanPhone,
+        adminWhatsApp: cleanWa,
+        updatedAt: new Date().toISOString()
+      };
+      const ok = await FirebaseService.saveSiteSettings(updated);
+      if (ok) {
+        setSiteSettings(updated);
+        if (onSiteSettingsUpdated) {
+          onSiteSettingsUpdated(updated);
+        }
+        showNotify('success', `تم حفظ وتحديث رقم هاتف وواتساب الإدارة (${cleanPhone}) في كامل المنصة بنجاح!`);
+      } else {
+        showNotify('error', 'فشل حفظ رقم هاتف الإدارة.');
+      }
+    } catch (e) {
+      showNotify('error', 'حدث خطأ أثناء حفظ رقم الإدارة.');
+    } finally {
+      setIsSavingAdminPhone(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
 
@@ -442,17 +493,49 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   };
 
   const handleToggleGold = async (userToToggle: User) => {
+    const willBeGold = !userToToggle.isGold;
+    const expiresAt = willBeGold
+      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      : undefined;
+
     const updated: User = {
       ...userToToggle,
-      isGold: !userToToggle.isGold,
+      isGold: willBeGold,
+      isSubscribed: willBeGold,
+      subscriptionTier: willBeGold ? 'gold' : 'free',
+      subscriptionExpiresAt: expiresAt,
       updatedAt: new Date().toISOString()
     };
     const ok = await FirebaseService.saveUser(updated);
     if (ok) {
       setUsers(users.map(u => u.id === updated.id ? updated : u));
-      showNotify('success', `تم ${updated.isGold ? 'منح العضوية الذهبية 👑 لـ' : 'إلغاء العضوية الذهبية عن'} ${updated.name} بنجاح.`);
+      showNotify('success', `تم ${updated.isGold ? 'تفعيل العضوية الذهبية (30 يوماً عد تنازلي) 👑 لـ' : 'إلغاء العضوية الذهبية عن'} ${updated.name} بنجاح.`);
     } else {
       showNotify('error', 'فشل تغيير العضوية الذهبية.');
+    }
+  };
+
+  const handleExtendGold = async (userToExtend: User) => {
+    // Add 30 days from current expiry or now
+    const baseTime = userToExtend.subscriptionExpiresAt 
+      ? Math.max(Date.now(), new Date(userToExtend.subscriptionExpiresAt).getTime())
+      : Date.now();
+    const newExpiresAt = new Date(baseTime + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    const updated: User = {
+      ...userToExtend,
+      isGold: true,
+      isSubscribed: true,
+      subscriptionTier: 'gold',
+      subscriptionExpiresAt: newExpiresAt,
+      updatedAt: new Date().toISOString()
+    };
+    const ok = await FirebaseService.saveUser(updated);
+    if (ok) {
+      setUsers(users.map(u => u.id === updated.id ? updated : u));
+      showNotify('success', `تم تجديد وتمديد العضوية الذهبية (+30 يوماً) للمشترك ${updated.name} بنجاح!`);
+    } else {
+      showNotify('error', 'فشل تمديد العضوية الذهبية.');
     }
   };
 
@@ -986,8 +1069,31 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                             )}
                           </div>
                           <div>
-                            <span className="font-bold text-slate-800 block">{u.name}</span>
-                            <span className="text-[10px] text-slate-400">{u.city || 'المدينة غير محددة'}</span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-800">{u.name}</span>
+                              {u.isGold && (
+                                <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-2xs">
+                                  <Crown className="w-2.5 h-2.5 text-amber-600" />
+                                  عضو ذهبي 👑
+                                </span>
+                              )}
+                            </div>
+                            {u.isGold && (() => {
+                              const vip = getVipRemainingTime(u.subscriptionExpiresAt, u.updatedAt || u.createdAt);
+                              return (
+                                <div className={`text-[9.5px] font-mono font-bold flex items-center gap-1 px-1.5 py-0.5 rounded-md border mt-0.5 w-fit shadow-2xs ${
+                                  vip.isExpired 
+                                    ? 'bg-red-50 text-red-700 border-red-200' 
+                                    : vip.days <= 3 
+                                    ? 'bg-amber-100 text-amber-950 border-amber-300 animate-pulse' 
+                                    : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                }`} title={`العد التنازلي للاشتراك الذهبي: ${vip.formattedDetailed}`}>
+                                  <Clock className="w-3 h-3 text-amber-700 shrink-0" />
+                                  <span>العد التنازلي: {vip.formattedDetailed}</span>
+                                </div>
+                              );
+                            })()}
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{u.city || 'المدينة غير محددة'}</span>
                           </div>
                         </div>
                       </td>
@@ -1007,9 +1113,27 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                             <Sparkles className="w-3 h-3" /> مدير النظام
                           </span>
                         ) : u.isGold ? (
-                          <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 font-extrabold px-2.5 py-1 rounded-lg text-[10px] border border-amber-300">
-                            <Crown className="w-3 h-3 text-amber-600" /> عضوية ذهبية 👑
-                          </span>
+                          <div className="space-y-1">
+                            <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-900 font-black px-2 py-0.5 rounded-lg text-[10px] border border-amber-300 shadow-2xs">
+                              <Crown className="w-3 h-3 text-amber-600" /> عضوية ذهبية 👑
+                            </span>
+                            {/* Live VIP Countdown Timer badge */}
+                            {(() => {
+                              const vip = getVipRemainingTime(u.subscriptionExpiresAt, u.updatedAt || u.createdAt);
+                              return (
+                                <div className={`text-[9.5px] font-mono font-bold flex items-center gap-1 px-1.5 py-0.5 rounded border ${
+                                  vip.isExpired 
+                                    ? 'bg-red-50 text-red-700 border-red-200' 
+                                    : vip.days <= 3 
+                                    ? 'bg-amber-50 text-amber-900 border-amber-300 animate-pulse' 
+                                    : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                }`} title={`العد التنازلي للاشتراك الذهبي: ${vip.formattedDetailed}`}>
+                                  <Clock className="w-3 h-3 shrink-0" />
+                                  <span>{vip.formattedDetailed}</span>
+                                </div>
+                              );
+                            })()}
+                          </div>
                         ) : (
                           <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 font-semibold px-2.5 py-1 rounded-lg text-[10px]">
                             عضو عادي (إعلان 1 مجاناً)
@@ -1032,20 +1156,33 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
                           
-                          {/* Toggle Gold Membership */}
+                          {/* Toggle / Extend Gold Membership */}
                           {u.role !== 'admin' && (
-                            <button
-                              onClick={() => handleToggleGold(u)}
-                              className={`p-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 transition cursor-pointer ${
-                                u.isGold 
-                                  ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300' 
-                                  : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-xs'
-                              }`}
-                              title={u.isGold ? 'إلغاء العضوية الذهبية' : 'منح العضوية الذهبية (إعلانات غير محدودة)'}
-                            >
-                              <Crown className="w-3.5 h-3.5" />
-                              <span>{u.isGold ? 'إلغاء الذهبية' : 'ترقية للذهبية 👑'}</span>
-                            </button>
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                onClick={() => handleToggleGold(u)}
+                                className={`p-1.5 rounded-lg font-bold text-[11px] flex items-center gap-1 transition cursor-pointer ${
+                                  u.isGold 
+                                    ? 'bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300' 
+                                    : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-xs'
+                                }`}
+                                title={u.isGold ? 'إلغاء العضوية الذهبية' : 'تفعيل العضوية الذهبية (30 يوماً عد تنازلي)'}
+                              >
+                                <Crown className="w-3.5 h-3.5" />
+                                <span>{u.isGold ? 'إلغاء الذهبية' : 'تفعيل الذهبية 👑'}</span>
+                              </button>
+
+                              {u.isGold && (
+                                <button
+                                  onClick={() => handleExtendGold(u)}
+                                  className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg font-bold text-[10px] flex items-center gap-0.5 transition cursor-pointer"
+                                  title="تمديد الاشتراك 30 يوماً إضافية"
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>+30 يوم</span>
+                                </button>
+                              )}
+                            </div>
                           )}
 
                           {/* Toggle Suspend */}
@@ -2004,6 +2141,47 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                   />
                 </div>
 
+                {/* Admin Phone and WhatsApp in Site tab */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 bg-slate-50 border border-slate-200 rounded-xl">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Phone className="w-3.5 h-3.5 text-navy" />
+                      <span>هاتف الإدارة (للعرض والاتصال)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={siteSettings.adminPhone || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        const waVal = val.startsWith('05') ? val.replace(/^0/, '966') : (siteSettings.adminWhatsApp || '');
+                        setSiteSettings({ ...siteSettings, adminPhone: val, adminWhatsApp: waVal });
+                        setAdminPhoneInput(val);
+                        setAdminWhatsAppInput(waVal);
+                      }}
+                      placeholder="0559595055"
+                      className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg font-mono font-bold text-slate-800"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <MessageCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>واتساب الإدارة (دولي للأكواد)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={siteSettings.adminWhatsApp || ''}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9]/g, '');
+                        setSiteSettings({ ...siteSettings, adminWhatsApp: val });
+                        setAdminWhatsAppInput(val);
+                      }}
+                      placeholder="966559595055"
+                      className="w-full text-xs p-2.5 bg-white border border-slate-200 rounded-lg font-mono font-bold text-slate-800"
+                    />
+                  </div>
+                </div>
+
                 {/* Logo / Favicon Upload & URL */}
                 <div className="space-y-3 pt-2">
                   <label className="block text-xs font-bold text-slate-700 flex items-center gap-1.5">
@@ -2177,6 +2355,211 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
               <span className="text-xl font-black text-slate-700">
                 {subscriptionCodes.filter(c => c.status === 'used').length}
               </span>
+            </div>
+          </div>
+
+          {/* Gold VIP Subscribers & Live Countdown Management Section */}
+          <div className="bg-gradient-to-r from-amber-50/90 via-yellow-50/60 to-slate-50 border-2 border-amber-300 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-amber-200/80 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                  <Crown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-sm sm:text-base">
+                    المشتركون في العضوية الذهبية VIP (100 ريال شهرياً) والعد التنازلي
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    متابعة العد التنازلي المتبقي لكل مشترك ذهبي، مع إمكانية التمديد (+30 يوماً) أو الإلغاء الفوري
+                  </p>
+                </div>
+              </div>
+
+              <span className="bg-amber-100 text-amber-950 text-xs font-black px-3 py-1 rounded-full border border-amber-300 shrink-0">
+                {users.filter(u => u.isGold).length} مشترك ذهبي
+              </span>
+            </div>
+
+            {users.filter(u => u.isGold).length === 0 ? (
+              <div className="text-center py-6 text-slate-400 text-xs bg-white/70 rounded-2xl border border-dashed border-amber-200">
+                لا يوجد أي مشترك في العضوية الذهبية حالياً. يمكنك تفعيل العضوية الذهبية لأي مستخدم من تبويب «المستخدمين».
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+                {users.filter(u => u.isGold).map(goldUser => {
+                  const vip = getVipRemainingTime(goldUser.subscriptionExpiresAt, goldUser.updatedAt || goldUser.createdAt);
+                  return (
+                    <div key={goldUser.id} className="bg-white p-4 rounded-2xl border border-amber-200/90 shadow-2xs flex flex-col justify-between gap-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-xl bg-amber-100 text-amber-900 font-black flex items-center justify-center border border-amber-300 shrink-0 overflow-hidden text-sm">
+                            {goldUser.avatar ? (
+                              <img src={goldUser.avatar} alt={goldUser.name} className="w-full h-full object-cover" />
+                            ) : (
+                              goldUser.name.charAt(0)
+                            )}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-black text-slate-900 text-sm">{goldUser.name}</span>
+                              <span className="bg-amber-100 text-amber-900 text-[10px] font-black px-1.5 py-0.2 rounded-full border border-amber-300">
+                                👑 ذهبي
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-500 font-mono block">{goldUser.phone || 'بدون هاتف'}</span>
+                            <span className="text-[10px] text-slate-400 block">{goldUser.email}</span>
+                          </div>
+                        </div>
+
+                        {/* Live Countdown Badge */}
+                        <div className={`px-2.5 py-1.5 rounded-xl border text-right font-mono shrink-0 ${
+                          vip.isExpired 
+                            ? 'bg-red-50 text-red-700 border-red-200' 
+                            : vip.days <= 3 
+                            ? 'bg-amber-100 text-amber-950 border-amber-300 animate-pulse' 
+                            : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                        }`}>
+                          <div className="text-[10px] font-bold text-slate-500 flex items-center gap-1 justify-end">
+                            <Clock className="w-3 h-3 text-amber-600" />
+                            <span>العد التنازلي:</span>
+                          </div>
+                          <div className="text-xs font-black">
+                            {vip.formattedDetailed}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-100 gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleExtendGold(goldUser)}
+                            className="bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                            title="تمديد الاشتراك 30 يوماً إضافية"
+                          >
+                            <Plus className="w-3.5 h-3.5" />
+                            <span>تمديد (+30 يوم)</span>
+                          </button>
+                          
+                          <button
+                            type="button"
+                            onClick={() => handleToggleGold(goldUser)}
+                            className="bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 px-2.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                            title="إلغاء العضوية الذهبية"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>إلغاء الذهبية</span>
+                          </button>
+                        </div>
+
+                        {goldUser.phone && (
+                          <a
+                            href={`https://wa.me/${goldUser.phone.replace(/^0/, '966')}?text=${encodeURIComponent(`السلام عليكم ${goldUser.name}، نتواصل معك من إدارة منصة إستابلي بخصوص اشتراكك في العضوية الذهبية.`)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[#25D366] hover:bg-emerald-50 p-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1"
+                            title="مراسلة المشترك بالواتساب"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                            <span className="text-[11px]">مراسلة واتساب</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Admin WhatsApp & Contact Number Settings Card */}
+          <div className="bg-gradient-to-r from-emerald-50/90 via-teal-50/70 to-slate-50 border-2 border-emerald-300 rounded-3xl p-5 sm:p-6 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-emerald-200/80 pb-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#25D366] text-white flex items-center justify-center font-bold shadow-xs shrink-0">
+                  <Phone className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-slate-900 text-sm sm:text-base">
+                    رقم واتساب وهاتف الإدارة المعتمد في كامل المنصة
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    هذا الرقم هو الذي يتم إرسال طلبات الأكواد، التفعيلات، ترقية VIP، ورسائل التواصل المباشر عليه
+                  </p>
+                </div>
+              </div>
+
+              <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-3 py-1 rounded-full border border-emerald-300 shrink-0">
+                تحديث وتعميم فوري
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <label className="block font-black text-slate-700 mb-1.5">
+                  رقم الهاتف المحلي (للعرض والاتصال المباشر)
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute right-3 top-3" />
+                  <input
+                    type="text"
+                    value={adminPhoneInput}
+                    onChange={(e) => {
+                      setAdminPhoneInput(e.target.value);
+                      if (e.target.value.startsWith('05')) {
+                        setAdminWhatsAppInput(e.target.value.replace(/^0/, '966'));
+                      }
+                    }}
+                    placeholder="مثال: 0559595055"
+                    className="w-full pr-10 pl-3 py-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 dir-ltr text-right"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">يظهر للمستخدمين في صفحات الاشتراكات والتواصل وأزرار الاتصال</span>
+              </div>
+
+              <div>
+                <label className="block font-black text-slate-700 mb-1.5">
+                  رقم الواتساب بالصيغة الدولية (بدون + أو أصفار في البداية)
+                </label>
+                <div className="relative">
+                  <MessageCircle className="w-4 h-4 text-emerald-600 absolute right-3 top-3" />
+                  <input
+                    type="text"
+                    value={adminWhatsAppInput}
+                    onChange={(e) => setAdminWhatsAppInput(e.target.value.replace(/[^0-9]/g, ''))}
+                    placeholder="مثال: 966559595055"
+                    className="w-full pr-10 pl-3 py-2.5 bg-white border border-slate-300 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 dir-ltr text-right"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">يُستخدم في روابط (wa.me/...) لفتح المحادثة تلقائياً عند طلب الأكواد والترقية</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2 border-t border-emerald-200/60">
+              <div className="text-[11px] text-slate-600 flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>الرقم المعتمد حالياً: <strong className="font-mono text-emerald-800 font-bold">{siteSettings.adminPhone || '0559595055'}</strong></span>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveAdminContact}
+                disabled={isSavingAdminPhone}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs py-3 px-6 rounded-xl transition cursor-pointer shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {isSavingAdminPhone ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>جاري تعميم الرقم...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>حفظ وتعميم رقم الإدارة على كامل الموقع</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 

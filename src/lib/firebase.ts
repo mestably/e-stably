@@ -411,6 +411,8 @@ export const FirebaseService = {
       screensaverEnabled: true,
       screensaverTimeoutSeconds: 60,
       screensaverShowClock: true,
+      adminPhone: '0559595055',
+      adminWhatsApp: '966559595055',
       updatedAt: new Date().toISOString()
     };
 
@@ -466,6 +468,9 @@ export const FirebaseService = {
 
     try {
       localStorage.setItem('site_settings_cache', JSON.stringify(settings));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('site_settings_changed', { detail: settings }));
+      }
     } catch (e) {}
 
     // 1. Update Document Title

@@ -173,4 +173,7 @@ export interface SiteSettings {
   screensaverEnabled?: boolean;
   screensaverTimeoutSeconds?: number;
   screensaverShowClock?: boolean;
+  // Admin Contact & WhatsApp Settings
+  adminPhone?: string; // e.g. '0559595055'
+  adminWhatsApp?: string; // e.g. '966559595055'
 }

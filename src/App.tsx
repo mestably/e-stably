@@ -22,7 +22,8 @@ import {
   Cloud,
   ShieldAlert,
   Crown,
-  Edit
+  Edit,
+  Clock
 } from 'lucide-react';
 import { User, AnnouncementBanner, SiteSettings } from './types';
 import { FirebaseService } from './lib/firebase';
@@ -45,10 +46,17 @@ import { HorsesScreensaver } from './components/HorsesScreensaver';
 import { AuthService, isSystemAdminEmail } from './lib/authService';
 import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from './lib/subscriptionService';
+import { useVipCountdown } from './lib/useVipCountdown';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin' | 'subscriptions'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  const vipCountdown = useVipCountdown(
+    currentUser?.subscriptionExpiresAt,
+    currentUser?.updatedAt || currentUser?.createdAt,
+    !!currentUser?.isGold
+  );
   const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -354,11 +362,16 @@ export default function App() {
                 className="flex items-center gap-2 hover:bg-slate-100/80 p-1 rounded-lg transition cursor-pointer"
                 title="تعديل ملفك الشخصي"
               >
-                <div className="w-8 h-8 rounded-lg bg-navy/10 text-navy font-bold text-xs shrink-0 overflow-hidden flex items-center justify-center border border-navy/20">
+                <div className="w-8 h-8 rounded-lg bg-navy/10 text-navy font-bold text-xs shrink-0 overflow-hidden flex items-center justify-center border border-navy/20 relative">
                   {currentUser.avatar ? (
                     <img src={currentUser.avatar} alt={currentUser.name} className="w-full h-full object-cover" />
                   ) : (
                     currentUser.name.charAt(0)
+                  )}
+                  {currentUser.isGold && (
+                    <span className="absolute -top-1 -right-1 bg-amber-500 text-white rounded-full p-0.5 shadow-xs border border-white" title="عضوية ذهبية 👑">
+                      <Crown className="w-2.5 h-2.5" />
+                    </span>
                   )}
                 </div>
                 <div className="text-right flex flex-col justify-center max-w-[120px] sm:max-w-[160px]">
@@ -369,9 +382,21 @@ export default function App() {
                       🛡️ إعلانات غير محدودة
                     </span>
                   ) : currentUser.isGold ? (
-                    <span className="text-[8px] font-extrabold text-amber-900 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300 mt-0.5 block truncate" title="إعلانات غير محدودة للعضوية الذهبية">
-                      👑 ذهبي: غير محدود
-                    </span>
+                    <div className="mt-0.5 space-y-0.5" title={`العضوية الذهبية (100 ريال شهرياً) - العد التنازلي: ${vipCountdown.formattedDetailed}`}>
+                      <span className="text-[8px] font-extrabold text-amber-900 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300 block truncate">
+                        👑 ذهبي (100 ريال)
+                      </span>
+                      <span className={`text-[7.5px] font-mono font-bold px-1.5 py-0.2 rounded border block truncate flex items-center gap-0.5 ${
+                        vipCountdown.isExpired 
+                          ? 'bg-red-50 text-red-700 border-red-200' 
+                          : vipCountdown.days <= 3 
+                          ? 'bg-amber-100 text-amber-950 border-amber-300 animate-pulse' 
+                          : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                      }`}>
+                        <Clock className="w-2 h-2 text-amber-700 shrink-0" />
+                        <span>{vipCountdown.formattedDetailed}</span>
+                      </span>
+                    </div>
                   ) : (
                     <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded border mt-0.5 block truncate ${
                       userTotalAds >= FREE_USER_ADS_LIMIT 
@@ -623,8 +648,21 @@ export default function App() {
                           <span>🛡️ مدير النظام: إعلانات غير محدودة</span>
                         </div>
                       ) : currentUser.isGold ? (
-                        <div className="text-[10px] font-bold text-amber-900 bg-amber-100 px-2.5 py-1 rounded-lg border border-amber-300 mt-1 inline-flex items-center gap-1">
-                          <span>👑 عضوية ذهبية: إعلانات غير محدودة</span>
+                        <div className="text-[10px] font-bold text-amber-900 bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-300 mt-1 space-y-1">
+                          <div className="flex items-center gap-1">
+                            <Crown className="w-3.5 h-3.5 text-amber-600" />
+                            <span>عضوية ذهبية 👑 (100 ريال شهرياً)</span>
+                          </div>
+                          <div className={`text-[9.5px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
+                            vipCountdown.isExpired 
+                              ? 'bg-red-50 text-red-700 border-red-200' 
+                              : vipCountdown.days <= 3 
+                              ? 'bg-amber-50 text-amber-950 border-amber-300 animate-pulse' 
+                              : 'bg-white/80 text-emerald-900 border-emerald-200'
+                          }`}>
+                            <Clock className="w-3 h-3 text-amber-700 shrink-0" />
+                            <span>العد التنازلي: {vipCountdown.formattedDetailed}</span>
+                          </div>
                         </div>
                       ) : (
                         <div className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border mt-1 inline-flex items-center gap-1 ${

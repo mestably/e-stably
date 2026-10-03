@@ -7,8 +7,43 @@ import { User, SubscriptionCode } from '../types';
 import { FirebaseService } from './firebase';
 
 export const FREE_USER_ADS_LIMIT = 1;
-export const ADMIN_WHATSAPP_NUMBER = '966559595055';
-export const ADMIN_PHONE_DISPLAY = '0559595055';
+
+export const DEFAULT_ADMIN_PHONE = '0559595055';
+export const DEFAULT_ADMIN_WHATSAPP = '966559595055';
+
+export const getStoredAdminPhone = (): string => {
+  try {
+    const cached = localStorage.getItem('site_settings_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.adminPhone && String(parsed.adminPhone).trim()) {
+        return String(parsed.adminPhone).trim();
+      }
+    }
+  } catch {}
+  return DEFAULT_ADMIN_PHONE;
+};
+
+export const getStoredAdminWhatsApp = (): string => {
+  try {
+    const cached = localStorage.getItem('site_settings_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed.adminWhatsApp && String(parsed.adminWhatsApp).trim()) {
+        return String(parsed.adminWhatsApp).trim();
+      }
+      if (parsed.adminPhone && String(parsed.adminPhone).trim()) {
+        return String(parsed.adminPhone).trim().replace(/^0/, '966');
+      }
+    }
+  } catch {}
+  return DEFAULT_ADMIN_WHATSAPP;
+};
+
+// Fallback constant for legacy imports
+export const ADMIN_WHATSAPP_NUMBER = DEFAULT_ADMIN_WHATSAPP;
+export const ADMIN_PHONE_DISPLAY = DEFAULT_ADMIN_PHONE;
+
 const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
 // Local storage key for fallback
@@ -229,7 +264,8 @@ export const SubscriptionService = {
 • التوقيت: ${formattedDate}
 نرجو من الإدارة الكريمة اعتماد وتفعيل هذا الكود حتى أتمكن من تنزيل إعلاني. شكراً لكم!`;
 
-    const whatsappUrl = `https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(shareText)}`;
+    const adminWa = getStoredAdminWhatsApp();
+    const whatsappUrl = `https://wa.me/${adminWa}?text=${encodeURIComponent(shareText)}`;
 
     return { code: codeObj, whatsappUrl, shareText };
   },
@@ -250,7 +286,8 @@ export const SubscriptionService = {
 • البريد الإلكتروني: ${userEmail}
 يرجى إفادتي ببيانات السداد وخطوات التفعيل الفوري. شكراً جزيلاً!`;
 
-    return `https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+    const adminWa = getStoredAdminWhatsApp();
+    return `https://wa.me/${adminWa}?text=${encodeURIComponent(msg)}`;
   },
 
   /**

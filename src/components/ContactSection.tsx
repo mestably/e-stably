@@ -5,8 +5,10 @@
 
 import { Mail, Phone, ExternalLink, Calendar, HelpCircle, Check, MessageSquare } from 'lucide-react';
 import { useState, FormEvent } from 'react';
+import { useAdminContact } from '../lib/useAdminContact';
 
 export default function ContactSection() {
+  const { adminPhone, adminWhatsApp } = useAdminContact();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [message, setMessage] = useState('');
@@ -70,12 +72,12 @@ export default function ContactSection() {
                 <div className="flex-1 flex justify-between items-center">
                   <div>
                     <span className="text-[9px] text-slate-400 block">رقم الاتصال المباشر والواتساب للإدارة</span>
-                    <a href="tel:0559595055" className="text-xs font-bold text-slate-700 hover:text-navy transition font-mono">
-                      0559595055
+                    <a href={`tel:${adminPhone}`} className="text-xs font-bold text-slate-700 hover:text-navy transition font-mono">
+                      {adminPhone}
                     </a>
                   </div>
                   <a
-                    href="https://wa.me/966559595055"
+                    href={`https://wa.me/${adminWhatsApp}`}
                     target="_blank"
                     rel="noreferrer"
                     className="bg-green-500 hover:bg-green-600 text-white p-1.5 rounded-lg text-xs"

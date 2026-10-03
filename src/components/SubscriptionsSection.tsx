@@ -19,10 +19,13 @@ import {
   FileText, 
   Zap,
   HelpCircle,
-  X
+  X,
+  Clock
 } from 'lucide-react';
 import { User, SubscriptionCode } from '../types';
-import { SubscriptionService, FREE_USER_ADS_LIMIT, ADMIN_WHATSAPP_NUMBER, ADMIN_PHONE_DISPLAY } from '../lib/subscriptionService';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
+import { useAdminContact } from '../lib/useAdminContact';
+import { useVipCountdown } from '../lib/useVipCountdown';
 import RequestSubscriptionCodeModal from './RequestSubscriptionCodeModal';
 
 interface SubscriptionsSectionProps {
@@ -40,12 +43,19 @@ export default function SubscriptionsSection({
   isModal = false,
   onClose
 }: SubscriptionsSectionProps) {
+  const { adminWhatsApp } = useAdminContact();
   const [totalAdsCount, setTotalAdsCount] = useState<number>(0);
   const [isLoadingAds, setIsLoadingAds] = useState(false);
   const [isRequestCodeOpen, setIsRequestCodeOpen] = useState(false);
   const [testCodeInput, setTestCodeInput] = useState('');
   const [codeCheckResult, setCodeCheckResult] = useState<{ valid: boolean; message: string } | null>(null);
   const [isCheckingCode, setIsCheckingCode] = useState(false);
+
+  const vipCountdown = useVipCountdown(
+    currentUser?.subscriptionExpiresAt,
+    currentUser?.updatedAt || currentUser?.createdAt,
+    !!currentUser?.isGold
+  );
 
   useEffect(() => {
     if (currentUser?.id) {
@@ -93,7 +103,7 @@ export default function SubscriptionsSection({
               باقات الاشتراكات وأكواد نشر الإعلانات
             </h1>
             <p className="text-xs sm:text-sm text-slate-800 font-bold leading-relaxed">
-              يحق لكل مستخدم مجاني نشر <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">إعلان واحد فقط</strong>. يمكنك ترقية اشتراكك للاستمتاع بإعلانات غير محدودة، أو طلب <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">كود اشتراك متغير</strong> لنشر إعلان إضافي وتفعيله فوراً عبر واتساب الإدارة.
+              يحق لكل مستخدم مجاني نشر <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">إعلان واحد فقط مجاناً</strong>. يمكنك طلب <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">كود نشر إضافي (السعر: 20 ريال)</strong> لنشر إعلان إضافي وتفعيله فوراً عبر واتساب الإدارة، أو الترقية إلى <strong className="text-slate-950 font-black underline decoration-amber-600 decoration-2 underline-offset-2">العضوية الذهبية (100 ريال شهرياً)</strong> لإعلانات غير محدودة وشارة توثيق وعد تنازلي.
             </p>
           </div>
 
@@ -104,18 +114,18 @@ export default function SubscriptionsSection({
               className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs sm:text-sm px-4 sm:px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-yellow-100 shadow-[0_0_20px_rgba(245,158,11,0.65)] hover:shadow-[0_0_30px_rgba(245,158,11,0.9)] ring-2 ring-amber-400/60 hover:scale-[1.02] active:scale-95 shrink-0 whitespace-nowrap"
             >
               <Key className="w-4 h-4 text-slate-950 shrink-0" />
-              <span>طلب كود نشر إضافي 📲</span>
+              <span>طلب كود نشر إضافي (السعر 20 ريال) 📲</span>
             </button>
 
             {/* Glowing Luminous Emerald WhatsApp Activation Button */}
             <a
-              href={SubscriptionService.getUpgradeWhatsAppUrl(currentUser, 'العضوية الذهبية VIP')}
+              href={`https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(`السلام عليكم ورحمة الله، أرغب في ترقية حسابي إلى العضوية الذهبية (100 ريال شهرياً) في منصة إستابلي (${currentUser?.name || 'مستخدم جديد'})`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-400 hover:from-emerald-400 hover:to-green-400 text-white font-black text-xs sm:text-sm px-4 sm:px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.7)] hover:shadow-[0_0_30px_rgba(16,185,129,0.95)] ring-2 ring-emerald-400/60 hover:scale-[1.02] active:scale-95 shrink-0 whitespace-nowrap"
             >
-              <MessageCircle className="w-4 h-4 text-white shrink-0" />
-              <span>تفعيل عبر واتساب الإدارة</span>
+              <Crown className="w-4 h-4 text-white shrink-0" />
+              <span>ترقية للعضوية الذهبية (100 ريال شهرياً) 👑</span>
             </a>
           </div>
         </div>
@@ -133,22 +143,34 @@ export default function SubscriptionsSection({
               )}
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-extrabold text-slate-900 text-sm">{currentUser.name}</span>
                 {currentUser.role === 'admin' ? (
                   <span className="bg-navy text-white text-[10px] font-black px-2 py-0.5 rounded-full">مدير النظام</span>
                 ) : currentUser.isGold ? (
-                  <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <Crown className="w-3 h-3 text-amber-600" />
-                    عضوية ذهبية
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                      <Crown className="w-3 h-3 text-amber-600" />
+                      عضوية ذهبية (100 ريال شهرياً)
+                    </span>
+                    <span className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-md flex items-center gap-1 border ${
+                      vipCountdown.isExpired 
+                        ? 'bg-red-50 text-red-700 border-red-200' 
+                        : vipCountdown.days <= 3 
+                        ? 'bg-amber-50 text-amber-900 border-amber-300 animate-pulse' 
+                        : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                    }`}>
+                      <Clock className="w-3 h-3 text-amber-700 shrink-0" />
+                      <span>العد التنازلي: {vipCountdown.formattedDetailed}</span>
+                    </span>
+                  </div>
                 ) : (
                   <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
                     حساب مجاني
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-500 mt-0.5">
+              <p className="text-xs text-slate-500 mt-1">
                 {isUnlimited ? (
                   <strong className="text-emerald-700 font-extrabold">لديك صلاحية نشر غير محدودة للإعلانات 👑</strong>
                 ) : (
@@ -253,26 +275,35 @@ export default function SubscriptionsSection({
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-blue-800 bg-blue-100 px-3 py-1 rounded-full">
-                كود نشر إضافي
+              <span className="text-xs font-black text-blue-800 bg-blue-100 px-3 py-1 rounded-full flex items-center gap-1.5">
+                <span>كود نشر إضافي</span>
+                <span className="bg-blue-600 text-white text-[11px] font-black px-2 py-0.5 rounded-md shadow-2xs">السعر 20 ريال</span>
               </span>
-              <span className="text-xs font-bold text-blue-600">طلب فوري</span>
+              <span className="text-xs font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200">
+                20 ريال / كود
+              </span>
             </div>
 
             <div>
-              <h3 className="text-xl font-black text-slate-900">كود الإعلان المتغير</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xl font-black text-slate-900">كود النشر الإضافي</h3>
+                <span className="bg-blue-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-2xs">
+                  السعر: 20 ريال
+                </span>
+              </div>
               <p className="text-xs text-slate-500 mt-1">كود مخصص لنشر إعلان إضافي دون التزام شهري</p>
             </div>
 
-            <div className="py-2 border-y border-blue-100">
-              <span className="text-2xl font-black text-blue-900">كود متغير</span>
-              <span className="text-xs text-blue-700 font-bold mr-2">لكل إعلان إضافي</span>
+            <div className="py-2.5 border-y border-blue-100 flex items-baseline gap-1.5">
+              <span className="text-3xl font-black text-blue-900">20</span>
+              <span className="text-sm text-blue-700 font-extrabold">ريال</span>
+              <span className="text-xs text-slate-500 font-bold mr-1">/ كود لكل إعلان إضافي</span>
             </div>
 
             <ul className="space-y-2.5 text-xs text-slate-600 font-medium">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-                <span><strong>توليد كود فوري مخصص لحسابك</strong></span>
+                <span><strong>توليد كود فوري مخصص لحسابك بقيمة 20 ريال</strong></span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
@@ -299,7 +330,7 @@ export default function SubscriptionsSection({
               className="w-full bg-blue-600 hover:bg-blue-700 text-white font-black text-xs py-3 px-4 rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-1.5"
             >
               <Key className="w-4 h-4" />
-              <span>طلب كود اشتراك الآن</span>
+              <span>طلب كود نشر إضافي - السعر 20 ريال</span>
             </button>
           </div>
         </div>
@@ -313,20 +344,29 @@ export default function SubscriptionsSection({
 
           <div className="space-y-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-amber-900 bg-amber-100 px-3 py-1 rounded-full">
-                الباقة الذهبية
+              <span className="text-xs font-black text-amber-900 bg-amber-100 px-3 py-1 rounded-full flex items-center gap-1.5">
+                <span>العضوية الذهبية</span>
+                <span className="bg-amber-600 text-white text-[11px] font-black px-2 py-0.5 rounded-md shadow-2xs">100 ريال شهرياً</span>
               </span>
-              <span className="text-xs font-bold text-amber-700">VIP غير محدود</span>
+              <span className="text-xs font-black text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-300">
+                100 ريال شهرياً
+              </span>
             </div>
 
             <div>
-              <h3 className="text-xl font-black text-slate-900">العضوية الذهبية 👑</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-xl font-black text-slate-900">العضوية الذهبية 👑</h3>
+                <span className="bg-amber-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-2xs">
+                  100 ريال شهرياً
+                </span>
+              </div>
               <p className="text-xs text-slate-500 mt-1">للمربين، الإسطبلات، والشركات ذات النشاط المستمر</p>
             </div>
 
-            <div className="py-2 border-y border-amber-100">
-              <span className="text-2xl font-black text-amber-900">إعلانات بلا حدود</span>
-              <span className="text-xs text-amber-700 font-bold mr-2">بدون أكواد أو قيود</span>
+            <div className="py-2.5 border-y border-amber-100 flex items-baseline gap-1.5">
+              <span className="text-3xl font-black text-amber-900">100</span>
+              <span className="text-sm text-amber-700 font-extrabold">ريال</span>
+              <span className="text-xs text-slate-500 font-bold mr-1">/ شهرياً (إعلانات بلا حدود)</span>
             </div>
 
             <ul className="space-y-2.5 text-xs text-slate-700 font-medium">
@@ -340,28 +380,28 @@ export default function SubscriptionsSection({
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
+                <span><strong>عد تنازلي فوري (30 يوماً)</strong> يظهر في أيقونة المستخدم ولوحة المدير</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>أولوية ظهور إعلاناتك في الصفحة الرئيسية والبحث</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>دعم فني خاص ومباشر عبر الواتساب</span>
               </li>
-              <li className="flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>إمكانية تمييز الإعلانات بعلامات خاصة</span>
-              </li>
             </ul>
           </div>
 
           <div className="pt-6">
             <a
-              href={SubscriptionService.getUpgradeWhatsAppUrl(currentUser, 'العضوية الذهبية VIP (إعلانات غير محدودة)')}
+              href={`https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(`السلام عليكم ورحمة الله، أرغب في ترقية حسابي إلى العضوية الذهبية VIP (100 ريال شهرياً) في منصة إستابلي (${currentUser?.name || 'مستخدم جديد'})`)}`}
               target="_blank"
               rel="noopener noreferrer"
               className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs py-3 px-4 rounded-xl transition cursor-pointer shadow-xs flex items-center justify-center gap-2"
             >
-              <MessageCircle className="w-4 h-4" />
-              <span>تفعيل عبر واتساب الإدارة</span>
+              <Crown className="w-4 h-4" />
+              <span>ترقية للعضوية الذهبية (100 ريال شهرياً) 👑</span>
             </a>
           </div>
         </div>
@@ -421,18 +461,14 @@ export default function SubscriptionsSection({
             <h4 className="text-xs sm:text-sm font-black text-slate-900 leading-snug">
               تفعيل الاشتراكات والتواصل المباشر مع إدارة إستابلي
             </h4>
-            <div className="text-[11px] sm:text-xs text-slate-600 leading-relaxed">
-              <span>رقم واتساب الإدارة المباشر: </span>
-              <span className="inline-block font-mono font-bold text-emerald-800 dir-ltr whitespace-nowrap bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-200">
-                {ADMIN_PHONE_DISPLAY}
-              </span>
-              <span className="block sm:inline text-slate-500 sm:mr-1"> (متاح 24/7 للرد والتفعيل الفوري)</span>
-            </div>
+            <p className="text-[11px] sm:text-xs text-slate-600 leading-relaxed font-medium">
+              تواصل مباشرة مع إدارة المنصة عبر الواتساب للاعتماد الفوري لأكواد النشر وتفعيل العضوية الذهبية (متاح 24/7)
+            </p>
           </div>
         </div>
 
         <a
-          href={`https://wa.me/${ADMIN_WHATSAPP_NUMBER}?text=${encodeURIComponent(`السلام عليكم ورحمة الله، أتواصل معكم بخصوص ترقية حسابي في منصة إستابلي (${currentUser?.name || 'مستخدم جديد'})`)}`}
+          href={`https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(`السلام عليكم ورحمة الله، أتواصل معكم بخصوص ترقية حسابي في منصة إستابلي (${currentUser?.name || 'مستخدم جديد'})`)}`}
           target="_blank"
           rel="noopener noreferrer"
           className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-400 hover:from-emerald-400 hover:to-green-400 text-white font-black text-xs px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer shadow-[0_0_18px_rgba(16,185,129,0.65)] hover:shadow-[0_0_26px_rgba(16,185,129,0.9)] border border-emerald-200 ring-2 ring-emerald-400/50 flex items-center justify-center gap-2 shrink-0 active:scale-95"

@@ -16,7 +16,8 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { User, SubscriptionCode } from '../types';
-import { SubscriptionService, ADMIN_WHATSAPP_NUMBER, ADMIN_PHONE_DISPLAY } from '../lib/subscriptionService';
+import { SubscriptionService } from '../lib/subscriptionService';
+import { useAdminContact } from '../lib/useAdminContact';
 
 interface RequestSubscriptionCodeModalProps {
   isOpen: boolean;
@@ -35,6 +36,7 @@ export default function RequestSubscriptionCodeModal({
   onOpenAuth,
   adType = 'إعلان جديد'
 }: RequestSubscriptionCodeModalProps) {
+  const { adminWhatsApp } = useAdminContact();
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [whatsappUrl, setWhatsappUrl] = useState<string>('');
   const [isCopied, setIsCopied] = useState(false);
@@ -76,7 +78,9 @@ export default function RequestSubscriptionCodeModal({
 
   const handleOpenWhatsapp = () => {
     if (!whatsappUrl) return;
-    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+    const targetWa = adminWhatsApp || '966559595055';
+    const finalUrl = whatsappUrl.replace(/wa\.me\/[0-9]+/, `wa.me/${targetWa}`);
+    window.open(finalUrl, '_blank', 'noopener,noreferrer');
     setHasSentToWhatsapp(true);
   };
 
@@ -91,8 +95,13 @@ export default function RequestSubscriptionCodeModal({
               <Sparkles className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="font-extrabold text-base text-white">طلب كود اشتراك / نشر إعلان إضافي</h2>
-              <p className="text-xs text-slate-300">كود متغير فوري للتفعيل المباشر عبر واتساب الإدارة</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-extrabold text-base text-white">طلب كود نشر إضافي</h2>
+                <span className="bg-amber-400 text-slate-950 font-black text-xs px-2.5 py-0.5 rounded-full shadow-xs">
+                  السعر: 20 ريال
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">كود متغير فوري بقيمة 20 ريال للتفعيل المباشر عبر واتساب الإدارة</p>
             </div>
           </div>
           <button
@@ -205,13 +214,9 @@ export default function RequestSubscriptionCodeModal({
                   className="w-full bg-[#25D366] hover:bg-[#1ebc59] text-white font-extrabold py-3.5 px-4 rounded-2xl transition cursor-pointer shadow-md flex items-center justify-center gap-2.5 text-sm"
                 >
                   <MessageCircle className="w-5 h-5" />
-                  <span>إرسال طلب الكود إلى واتساب الإدارة ({ADMIN_PHONE_DISPLAY})</span>
+                  <span>إرسال طلب الكود إلى واتساب الإدارة</span>
                   <ExternalLink className="w-4 h-4 opacity-75" />
                 </button>
-
-                <div className="text-center text-[11px] text-slate-500 font-medium">
-                  واتساب الإدارة المباشر: <span className="font-mono font-bold text-emerald-700">{ADMIN_PHONE_DISPLAY}</span>
-                </div>
 
                 {hasSentToWhatsapp && (
                   <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs text-center font-bold">

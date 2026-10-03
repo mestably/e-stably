@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShieldCheck, Check, AlertCircle, X, ScrollText, Sparkles, Scale, BookOpen } from 'lucide-react';
+import { Check, AlertCircle, X, Scale, ScrollText } from 'lucide-react';
 
 interface TermsAgreementModalProps {
   isOpen: boolean;
@@ -20,7 +20,7 @@ export default function TermsAgreementModal({
   isOpen,
   onConfirm,
   onCancel,
-  title = 'الشروط والأحكام الخاصة بنشر الإعلانات',
+  title = 'معاهدة المنصة',
   categoryName = 'الإعلان',
   isSubmitting = false,
 }: TermsAgreementModalProps) {
@@ -28,73 +28,6 @@ export default function TermsAgreementModal({
   const [showWarning, setShowWarning] = useState(false);
 
   if (!isOpen) return null;
-
-  const termsList = [
-    {
-      title: 'رسوم إضافة الإعلانات',
-      desc: 'لإضافة أي إعلان على المنصة (20) ريال.',
-    },
-    {
-      title: 'إتمام عمليات البيع والنقل القانوني (وخاصة الخيل العربي)',
-      desc: 'عند إتمام عملية البيع وخصوصاً الخيل العربي يتم تحويل الأموال إلى المنصة، وتكون المنصة ملزمة بعملية النقل وإتمام عملية البيع من خلالها وبالطرق القانونية المعتمدة لضمان حقوق كافة الأطراف.',
-    },
-    {
-      title: 'حظر التلاعب والتحايل وإجراءات الملاحقة القانونية',
-      desc: 'إذا لا قدر الله تم التلاعب من المشتري أو البائع بإتمام عملية البيع أو الشراء خارج المنصة وتم العلم بهذا، فإن للمنصة الحق الكامل في اتخاذ كافة الإجراءات القانونية حيال هذا الموقف أو ما شابه لضمان حقها كاملاً.',
-    },
-    {
-      title: 'طبيعة عمل المنصة كـوسيط إلكتروني',
-      desc: 'المنصة وسيط إلكتروني بين البائع والمشتري فقط.',
-    },
-    {
-      title: 'إخلاء المسؤولية بعد إتمام الاتفاق',
-      desc: 'المنصة لا تتحمل مسؤولية أي خلاف أو نزاع ينشأ بين البائع والمشتري بعد الاتفاق، مع احتفاظها بحق مراجعة البلاغات واتخاذ الإجراءات المناسبة.',
-    },
-    {
-      title: 'واجب التحقق وقراءة كافة البيانات',
-      desc: 'يجب على المستخدم قراءة جميع المعلومات والبيانات الموضحة في الإعلان قبل الشراء أو دفع العربون.',
-    },
-    {
-      title: 'سياسة العربون وعدم الجدية',
-      desc: 'لا يحق للمشتري استرداد العربون في حال التراجع عن الشراء أو عدم الجدية، ما لم يثبت وجود معلومات غير صحيحة أو إخفاء عيب مؤثر من قبل البائع.',
-    },
-    {
-      title: 'مهلة الفحص والتخليص (48 ساعة)',
-      desc: 'يمنح المشتري مهلة 48 ساعة للفحص واستكمال إجراءات الشراء والتخليص.',
-    },
-    {
-      title: 'الصدق والأمانة والإفصاح عن العيوب',
-      desc: 'يلتزم البائع بالإفصاح عن جميع العيوب أو المشاكل أو الحالات الصحية أو السلوكية التي تؤثر على سلامة الجواد أو قيمته.',
-    },
-    {
-      title: 'توقيت وقبول دفع العربون',
-      desc: 'لا يقبل أي عربون بعد انتهاء المدة المحددة للمبايعة أو بعد إغلاق الإعلان.',
-    },
-    {
-      title: 'فحص الجواد ومعاينة الاستلام والخروج من المربط',
-      desc: 'يجب على المشتري فحص الجواد لتأكيد من معلومات الجواد، وبعد استلام الجواد وخروجه من المربط أو الإسطبل لا يحق للمشتري المطالبة بالاسترجاع، إلا إذا ثبت وجود تدليس أو إخفاء عيب مؤثر لم يتم الإفصاح عنه.',
-    },
-    {
-      title: 'عمولة المنصة والمستحقات المالية',
-      desc: 'عمولة المنصة:\n• 2.5% من قيمة البيع إذا تجاوزت قيمة الجواد 10,000 ريال.\n• 130 ريال إذا كانت قيمة الجواد أقل من 10,000 ريال.\n• العمولة مستحقة عند إتمام البيع أو الاتفاق النهائي.\n• عمولة 10 ريال عن كل رأس في حالة الإيجار.\n• عمولة 15 ريال عن كل رأس في حالة نقل الخيل.\n• جميع العمولات لا ترتبط بمبلغ البيع النهائي بين الطرفين، فقط النسب المحددة بالشروط.',
-    },
-    {
-      title: 'مهلة الاستلام ورسوم الإيواء اليومية',
-      desc: 'يمنح المشتري مهلة يومين لاستلام الجواد بعد البيع، وبعد ذلك يتحمل رسوم إيواء بقيمة 50 ريال عن كل يوم تأخير.',
-    },
-    {
-      title: 'صحة البيانات والصور والوثائق المرفقة',
-      desc: 'البائع مسؤول مسؤولية كاملة عن صحة الصور والمعلومات والمستندات وأرقام التواصل المرفقة في الإعلان.',
-    },
-    {
-      title: 'صلاحيات الإدارة والرقابة والحذف',
-      desc: 'يحق للمنصة حذف أو إيقاف أي إعلان مخالف أو مضلل أو يحتوي على معلومات غير صحيحة دون أي التزام.',
-    },
-    {
-      title: 'الصدق والشفافية وحظر بيع ما لا يملك',
-      desc: 'أن يكون الوسيط أميناً ولا يغش البائع أو المشتري؛ لقوله ﷺ: «البَيِّعانِ بالخِيارِ ما لَمْ يَتَفَرَّقا، فإنْ صَدَقا وبَيَّنا بُورِكَ لهما في بَيْعِهِما، وإنْ كَتَبا وكَذَبا مُحِقَتْ بَرَكةُ بَيْعِهِما». ويُحرم على التاجر أو البائع أن يبيع سلعة لا يملكها ولا تدخل في حيازته وقت البيع، إلا في حالات البيع المباحة شرعاً والمضبوطة بشروطها كعقد "السلم".',
-    },
-  ];
 
   const handleConfirmClick = () => {
     if (!agreed) {
@@ -114,7 +47,7 @@ export default function TermsAgreementModal({
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onCancel}
-          className="fixed inset-0 bg-slate-900/70 backdrop-blur-xs"
+          className="fixed inset-0 bg-slate-900/75 backdrop-blur-xs"
         />
 
         {/* Modal Window */}
@@ -122,107 +55,76 @@ export default function TermsAgreementModal({
           initial={{ scale: 0.95, opacity: 0, y: 10 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 10 }}
-          className="relative bg-white rounded-2xl shadow-2xl max-w-xl w-full border border-slate-100 flex flex-col max-h-[90vh] overflow-hidden my-auto z-10"
+          className="relative bg-white rounded-3xl shadow-2xl max-w-lg w-full border border-slate-100 flex flex-col max-h-[92vh] overflow-hidden my-auto z-10"
         >
           {/* Header */}
-          <div className="p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-amber-50/40 flex items-center justify-between">
+          <div className="p-4 sm:p-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-amber-50/50 flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gold/15 text-gold-dark flex items-center justify-center shrink-0 border border-gold/30">
-                <ShieldCheck className="w-5 h-5" />
+              <div className="w-11 h-11 rounded-2xl bg-amber-500/15 text-amber-700 flex items-center justify-center shrink-0 border border-amber-500/30 shadow-2xs">
+                <ScrollText className="w-5 h-5 text-amber-600" />
               </div>
               <div>
-                <h3 className="font-extrabold text-navy text-sm sm:text-base leading-tight">
+                <h3 className="font-black text-navy text-base sm:text-lg leading-tight">
                   {title}
                 </h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  خطوة أساسية قبل إتمام نشر {categoryName} على المنصة
+                <p className="text-[11px] text-slate-500 mt-0.5 font-medium">
+                  إقرار وتعهد معلن المنصة قبل إتمام نشر {categoryName}
                 </p>
               </div>
             </div>
             <button
               onClick={onCancel}
-              className="p-1.5 text-slate-400 hover:text-navy hover:bg-slate-100 rounded-lg transition"
+              className="p-1.5 text-slate-400 hover:text-navy hover:bg-slate-100 rounded-xl transition cursor-pointer"
               title="إغلاق"
             >
               <X className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Scrollable Terms Content */}
-          <div className="p-4 sm:p-5 overflow-y-auto space-y-4 text-slate-700 text-xs">
+          {/* Body: Covenant Formula and Sacred Texts */}
+          <div className="p-5 sm:p-6 overflow-y-auto space-y-4 text-right">
             
-            {/* Islamic Sacred Text Guidance */}
-            <div className="space-y-2 bg-amber-50/60 p-3.5 rounded-xl border border-gold/30">
-              <div className="flex items-center gap-2 text-gold-dark font-bold text-xs pb-1 border-b border-gold/20">
-                <BookOpen className="w-4 h-4" />
-                <span>الضوابط الشرعية والأمانة في التعامل</span>
-              </div>
-              <p className="text-red-700 font-extrabold text-xs text-center py-1 bg-red-50/80 rounded-lg border border-red-200/60">
-                قال الله تعالى: &#123;يَا أَيُّهَا الَّذِينَ آمَنُوا أَوْفُوا بِالْعُقُودِ&#125;
-              </p>
-              <p className="text-navy font-bold text-[11px] text-center">
-                قول رسول الله ﷺ: «مَنْ حَمَلَ عَلَيْنَا السِّلَاحَ فَلَيْسَ مِنَّا، وَمَنْ غَشَّنَا فَلَيْسَ مِنَّا»
-              </p>
-              <p className="text-slate-600 text-[10.5px] leading-relaxed text-center">
-                «البَيِّعانِ بالخِيارِ ما لَمْ يَتَفَرَّقا، فإنْ صَدَقا وبَيَّنا بُورِكَ لهما في بَيْعِهِما، وإنْ كَتَبا وكَذَبا مُحِقَتْ بَرَكةُ بَيْعِهِما»
-              </p>
-            </div>
-
-            {/* Terms List */}
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-2 font-bold text-navy text-xs">
-                <Scale className="w-4 h-4 text-gold-dark" />
-                <span>بنود وشروط النشر المعتمدة:</span>
-              </div>
+            {/* The Solemn Covenant Box */}
+            <div className="bg-gradient-to-b from-rose-50/90 via-red-50/80 to-amber-50/60 border-2 border-red-300/90 rounded-2xl p-4 sm:p-5 text-red-700 shadow-sm space-y-3">
               
-              <div className="divide-y divide-slate-100 border border-slate-200/80 rounded-xl overflow-hidden bg-slate-50/40">
-                {termsList.map((t, idx) => (
-                  <div key={idx} className="p-3 flex items-start gap-2.5">
-                    <span className="w-5 h-5 rounded-full bg-navy text-white text-[10px] font-black flex items-center justify-center shrink-0 mt-0.5">
-                      {idx + 1}
-                    </span>
-                    <div className="space-y-1 flex-1">
-                      <h4 className="font-bold text-navy text-xs">{t.title}</h4>
-                      <p className="text-slate-600 text-[11px] leading-relaxed whitespace-pre-line">{t.desc}</p>
-                      
-                      {idx === 15 && (
-                        <div className="mt-3 p-3.5 bg-red-50/90 border border-red-200/90 rounded-2xl text-red-600 font-black text-xs leading-relaxed space-y-1.5 shadow-xs">
-                          <p className="font-black text-red-600 text-xs sm:text-[13px]">
-                            اتعهد واقسم بالله أنا المعلن أن أدفع عمولة المنصة
-                          </p>
-                          <p className="font-extrabold text-red-600 text-xs sm:text-[13px]">
-                            وكما أتعهد بدفع الرسوم خلال 10 أيام من استلام مبلغ المبايعة
-                          </p>
-                          <p className="font-black text-red-700 text-xs sm:text-[13px]">
-                            أتعهد بذلك
-                          </p>
-                          <div className="pt-2 mt-1 border-t border-red-200 text-red-700 text-[11px] sm:text-xs font-bold leading-normal">
-                            بسم الله الرحمن الرحيم قال الله تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot; صدق الله العظيم
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              <div className="space-y-1.5 text-center sm:text-right border-b border-red-200/80 pb-3">
+                <p className="font-black text-red-700 text-sm sm:text-base leading-relaxed">
+                  اتعهد واقسم بالله أنا المعلن أن أدفع عمولة المنصة
+                </p>
+                <p className="font-extrabold text-red-700 text-xs sm:text-sm leading-relaxed">
+                  وكما أتعهد بدفع الرسوم خلال 10 أيام من استلام مبلغ المبايعة
+                </p>
+                <p className="font-black text-red-800 text-sm sm:text-base pt-1">
+                  أتعهد بذلك
+                </p>
+              </div>
+
+              {/* Quranic Sacred Verse */}
+              <div className="pt-1 text-center text-slate-800 text-xs sm:text-[13px] font-bold leading-relaxed space-y-1 bg-white/70 p-3 rounded-xl border border-red-100 shadow-2xs">
+                <span className="block text-red-800 font-extrabold text-[11px]">بِسْمِ اللَّـهِ الرَّحْمَـٰنِ الرَّحِيمِ</span>
+                <p className="text-red-700 font-black leading-normal">
+                  قال الله تعالى: &quot;وَأَوْفُوا بِعَهْدِ اللَّهِ إِذَا عَاهَدْتُمْ وَلَا تَنقُضُوا الْأَيْمَانَ بَعْدَ تَوْكِيدِهَا وَقَدْ جَعَلْتُمُ اللَّهَ عَلَيْكُمْ كَفِيلًا&quot;
+                </p>
+                <span className="block text-slate-500 text-[11px] font-bold">صدق الله العظيم</span>
               </div>
             </div>
 
-            {/* Mandatory Checkbox Agreement Card */}
+            {/* Mandatory Checkbox Agreement Card: أتعهد بذلك */}
             <div
               onClick={() => {
                 setAgreed(!agreed);
                 if (showWarning) setShowWarning(false);
               }}
-              className={`p-3.5 sm:p-4 rounded-xl border-2 transition-all cursor-pointer select-none flex items-start gap-3 ${
+              className={`p-4 rounded-2xl border-2 transition-all cursor-pointer select-none flex items-start gap-3.5 shadow-xs ${
                 agreed
-                  ? 'bg-emerald-50/80 border-emerald-500 shadow-xs'
+                  ? 'bg-emerald-50/90 border-emerald-500 ring-2 ring-emerald-400/20'
                   : showWarning
                   ? 'bg-red-50 border-red-400 animate-pulse'
-                  : 'bg-white border-slate-300 hover:border-gold hover:bg-amber-50/30'
+                  : 'bg-slate-50/80 border-slate-300 hover:border-gold hover:bg-amber-50/30'
               }`}
             >
               <div
-                className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 mt-0.5 transition ${
+                className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 mt-0.5 transition ${
                   agreed
                     ? 'bg-emerald-600 border-emerald-600 text-white'
                     : showWarning
@@ -230,14 +132,14 @@ export default function TermsAgreementModal({
                     : 'border-slate-400 bg-white'
                 }`}
               >
-                {agreed && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                {agreed && <Check className="w-4 h-4 stroke-[3]" />}
               </div>
               <div className="space-y-0.5">
-                <label className="font-extrabold text-navy text-xs sm:text-sm cursor-pointer block">
-                  قرأت الشروط والأحكام جيداً وأتعهد بالالتزام بها
+                <label className="font-black text-slate-900 text-sm sm:text-base cursor-pointer block">
+                  أتعهد بذلك
                 </label>
-                <p className="text-[11px] text-slate-500 leading-relaxed">
-                  أقر بأن كافة المعلومات والبيانات والصور المرفقة في الإعلان صحيحة ودقيقة، وأتحمل كامل المسؤولية الشرعية والقانونية عنها.
+                <p className="text-xs text-slate-500 leading-relaxed font-medium">
+                  أقر وأقسم بالله بالالتزام التام بسداد عمولة المنصة ورسومها في موعدها دون تأخير.
                 </p>
               </div>
             </div>
@@ -247,32 +149,32 @@ export default function TermsAgreementModal({
               <motion.div
                 initial={{ opacity: 0, y: -5 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="p-2.5 bg-red-100/80 border border-red-300 rounded-xl text-red-800 text-xs flex items-center gap-2 font-bold"
+                className="p-3 bg-red-100 border border-red-300 rounded-xl text-red-800 text-xs flex items-center gap-2 font-bold shadow-2xs"
               >
                 <AlertCircle className="w-4 h-4 shrink-0 text-red-600" />
-                <span>يجب التأشير على خانة الموافقة على الشروط والأحكام أولاً لإتمام النشر.</span>
+                <span>يجب التعليم على «أتعهد بذلك» أولاً للمتابعة ونشر الإعلان.</span>
               </motion.div>
             )}
 
           </div>
 
           {/* Footer Actions */}
-          <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center gap-3">
+          <div className="p-4 sm:p-5 border-t border-slate-100 bg-slate-50 flex items-center gap-3">
             <button
               onClick={handleConfirmClick}
               disabled={isSubmitting}
-              className={`flex-1 py-3 px-4 rounded-xl font-extrabold text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer shadow-sm ${
+              className={`flex-1 py-3.5 px-5 rounded-2xl font-black text-xs sm:text-sm transition-all duration-200 flex items-center justify-center gap-2 cursor-pointer shadow-md active:scale-[0.99] ${
                 agreed
-                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                  : 'bg-navy hover:bg-navy-dark text-white opacity-85'
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/30'
+                  : 'bg-navy hover:bg-navy-dark text-white'
               }`}
             >
               {isSubmitting ? (
-                <span>جاري النشر...</span>
+                <span>جاري نشر الإعلان...</span>
               ) : (
                 <>
                   <Check className="w-4 h-4" />
-                  <span>تأكيد ونشر الإعلان الآن</span>
+                  <span>نشر الإعلان</span>
                 </>
               )}
             </button>
@@ -280,7 +182,7 @@ export default function TermsAgreementModal({
             <button
               onClick={onCancel}
               disabled={isSubmitting}
-              className="py-3 px-5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-xl border border-slate-200 transition text-xs cursor-pointer"
+              className="py-3.5 px-5 bg-white hover:bg-slate-100 text-slate-700 font-bold rounded-2xl border border-slate-200 transition text-xs cursor-pointer"
             >
               تراجع وتعديل
             </button>

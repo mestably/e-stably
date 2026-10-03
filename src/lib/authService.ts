@@ -357,7 +357,7 @@ export const AuthService = {
   /**
    * Login or Register via Google Popup using Firebase Auth
    */
-  async loginWithGoogle(): Promise<{ user: User }> {
+  async loginWithGoogle(): Promise<{ user: User; isNewUser: boolean }> {
     const provider = new GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
     
@@ -371,6 +371,7 @@ export const AuthService = {
     const cleanEmail = fbUser.email.trim().toLowerCase();
     const users = await FirebaseService.getUsers();
     let existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+    const isNewUser = !existingUser;
 
     if (!existingUser) {
       // Create new profile for Google user
@@ -387,7 +388,6 @@ export const AuthService = {
         isVerified: true,
         createdAt: new Date().toISOString(),
       };
-      await FirebaseService.saveUser(existingUser);
     } else {
       // Preserve custom profile edits (phone, avatar, name, bio, etc.) while ensuring role is 'user'
       existingUser.authProvider = 'google';
@@ -406,6 +406,11 @@ export const AuthService = {
       throw new Error('تم إيقاف هذا الحساب من قِبل الإدارة. يرجى التواصل مع الدعم الفني.');
     }
 
-    return { user: existingUser };
+    return { user: existingUser, isNewUser };
+  },
+
+  async confirmNewGoogleUser(user: User): Promise<User> {
+    await FirebaseService.saveUser(user);
+    return user;
   }
 };

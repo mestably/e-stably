@@ -21,12 +21,14 @@ import {
   FileText,
   Key,
   MessageCircle,
-  ArrowRight
+  ArrowRight,
+  Clock
 } from 'lucide-react';
 import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import { compressImage } from '../lib/imageUtils';
+import { getVipRemainingTime } from '../lib/countdownHelper';
 import RequestSubscriptionCodeModal from './RequestSubscriptionCodeModal';
 
 interface UserProfileModalProps {
@@ -341,19 +343,43 @@ export default function UserProfileModal({
               </span>
             </div>
           ) : currentUser.isGold ? (
-            <div className="bg-gradient-to-r from-amber-500/10 via-amber-100/60 to-gold/10 border border-amber-400/50 p-3.5 rounded-xl flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                  <Crown className="w-4 h-4" />
+            <div className="bg-gradient-to-r from-amber-500/10 via-amber-100/60 to-gold/10 border border-amber-400/50 p-4 rounded-2xl space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                    <Crown className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-black text-amber-950 block">العضوية الذهبية VIP (100 ريال شهرياً) 👑</span>
+                    <span className="text-[10px] text-amber-800 block">حسابك مميز! لديك صلاحية نشر غير محدودة للإعلانات وشارة التوثيق</span>
+                  </div>
                 </div>
-                <div>
-                  <span className="text-xs font-extrabold text-amber-900 block">العضوية الذهبية المشتركة 👑</span>
-                  <span className="text-[10px] text-amber-700 block">حسابك مميز! يمكنك نشر عدد غير محدود من الإعلانات يومياً</span>
-                </div>
+                <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-2xs">
+                  VIP - غير محدود
+                </span>
               </div>
-              <span className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-2xs">
-                VIP - غير محدود
-              </span>
+
+              {/* Live Countdown Timer in User Profile */}
+              {(() => {
+                const vip = getVipRemainingTime(currentUser.subscriptionExpiresAt, currentUser.updatedAt || currentUser.createdAt);
+                return (
+                  <div className={`p-3 rounded-xl border flex items-center justify-between text-xs font-mono font-bold ${
+                    vip.isExpired 
+                      ? 'bg-red-50 text-red-700 border-red-200' 
+                      : vip.days <= 3 
+                      ? 'bg-amber-100 text-amber-950 border-amber-300 animate-pulse' 
+                      : 'bg-white/80 text-emerald-900 border-amber-300/80 shadow-2xs'
+                  }`}>
+                    <div className="flex items-center gap-2">
+                      <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                      <span className="font-sans font-black text-slate-800">العد التنازلي للعضوية:</span>
+                    </div>
+                    <span className="font-mono font-black text-xs sm:text-sm text-amber-950">
+                      {vip.formattedDetailed}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
           ) : (
             <div className="space-y-3">
@@ -439,7 +465,10 @@ export default function UserProfileModal({
                       <Key className="w-4 h-4" />
                     </div>
                     <div>
-                      <span className="text-xs font-black block text-white">طلب كود نشر إضافي</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-black block text-white">طلب كود نشر إضافي</span>
+                        <span className="bg-white/20 text-white text-[10px] font-black px-1.5 py-0.2 rounded">20 ريال</span>
+                      </div>
                       <span className="text-[10px] text-blue-100 block">كود متغير يرسل لواتساب الإدارة</span>
                     </div>
                   </div>
@@ -454,12 +483,12 @@ export default function UserProfileModal({
                     <Crown className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-extrabold text-amber-900 block">تفعيل الترقية عبر واتساب الإدارة</span>
-                    <span className="text-[10px] text-amber-800 block">راسل الإدارة مباشرة لتفعيل إعلانات غير محدودة لحسابك فوراً</span>
+                    <span className="text-xs font-extrabold text-amber-900 block">تفعيل الترقية الذهبية (100 ريال شهرياً)</span>
+                    <span className="text-[10px] text-amber-800 block">راسل الإدارة بالواتساب لتفعيل إعلانات غير محدودة وشارة VIP فوراً</span>
                   </div>
                 </div>
                 <a
-                  href={SubscriptionService.getUpgradeWhatsAppUrl(currentUser, 'العضوية الذهبية VIP (إعلانات غير محدودة)')}
+                  href={SubscriptionService.getUpgradeWhatsAppUrl(currentUser, 'العضوية الذهبية VIP (100 ريال شهرياً)')}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full sm:w-auto text-center bg-[#25D366] hover:bg-[#1ebc59] text-white font-black text-xs px-4 py-2.5 rounded-xl transition shadow-xs flex items-center justify-center gap-1.5 shrink-0"

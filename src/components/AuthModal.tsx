@@ -9,6 +9,7 @@ import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { AuthService } from '../lib/authService';
 import { googleDriveSignIn } from '../lib/drive';
+import NewSubscriberTermsView from './NewSubscriberTermsView';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -39,6 +40,11 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  // Terms agreement state for new subscribers & Google registration
+  const [hasAgreedToTerms, setHasAgreedToTerms] = useState(false);
+  const [pendingGoogleNewUser, setPendingGoogleNewUser] = useState<User | null>(null);
+  const [isFinalizingGoogle, setIsFinalizingGoogle] = useState(false);
 
   // Pending Activation State & 6-Digit OTP
   const [pendingVerificationUser, setPendingVerificationUser] = useState<User | null>(null);
@@ -326,7 +332,21 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setIsLoading(true);
     setError('');
     try {
-      const { user } = await AuthService.loginWithGoogle();
+      const { user, isNewUser } = await AuthService.loginWithGoogle();
+      
+      // If this is a new Google subscriber who hasn't agreed to terms yet:
+      if (isNewUser && !hasAgreedToTerms) {
+        setPendingGoogleNewUser(user);
+        setIsLogin(false);
+        setIsLoading(false);
+        return;
+      }
+
+      // If user already agreed to terms or is an existing returning user:
+      if (isNewUser) {
+        await AuthService.confirmNewGoogleUser(user);
+      }
+
       onAuthSuccess(user);
       onClose();
     } catch (err: any) {
@@ -344,12 +364,29 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     }
   };
 
+  const handleConfirmGoogleWithTerms = async () => {
+    if (!pendingGoogleNewUser) return;
+    setIsFinalizingGoogle(true);
+    setError('');
+    try {
+      await AuthService.confirmNewGoogleUser(pendingGoogleNewUser);
+      setHasAgreedToTerms(true);
+      onAuthSuccess(pendingGoogleNewUser);
+      setPendingGoogleNewUser(null);
+      onClose();
+    } catch (err: any) {
+      setError(err?.message || 'حدث خطأ أثناء إتمام التسجيل بواسطة Google.');
+    } finally {
+      setIsFinalizingGoogle(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
+      <div className={`bg-white rounded-2xl w-full ${(!isLogin && !hasAgreedToTerms) || pendingGoogleNewUser ? 'max-w-lg' : 'max-w-md'} overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] transition-all`}>
         
         {/* Header Tabs */}
-        {!pendingVerificationUser && (
+        {!pendingVerificationUser && !pendingGoogleNewUser && (
           <div className="flex border-b border-slate-100 bg-slate-50">
             <button
               onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
@@ -374,8 +411,24 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           </div>
         )}
 
+        {/* If pending new Google user registration */}
+        {pendingGoogleNewUser && (
+          <div className="p-3.5 bg-navy text-white flex items-center justify-between border-b border-navy-dark shadow-xs">
+            <span className="text-xs font-black text-gold flex items-center gap-1.5">
+              <span>إتمام الاشتراك الجديد بواسطة Google</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => { setPendingGoogleNewUser(null); setIsLogin(true); setError(''); setSuccess(''); }}
+              className="text-[11px] text-slate-300 hover:text-white underline cursor-pointer"
+            >
+              إلغاء والعودة
+            </button>
+          </div>
+        )}
+
         {/* Content Area */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-5 sm:p-6 overflow-y-auto flex-1">
           {error && (
             <div className="mb-4 p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-xl flex items-start gap-2 shadow-xs">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -587,9 +640,52 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                 <span>الدخول السريع باستخدام Google</span>
               </button>
             </form>
+          ) : pendingGoogleNewUser ? (
+            /* --- GOOGLE NEW SUBSCRIBER TERMS AGREEMENT VIEW --- */
+            <NewSubscriberTermsView
+              isForGoogle={true}
+              googleUserName={pendingGoogleNewUser.name}
+              isSubmitting={isFinalizingGoogle}
+              onAgreeAndProceed={handleConfirmGoogleWithTerms}
+              onBackToLogin={() => {
+                setPendingGoogleNewUser(null);
+                setIsLogin(true);
+                setError('');
+                setSuccess('');
+              }}
+            />
+          ) : !hasAgreedToTerms ? (
+            /* --- NEW SUBSCRIBER TERMS AGREEMENT VIEW BEFORE REGISTRATION --- */
+            <NewSubscriberTermsView
+              onAgreeAndProceed={() => {
+                setHasAgreedToTerms(true);
+                setError('');
+                setSuccess('✓ تم تأكيد قراءة والموافقة على الشروط والأحكام بنجاح. يرجى إكمال بيانات الاشتراك أدناه:');
+              }}
+              onBackToLogin={() => {
+                setIsLogin(true);
+                setError('');
+                setSuccess('');
+              }}
+            />
           ) : (
-            // --- REGISTRATION FORM ---
+            // --- REGISTRATION FORM (After Agreeing to Terms) ---
             <form onSubmit={handleRegister} className="space-y-4">
+              {/* Confirmed Terms Notice Banner */}
+              <div className="bg-emerald-50/90 border border-emerald-300 rounded-xl p-2.5 flex items-center justify-between text-xs text-emerald-800 font-bold shadow-2xs">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>تمت الموافقة على قائمة الشروط والأحكام (16 بنداً)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setHasAgreedToTerms(false)}
+                  className="text-[11px] text-navy underline hover:text-navy-dark cursor-pointer shrink-0"
+                >
+                  مراجعة الشروط
+                </button>
+              </div>
+
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">الاسم الكامل</label>
                 <div className="relative">
@@ -746,6 +842,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           <button
             onClick={() => {
               setPendingVerificationUser(null);
+              setPendingGoogleNewUser(null);
               onClose();
             }}
             className="text-slate-500 hover:text-navy font-semibold text-xs py-1 px-3 cursor-pointer"
