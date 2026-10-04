@@ -23,6 +23,7 @@ const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 
 const ADMIN_EMAILS = [
+  'fares.m.alamoudi@gmail.com',
   'admin@m-estably.com',
   'x24.akar@gmail.com',
   'x2.sharshar@gmail.com',
@@ -383,16 +384,16 @@ export const AuthService = {
         nickname: (fbUser.displayName || cleanEmail.split('@')[0]).replace(/\s+/g, '_').toLowerCase(),
         avatar: fbUser.photoURL || undefined,
         password: '',
-        role: 'user', // أي مستخدم يدخل بجوجل يكون مستخدم عادي وليس مدير
+        role: isSystemAdminEmail(cleanEmail) ? 'admin' : 'user',
         authProvider: 'google',
         isVerified: true,
         createdAt: new Date().toISOString(),
       };
     } else {
-      // Preserve custom profile edits (phone, avatar, name, bio, etc.) while ensuring role is 'user'
+      // Preserve custom profile edits while granting admin to system admin emails
       existingUser.authProvider = 'google';
       existingUser.isVerified = true;
-      existingUser.role = 'user'; // مستخدم عادي دائماً عند الدخول بجوجل
+      existingUser.role = isSystemAdminEmail(cleanEmail) ? 'admin' : 'user';
       if (!existingUser.avatar && fbUser.photoURL) {
         existingUser.avatar = fbUser.photoURL;
       }

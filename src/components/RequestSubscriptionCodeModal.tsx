@@ -36,7 +36,7 @@ export default function RequestSubscriptionCodeModal({
   onOpenAuth,
   adType = 'إعلان جديد'
 }: RequestSubscriptionCodeModalProps) {
-  const { adminWhatsApp } = useAdminContact();
+  const { adminPhone, adminWhatsApp } = useAdminContact();
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [whatsappUrl, setWhatsappUrl] = useState<string>('');
   const [isCopied, setIsCopied] = useState(false);
@@ -214,9 +214,13 @@ export default function RequestSubscriptionCodeModal({
                   className="w-full bg-[#25D366] hover:bg-[#1ebc59] text-white font-extrabold py-3.5 px-4 rounded-2xl transition cursor-pointer shadow-md flex items-center justify-center gap-2.5 text-sm"
                 >
                   <MessageCircle className="w-5 h-5" />
-                  <span>إرسال طلب الكود إلى واتساب الإدارة</span>
+                  <span>إرسال طلب الكود إلى واتساب الإدارة ({adminPhone})</span>
                   <ExternalLink className="w-4 h-4 opacity-75" />
                 </button>
+
+                <div className="text-center text-[11px] text-slate-500 font-medium">
+                  واتساب الإدارة المباشر للتفعيل: <span className="font-mono font-bold text-emerald-700 dir-ltr select-all">{adminPhone}</span>
+                </div>
 
                 {hasSentToWhatsapp && (
                   <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs text-center font-bold">

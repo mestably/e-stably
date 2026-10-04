@@ -43,7 +43,7 @@ export default function SubscriptionsSection({
   isModal = false,
   onClose
 }: SubscriptionsSectionProps) {
-  const { adminWhatsApp } = useAdminContact();
+  const { adminPhone, adminWhatsApp } = useAdminContact();
   const [totalAdsCount, setTotalAdsCount] = useState<number>(0);
   const [isLoadingAds, setIsLoadingAds] = useState(false);
   const [isRequestCodeOpen, setIsRequestCodeOpen] = useState(false);
@@ -88,46 +88,29 @@ export default function SubscriptionsSection({
   const containerContent = (
     <div className="space-y-8 max-w-5xl mx-auto py-2 px-1">
       
-      {/* Hero / Header Card with Yellow Background, Sky-Blue Border, Crisp Dark Text, and Luminous Glowing Buttons */}
-      <div className="bg-gradient-to-br from-amber-100 via-yellow-100 to-amber-200 rounded-3xl p-5 sm:p-7 lg:p-8 text-slate-900 shadow-xl relative overflow-hidden border-4 border-sky-400 text-right">
-        <div className="absolute -top-12 -left-12 w-48 h-48 bg-sky-300/25 rounded-full blur-3xl pointer-events-none"></div>
-        <div className="absolute -bottom-12 -right-12 w-48 h-48 bg-yellow-400/35 rounded-full blur-3xl pointer-events-none"></div>
-
-        <div className="relative z-10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-6 text-right">
-          <div className="space-y-3 flex-1 min-w-0 max-w-2xl text-right">
-            <div className="inline-flex items-center gap-2 bg-sky-200/80 text-sky-950 border border-sky-400 px-3.5 py-1.5 rounded-full text-xs font-black shadow-2xs">
-              <Crown className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-              <span>منظومة الاشتراكات والترقية - منصة إستابلي</span>
-            </div>
-            <h1 className="text-xl sm:text-2xl lg:text-3xl font-black text-slate-950 leading-snug">
-              باقات الاشتراكات وأكواد نشر الإعلانات
+      {/* Top Header Card: منظومة الاشتراكات والترقية للمنصة */}
+      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-right">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-amber-500/10 text-amber-700 flex items-center justify-center font-bold shrink-0 border border-amber-300 shadow-2xs">
+            <Crown className="w-6 h-6 text-amber-600" />
+          </div>
+          <div>
+            <h1 className="text-lg sm:text-xl font-black text-slate-900 leading-snug">
+              منظومة الاشتراكات والترقية للمنصة
             </h1>
-            <p className="text-xs sm:text-sm text-slate-800 font-bold leading-relaxed">
-              يحق لكل مستخدم مجاني نشر <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">إعلان واحد فقط مجاناً</strong>. يمكنك طلب <strong className="text-slate-950 font-black underline decoration-sky-500 decoration-2 underline-offset-2">كود نشر إضافي (السعر: 20 ريال)</strong> لنشر إعلان إضافي وتفعيله فوراً عبر واتساب الإدارة، أو الترقية إلى <strong className="text-slate-950 font-black underline decoration-amber-600 decoration-2 underline-offset-2">العضوية الذهبية (100 ريال شهرياً)</strong> لإعلانات غير محدودة وشارة توثيق وعد تنازلي.
+            <p className="text-xs text-slate-500 mt-0.5">
+              باقات نشر الإعلانات والعضوية الذهبية مع التفعيل المباشر عبر واتساب الإدارة
             </p>
           </div>
+        </div>
 
-          <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-start xl:justify-end shrink-0 pt-1 xl:pt-0">
-            {/* Glowing Luminous Amber Request Button */}
-            <button
-              onClick={() => setIsRequestCodeOpen(true)}
-              className="bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-black text-xs sm:text-sm px-4 sm:px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-yellow-100 shadow-[0_0_20px_rgba(245,158,11,0.65)] hover:shadow-[0_0_30px_rgba(245,158,11,0.9)] ring-2 ring-amber-400/60 hover:scale-[1.02] active:scale-95 shrink-0 whitespace-nowrap"
-            >
-              <Key className="w-4 h-4 text-slate-950 shrink-0" />
-              <span>طلب كود نشر إضافي (السعر 20 ريال) 📲</span>
-            </button>
-
-            {/* Glowing Luminous Emerald WhatsApp Activation Button */}
-            <a
-              href={`https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(`السلام عليكم ورحمة الله، أرغب في ترقية حسابي إلى العضوية الذهبية (100 ريال شهرياً) في منصة إستابلي (${currentUser?.name || 'مستخدم جديد'})`)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-400 hover:from-emerald-400 hover:to-green-400 text-white font-black text-xs sm:text-sm px-4 sm:px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer flex items-center justify-center gap-2 border-2 border-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.7)] hover:shadow-[0_0_30px_rgba(16,185,129,0.95)] ring-2 ring-emerald-400/60 hover:scale-[1.02] active:scale-95 shrink-0 whitespace-nowrap"
-            >
-              <Crown className="w-4 h-4 text-white shrink-0" />
-              <span>ترقية للعضوية الذهبية (100 ريال شهرياً) 👑</span>
-            </a>
-          </div>
+        {/* Dynamic Admin Phone & WhatsApp Badge that changes with admin input */}
+        <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 px-3.5 py-2 rounded-xl text-xs font-bold text-emerald-950">
+          <MessageCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>واتساب وهاتف الإدارة للتفعيل:</span>
+          <span className="font-mono font-black text-emerald-800 dir-ltr select-all">
+            {adminPhone || adminWhatsApp}
+          </span>
         </div>
       </div>
 
@@ -464,6 +447,12 @@ export default function SubscriptionsSection({
             <p className="text-[11px] sm:text-xs text-slate-600 leading-relaxed font-medium">
               تواصل مباشرة مع إدارة المنصة عبر الواتساب للاعتماد الفوري لأكواد النشر وتفعيل العضوية الذهبية (متاح 24/7)
             </p>
+            <div className="flex items-center gap-2 text-xs font-bold text-emerald-950 pt-1">
+              <span>رقم هاتف وواتساب الإدارة:</span>
+              <span className="font-mono font-black text-emerald-800 bg-white/80 px-2 py-0.5 rounded-lg border border-emerald-200 dir-ltr select-all">
+                {adminPhone || adminWhatsApp}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -474,7 +463,7 @@ export default function SubscriptionsSection({
           className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 via-green-500 to-emerald-400 hover:from-emerald-400 hover:to-green-400 text-white font-black text-xs px-5 py-3.5 rounded-2xl transition-all duration-300 cursor-pointer shadow-[0_0_18px_rgba(16,185,129,0.65)] hover:shadow-[0_0_26px_rgba(16,185,129,0.9)] border border-emerald-200 ring-2 ring-emerald-400/50 flex items-center justify-center gap-2 shrink-0 active:scale-95"
         >
           <MessageCircle className="w-4 h-4" />
-          <span>محادثة الإدارة واتساب</span>
+          <span>محادثة الإدارة واتساب ({adminPhone || adminWhatsApp})</span>
         </a>
       </div>
 

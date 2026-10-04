@@ -300,7 +300,7 @@ export default function App() {
     localStorage.removeItem('horses_forum_session');
   };
 
-  const isAdmin = Boolean(currentUser && currentUser.authProvider !== 'google' && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email) || isSystemAdminEmail(currentUser.nickname)));
+  const isAdmin = Boolean(currentUser && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email) || isSystemAdminEmail(currentUser.nickname)));
 
   return (
     <div className="min-h-screen bg-[#f0f2f5] flex flex-col font-sans selection:bg-gold/30 selection:text-navy" dir="rtl">
