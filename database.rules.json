@@ -1,0 +1,53 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "site_settings": {
+      ".read": true,
+      ".write": true
+    },
+    "horses": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["createdAt", "userId"]
+    },
+    "stables": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["createdAt", "userId"]
+    },
+    "shelters": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["createdAt", "userId"]
+    },
+    "transports": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["createdAt", "userId"]
+    },
+    "users": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["email", "phone"]
+    },
+    "chats": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["createdAt", "receiverId", "senderId"]
+    },
+    "banner": {
+      ".read": true,
+      ".write": true
+    },
+    "deleted_records": {
+      ".read": true,
+      ".write": true
+    },
+    "subscription_codes": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["code", "isUsed", "userId"]
+    }
+  }
+}

@@ -10,7 +10,7 @@ const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebas
 // Helper to check if we can reach the database
 async function checkNetwork(): Promise<boolean> {
   try {
-    const res = await fetch(`${RTDB_BASE_URL}/.json?shallow=true`, {
+    const res = await fetch(`${RTDB_BASE_URL}/site_settings.json?shallow=true`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(3000),
