@@ -11,8 +11,14 @@ import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionSer
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
 import TermsAgreementModal from './TermsAgreementModal';
+import EditTermsAgreementModal from './EditTermsAgreementModal';
 import SubscriptionCodeField from './SubscriptionCodeField';
 import { compressImage } from '../lib/imageUtils';
+import AdVerifiedBadge from './AdVerifiedBadge';
+import AdPermissionNotice from './AdPermissionNotice';
+import AdActionPermissionModal from './AdActionPermissionModal';
+import { hasEditPermission } from '../lib/adPermissions';
+import { useAdminContact } from '../lib/useAdminContact';
 
 interface StablesSectionProps {
   currentUser: User | null;
@@ -29,6 +35,11 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTotalAds, setUserTotalAds] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
+  const { adminWhatsApp } = useAdminContact();
+  const [permissionModalStable, setPermissionModalStable] = useState<{ stable: Stable; action: 'edit' | 'sold' | 'delete' } | null>(null);
+  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [isEditTermsModalOpen, setIsEditTermsModalOpen] = useState(false);
+  const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
   // Subscription code state
   const [subscriptionCode, setSubscriptionCode] = useState('');
@@ -53,8 +64,6 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
-  const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
   const fetchStables = async () => {
     // 1. Load instantly from sanitized cache
@@ -181,8 +190,77 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       return;
     }
 
+    // If editing existing ad and not admin: open Edit Terms Modal
+    if (editingItemId && currentUser?.role !== 'admin') {
+      setIsEditTermsModalOpen(true);
+      return;
+    }
+
     // Open terms modal before publishing
     setIsTermsModalOpen(true);
+  };
+
+  const handleConfirmedEditStable = async () => {
+    if (!currentUser || !editingItemId) return;
+    setIsSubmittingAd(true);
+    setError('');
+
+    const existing = stables.find(s => s.id === editingItemId);
+
+    const stableData: Stable = {
+      id: editingItemId,
+      userId: existing ? existing.userId : currentUser.id,
+      userName: existing ? existing.userName : currentUser.name,
+      name: name.trim(),
+      description: description.trim(),
+      phone: phone.trim(),
+      images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'],
+      verified: existing ? existing.verified : 'pending',
+      horseCount,
+      rating: existing?.rating || 5,
+      reviews: existing?.reviews || [],
+      isEnded: existing?.isEnded || false,
+      endedAt: existing?.endedAt,
+      createdAt: existing?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Keep live stable data intact so the public ad does not change until admin approves!
+    const stableWithPendingEdit: Stable = {
+      ...(existing || stableData),
+      id: editingItemId,
+      isPendingEditApproval: true,
+      pendingEditAt: new Date().toISOString(),
+      pendingEditData: stableData
+    };
+
+    try {
+      await FirebaseService.saveStable(stableWithPendingEdit);
+      setStables((prev) => prev.map((s) => (s.id === editingItemId ? stableWithPendingEdit : s)));
+      setSuccess('تم حفظ التعديلات وإرسالها للمدير بنجاح! لن يتم نشر التعديل إلا بعد موافقة الإدارة.');
+      setIsEditTermsModalOpen(false);
+
+      setName('');
+      setDescription('');
+      setPhone('');
+      setImages([]);
+      setHorseCount(0);
+      setVerified('unverified');
+      setSubscriptionCode('');
+      setIsCodeValid(false);
+      setValidatedCodeObj(null);
+      setEditingItemId(null);
+
+      setTimeout(() => {
+        setIsAddOpen(false);
+        fetchStables();
+        onAdCreated?.();
+      }, 1500);
+    } catch (err) {
+      setError('حدث خطأ أثناء حفظ التعديلات.');
+    } finally {
+      setIsSubmittingAd(false);
+    }
   };
 
   const handleToggleEndedStatus = async (stable: Stable, e?: MouseEvent) => {
@@ -507,17 +585,17 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
         </div>
       )}
 
-      {/* Stables Directory/Listings */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+      {/* Stables Directory/Listings (2 columns on mobile side by side) */}
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-6">
         {filteredStables.length > 0 ? (
           filteredStables.map((stable) => (
             <div
               key={stable.id}
               onClick={() => setSelectedStable(stable)}
-              className="bg-white rounded-2xl overflow-hidden border border-slate-100 hover:shadow-xl transition-all duration-300 flex flex-col cursor-pointer group"
+              className="bg-white rounded-xl sm:rounded-2xl overflow-hidden border border-slate-100 hover:shadow-xl shadow-xs transition-all duration-300 flex flex-col cursor-pointer group"
             >
               {/* Photo */}
-              <div className="h-44 bg-slate-100 relative overflow-hidden">
+              <div className="h-32 sm:h-44 bg-slate-100 relative overflow-hidden">
                 <img
                   src={stable.images?.[0] || 'https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'}
                   referrerPolicy="no-referrer"
@@ -527,70 +605,92 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                 <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent"></div>
                 
                 {/* Stats overlays */}
-                {stable.verified === 'verified' && (
-                  <span className="absolute top-3 right-3 bg-green-500 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-0.5 font-bold">
-                    <Shield className="w-3 h-3" /> موثق
-                  </span>
-                )}
+                <div className="absolute top-2 right-2 sm:top-3 sm:right-3">
+                  <AdVerifiedBadge item={stable} variant="compact" />
+                </div>
                 {stable.isEnded && (
-                  <span className="absolute top-3 left-3 bg-red-600/95 text-white text-[10px] px-2.5 py-0.5 rounded-full flex items-center gap-1 font-black shadow-md border border-white/20">
-                    <CheckCircle2 className="w-3 h-3" /> مكتمل الاستيعاب
+                  <span className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-red-600/95 text-white text-[8px] sm:text-[10px] px-1.5 sm:px-2.5 py-0.5 rounded-full flex items-center gap-1 font-black shadow-md border border-white/20">
+                    <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3" /> مكتمل
                   </span>
                 )}
 
-                <div className="absolute bottom-3 left-3 flex gap-1 items-center bg-black/60 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-white text-[10px]">
-                  <Users className="w-3.5 h-3.5 text-gold" />
+                <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 flex gap-1 items-center bg-black/60 backdrop-blur-xs px-2 sm:px-2.5 py-0.5 rounded-full text-white text-[8px] sm:text-[10px]">
+                  <Users className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-gold" />
                   <span className="font-bold">{stable.horseCount} خيول</span>
                 </div>
               </div>
 
               {/* Text content */}
-              <div className="p-4 flex-1 flex flex-col justify-between space-y-2">
+              <div className="p-2.5 sm:p-4 flex-1 flex flex-col justify-between space-y-1.5 sm:space-y-2">
                 <div>
-                  <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-navy group-hover:text-gold transition text-xs leading-tight line-clamp-1">{stable.name}</h4>
-                    <div className="flex items-center gap-0.5 text-amber-500 shrink-0 text-[10px]">
-                      <Star className="w-3.5 h-3.5 fill-current" />
+                  <div className="flex justify-between items-start gap-1">
+                    <h4 className="font-bold text-navy group-hover:text-gold transition text-xs sm:text-sm leading-tight line-clamp-1">{stable.name}</h4>
+                    <div className="flex items-center gap-0.5 text-amber-500 shrink-0 text-[8px] sm:text-[10px]">
+                      <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
                       <span className="font-bold text-slate-700">{stable.rating || 5}</span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">{stable.description}</p>
+                  <p className="text-[9px] sm:text-[10px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">{stable.description}</p>
                 </div>
 
-                <div className="flex justify-between items-center pt-2 border-t border-slate-50 text-[10px] text-slate-400">
-                  <span>بواسطة: {stable.userName}</span>
-                  <span className="font-bold text-navy-medium flex items-center gap-0.5">
-                    <Phone className="w-3 h-3" /> {stable.phone}
+                <div className="flex justify-between items-center pt-1.5 sm:pt-2 border-t border-slate-50 text-[8px] sm:text-[10px] text-slate-400">
+                  <span className="truncate">بواسطة: {stable.userName}</span>
+                  <span className="font-bold text-navy-medium flex items-center gap-0.5 truncate">
+                    <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" /> {stable.phone}
                   </span>
                 </div>
 
                 {/* Edit & Delete & Toggle Status Actions for owner/admin */}
                 {(currentUser?.role === 'admin' || currentUser?.id === stable.userId) && (
-                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-50 justify-end" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => handleToggleEndedStatus(stable, e)}
-                      className={`px-2 py-1 text-[10px] font-bold rounded-lg flex items-center gap-1 transition cursor-pointer ${
-                        stable.isEnded
-                          ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
-                          : 'text-amber-700 bg-amber-50 hover:bg-amber-100'
-                      }`}
-                      title={stable.isEnded ? 'إعادة فتح واستقبال الخيول' : 'تمييز الإسطبل كـ مكتمل / غير متاح'}
-                    >
-                      {stable.isEnded ? <RotateCcw className="w-3 h-3" /> : <Tag className="w-3 h-3" />}
-                      <span>{stable.isEnded ? 'إعادة فتح' : 'تمييز كمكتمل'}</span>
-                    </button>
-                    <button
-                      onClick={() => handleEditClick(stable)}
-                      className="px-2 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Edit2 className="w-3 h-3" /> تعديل
-                    </button>
-                    <button
-                      onClick={() => handleDeleteClick(stable.id)}
-                      className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-1 transition cursor-pointer"
-                    >
-                      <Trash2 className="w-3 h-3" /> حذف
-                    </button>
+                  <div className="space-y-1.5 pt-1.5 sm:pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    <AdPermissionNotice ad={stable} category="stable" currentUser={currentUser} compact />
+
+                    <div className="grid grid-cols-3 gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (currentUser?.role !== 'admin' && !hasEditPermission(stable, currentUser)) {
+                            setPermissionModalStable({ stable, action: 'sold' });
+                            return;
+                          }
+                          handleToggleEndedStatus(stable, e);
+                        }}
+                        className={`py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer border active:scale-95 ${
+                          stable.isEnded
+                            ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                            : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
+                        }`}
+                        title={stable.isEnded ? 'إعادة فتح واستقبال الخيول' : 'تمييز الإسطبل كـ مكتمل / غير متاح (يتطلب موافقة 12 ساعة)'}
+                      >
+                        {stable.isEnded ? <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" /> : <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />}
+                        <span className="truncate">{stable.isEnded ? 'إتاحة' : 'كمكتمل'}</span>
+                      </button>
+                      {/* Edit Button - Allowed for owner or admin */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditClick(stable);
+                        }}
+                        className="py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer active:scale-95"
+                        title="تعديل بيانات وصور الإعلان"
+                      >
+                        <Edit2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" /> <span className="truncate">تعديل</span>
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (currentUser?.role !== 'admin' && !hasEditPermission(stable, currentUser)) {
+                            setPermissionModalStable({ stable, action: 'delete' });
+                            return;
+                          }
+                          handleDeleteClick(stable.id);
+                        }}
+                        className="py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer active:scale-95"
+                        title="حذف الإعلان (يتطلب موافقة 12 ساعة)"
+                      >
+                        <Trash2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" /> <span className="truncate">حذف</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -631,6 +731,33 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
         categoryName="إعلان الإسطبل"
         isSubmitting={isSubmittingAd}
       />
+
+      {/* Edit Terms & Conditions Agreement Modal */}
+      {isEditTermsModalOpen && (
+        <EditTermsAgreementModal
+          isOpen={isEditTermsModalOpen}
+          onClose={() => setIsEditTermsModalOpen(false)}
+          onConfirm={handleConfirmedEditStable}
+          adTitle={name}
+          adCategoryName="الإسطبلات"
+          adId={editingItemId || undefined}
+          userName={currentUser?.name}
+          userPhone={currentUser?.phone || phone}
+          isSubmitting={isSubmittingAd}
+        />
+      )}
+
+      {/* 12-Hour Permission Request Modal */}
+      {permissionModalStable && (
+        <AdActionPermissionModal
+          isOpen={!!permissionModalStable}
+          onClose={() => setPermissionModalStable(null)}
+          ad={permissionModalStable.stable}
+          category="stable"
+          action={permissionModalStable.action}
+          adminWhatsApp={adminWhatsApp}
+        />
+      )}
 
     </div>
   );

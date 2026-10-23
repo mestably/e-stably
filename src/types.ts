@@ -62,12 +62,20 @@ export interface Stable {
   phone: string;
   images: string[]; // Base64 or URLs
   verified: 'verified' | 'pending' | 'unverified';
+  isVerified?: boolean; // هل الإعلان موثق رسمياً من الإدارة
+  verifiedAt?: string; // تاريخ التوثيق
+  editPermissionExpiresAt?: string; // تاريخ ووقت انتهاء صلاحية التعديل والحذف (12 ساعة)
   horseCount: number;
   rating: number;
   reviews?: Review[];
   isEnded?: boolean; // هل تم تمييز الإعلان كمنتهي / غير متاح / مكتمل الاستيعاب
   endedAt?: string;
+  isPendingEditApproval?: boolean; // هل الإعلان في انتظار موافقة الإدارة على التعديلات
+  pendingEditAt?: string; // تاريخ ووقت تقديم التعديلات
+  pendingEditNotes?: string; // ملاحظات أو ملخص التعديلات
+  pendingEditData?: any; // البيانات والتعديلات المقترحة المحفوظة لحين موافقة الإدارة
   createdAt: string;
+  updatedAt?: string; // تاريخ آخر تعديل
 }
 
 export interface Horse {
@@ -81,6 +89,8 @@ export interface Horse {
   certificate: string; // certificate photo URL or Base64
   breed: 'arabian' | 'shabi' | 'sisi'; // عربي, شعبي, سيسي
   age: number;
+  ageYears?: number; // العمر بالسنوات
+  ageMonths?: number; // العمر بالشهور (0-11)
   gender: 'stallion' | 'mare' | 'gelding'; // ذكر, أنثى, مخصى
   color: string;
   height?: string; // طول / ارتفاع الخيل (مثال: 152 سم)
@@ -95,9 +105,17 @@ export interface Horse {
   rentEnd?: string;
   isSold?: boolean; // هل تم البيع
   soldAt?: string; // تاريخ البيع
+  isVerified?: boolean; // هل الإعلان موثق رسمياً من الإدارة
+  verifiedAt?: string; // تاريخ التوثيق
+  editPermissionExpiresAt?: string; // تاريخ ووقت انتهاء صلاحية التعديل والحذف (12 ساعة)
   rating?: number;
   reviews?: Review[];
+  isPendingEditApproval?: boolean; // هل الإعلان في انتظار موافقة الإدارة على التعديلات
+  pendingEditAt?: string; // تاريخ ووقت تقديم التعديلات
+  pendingEditNotes?: string; // ملاحظات أو ملخص التعديلات
+  pendingEditData?: any; // البيانات والتعديلات المقترحة المحفوظة لحين موافقة الإدارة
   createdAt: string;
+  updatedAt?: string; // تاريخ آخر تعديل
 }
 
 export interface Shelter {
@@ -119,7 +137,15 @@ export interface Shelter {
   reviews?: Review[];
   isEnded?: boolean; // هل تم تمييز الإعلان كمنتهي / محجوز بالكامل / مكتمل
   endedAt?: string;
+  isVerified?: boolean; // هل الإعلان موثق رسمياً من الإدارة
+  verifiedAt?: string; // تاريخ التوثيق
+  editPermissionExpiresAt?: string; // تاريخ ووقت انتهاء صلاحية التعديل والحذف (12 ساعة)
+  isPendingEditApproval?: boolean; // هل الإعلان في انتظار موافقة الإدارة على التعديلات
+  pendingEditAt?: string; // تاريخ ووقت تقديم التعديلات
+  pendingEditNotes?: string; // ملاحظات أو ملخص التعديلات
+  pendingEditData?: any; // البيانات والتعديلات المقترحة المحفوظة لحين موافقة الإدارة
   createdAt: string;
+  updatedAt?: string; // تاريخ آخر تعديل
 }
 
 export interface Transport {
@@ -140,7 +166,15 @@ export interface Transport {
   description?: string;
   isEnded?: boolean; // هل تم تمييز الرحلة كمنتهية / تم النقل / مكتملة
   endedAt?: string;
+  isVerified?: boolean; // هل الإعلان موثق رسمياً من الإدارة
+  verifiedAt?: string; // تاريخ التوثيق
+  editPermissionExpiresAt?: string; // تاريخ ووقت انتهاء صلاحية التعديل والحذف (12 ساعة)
+  isPendingEditApproval?: boolean; // هل الإعلان في انتظار موافقة الإدارة على التعديلات
+  pendingEditAt?: string; // تاريخ ووقت تقديم التعديلات
+  pendingEditNotes?: string; // ملاحظات أو ملخص التعديلات
+  pendingEditData?: any; // البيانات والتعديلات المقترحة المحفوظة لحين موافقة الإدارة
   createdAt: string;
+  updatedAt?: string; // تاريخ آخر تعديل
 }
 
 export interface ChatMessage {
@@ -177,3 +211,71 @@ export interface SiteSettings {
   adminPhone?: string; // e.g. '0559595055'
   adminWhatsApp?: string; // e.g. '966559595055'
 }
+
+export interface ArchivedDeletedAd {
+  id: string;
+  originalId: string;
+  category: 'horse' | 'stable' | 'shelter' | 'transport';
+  userId: string;
+  userName?: string;
+  title: string;
+  images?: string[];
+  price?: number;
+  createdAt: string;
+  deletedAt: string;
+  reason?: string;
+  data: any;
+}
+
+export interface BankReceipt {
+  id: string;
+  userId: string;
+  userName: string;
+  userPhone?: string;
+  userEmail?: string;
+  bankName: string; // 'حساب بنك فيصل الإسلامي' | 'حساب البنك السعودي'
+  accountNumber: string; // '8542412232100' | '21546522122'
+  images: string[]; // Base64 or URLs (صورة إيداع الحساب - يمكن عدد من الصور)
+  purpose: string; // الغرض من التحويل / دفع الحساب
+  amount?: number; // المبلغ المحول بالريال
+  transferDate?: string; // تاريخ التحويل
+  notes?: string; // تفاصيل أو ملاحظات إضافية
+  status: 'pending' | 'approved' | 'rejected'; // حالة المراجعة من الإدارة
+  createdAt: string; // تاريخ ووقت رفع الإيصال
+  reviewedAt?: string; // تاريخ مراجعة الإدارة
+  adminNotes?: string; // ملاحظة الإدارة عند المراجعة
+}
+
+export interface PlatformBankAccount {
+  id: string;
+  bankName: string;
+  accountNumber: string;
+  iban?: string;
+  accountHolder: string;
+  currency: string;
+  colorScheme: 'emerald' | 'amber';
+  badge: string;
+}
+
+export const PLATFORM_BANK_ACCOUNTS: PlatformBankAccount[] = [
+  {
+    id: 'faisal_islamic_bank',
+    bankName: 'حساب بنك فيصل الإسلامي',
+    accountNumber: '8542412232100',
+    iban: 'EG8542412232100',
+    accountHolder: 'منصة إستابلي لخدمات الخيل',
+    currency: 'ريال / جنيه',
+    colorScheme: 'emerald',
+    badge: 'حساب معتمد ورسمي'
+  },
+  {
+    id: 'saudi_bank',
+    bankName: 'حساب البنك السعودي',
+    accountNumber: '21546522122',
+    iban: 'SA21546522122',
+    accountHolder: 'منصة إستابلي لخدمات الخيل',
+    currency: 'ريال سعودي (SAR)',
+    colorScheme: 'amber',
+    badge: 'حساب معتمد ورسمي'
+  }
+];

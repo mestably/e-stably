@@ -192,6 +192,22 @@ export const SubscriptionService = {
   },
 
   /**
+   * Fetches all subscription codes associated with a specific user (requested, active, or used).
+   */
+  async getUserCodes(userId: string, email?: string, phone?: string): Promise<SubscriptionCode[]> {
+    const all = await this.getAllCodes();
+    const cleanPhone = phone ? phone.replace(/[^0-9]/g, '') : '';
+    const cleanEmail = email ? email.toLowerCase().trim() : '';
+
+    return all.filter(c => {
+      if (c.userId && c.userId === userId) return true;
+      if (cleanEmail && c.userEmail && c.userEmail.toLowerCase().trim() === cleanEmail) return true;
+      if (cleanPhone && c.userPhone && c.userPhone.replace(/[^0-9]/g, '') === cleanPhone) return true;
+      return false;
+    });
+  },
+
+  /**
    * Saves or updates a subscription code in cloud and local cache
    */
   async saveCode(codeObj: SubscriptionCode): Promise<boolean> {

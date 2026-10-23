@@ -17,22 +17,127 @@ const PORT = 3000;
 
 app.use(express.json());
 
-// In-memory OTP store: email -> { code, expiresAt }
+function normalizePhone(rawPhone?: string): string {
+  if (!rawPhone) return '';
+  let cleaned = String(rawPhone).replace(/[^\d+]/g, '');
+  if (cleaned.startsWith('+')) cleaned = cleaned.slice(1);
+  if (cleaned.startsWith('00')) cleaned = cleaned.slice(2);
+
+  // Saudi Arabia prefix: 05xxxxxxxx -> 9665xxxxxxxx, or 5xxxxxxxx -> 9665xxxxxxxx
+  if (/^05\d{8}$/.test(cleaned)) {
+    cleaned = '966' + cleaned.slice(1);
+  } else if (/^5\d{8}$/.test(cleaned)) {
+    cleaned = '966' + cleaned;
+  }
+  // Egypt prefix: 010..., 011..., 012..., 015... (11 digits: 01xxxxxxxxx) -> 201xxxxxxxxx
+  else if (/^01[0125]\d{8}$/.test(cleaned)) {
+    cleaned = '20' + cleaned.slice(1);
+  } else if (/^1[0125]\d{8}$/.test(cleaned)) {
+    cleaned = '20' + cleaned;
+  }
+  // UAE prefix: 050..., 052..., 054..., 055..., 056..., 058... -> 9715xxxxxxxx
+  else if (/^05[024568]\d{7}$/.test(cleaned)) {
+    cleaned = '971' + cleaned.slice(1);
+  }
+  // Kuwait: 8 digits starting with 5, 6, 9 -> 965xxxxxxxx
+  else if (/^[569]\d{7}$/.test(cleaned)) {
+    cleaned = '965' + cleaned;
+  }
+  // Qatar: 8 digits starting with 3, 5, 6, 7 -> 974xxxxxxxx
+  else if (/^[3567]\d{7}$/.test(cleaned)) {
+    cleaned = '974' + cleaned;
+  }
+  // Bahrain: 8 digits -> 973xxxxxxxx
+  else if (/^[369]\d{7}$/.test(cleaned)) {
+    cleaned = '973' + cleaned;
+  }
+  // Jordan: 07[789]xxxxxxx -> 9627xxxxxxxx
+  else if (/^07[789]\d{7}$/.test(cleaned)) {
+    cleaned = '962' + cleaned.slice(1);
+  } else if (cleaned.startsWith('0') && cleaned.length >= 9) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com', '10minutemail.com', 'tempmail.com', 'temp-mail.org', 'temp-mail.io',
+  'guerrillamail.com', 'yopmail.com', 'sharklasers.com', 'trashmail.com', 'getnada.com',
+  'dispostable.com', 'maildrop.cc', 'fakeinbox.com', 'mytemp.email', 'inboxkitten.com',
+  'mohmal.com', 'throwawaymail.com', 'emailondeck.com', 'burnermail.io', 'generator.email',
+  'crazymailing.com', 'dropmail.me', 'getairmail.com', 'nada.ltd', 'minuteinbox.com',
+  'test.com', 'example.com', 'fake.com', 'asdf.com', 'none.com', 'noemail.com',
+  'sample.com', 'domain.com', 'foo.com', 'bar.com', 'invalid.com', 'temporary.com',
+  'mailcatch.com', 'mytempemail.com', 'throwaway.com'
+]);
+
+function validateRealEmail(rawEmail?: string): { isValid: boolean; error?: string } {
+  if (!rawEmail || !rawEmail.trim()) {
+    return { isValid: false, error: 'يرجى إدخال البريد الإلكتروني.' };
+  }
+  const email = rawEmail.trim().toLowerCase();
+
+  if (/[\s\u0600-\u06FF]/.test(email)) {
+    return { isValid: false, error: 'يجب أن يُكتب البريد الإلكتروني بحروف إنجليزية وبدون أي مسافات.' };
+  }
+
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(email)) {
+    return { isValid: false, error: 'صيغة البريد الإلكتروني غير صحيحة (مثال: name@gmail.com).' };
+  }
+
+  const parts = email.split('@');
+  if (parts.length !== 2) {
+    return { isValid: false, error: 'البريد الإلكتروني يجب أن يحتوي على علامة @ واحدة فقط.' };
+  }
+
+  const [username, domain] = parts;
+  if (username.length < 2) {
+    return { isValid: false, error: 'اسم المستخدم في البريد الإلكتروني قصير جداً (حرفان على الأقل قبل @).' };
+  }
+
+  const dummyUsernames = ['test', 'asdf', 'fake', 'none', 'dummy', 'temp', '123', '12345', 'aaa', 'abc', 'xyz', 'noemail'];
+  if (dummyUsernames.includes(username)) {
+    return { isValid: false, error: 'يرجى إدخال بريد إلكتروني حقيقي وشخصي وليس اسماً وهمياً أو تجريبياً.' };
+  }
+
+  const domainParts = domain.split('.');
+  if (domainParts.length < 2) {
+    return { isValid: false, error: 'نطاق البريد الإلكتروني غير مكتمل (يجب أن يحتوي على نقطة مثل .com).' };
+  }
+
+  const tld = domainParts[domainParts.length - 1];
+  if (tld.length < 2 || !/^[a-zA-Z]+$/.test(tld)) {
+    return { isValid: false, error: 'امتداد نطاق البريد غير صالح (يجب أن ينتهي بـ .com أو .net أو كود دولة).' };
+  }
+
+  if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+    return { isValid: false, error: 'نطاق البريد المدخل يعتبر بريداً مؤقتاً أو وهمياً. يرجى إدخال بريدك الحقيقي الدائم (مثل Gmail أو Outlook أو Yahoo).' };
+  }
+
+  if (username === domainParts[0]) {
+    return { isValid: false, error: 'البريد الإلكتروني يبدو وهمياً. يرجى كتابة بريدك الإلكتروني الحقيقي.' };
+  }
+
+  return { isValid: true };
+}
+
+// In-memory OTP store: email or phone -> { code, expiresAt }
 const otpStore: Record<string, { code: string; expiresAt: number }> = {};
 
-function generateOtpToken(email: string, code: string, expiresAt: number): string {
-  const payload = `${email}:${code}:${expiresAt}:estably_secret_2026`;
+function generateOtpToken(identifier: string, code: string, expiresAt: number): string {
+  const payload = `${identifier}:${code}:${expiresAt}:estably_secret_2026`;
   return Buffer.from(payload).toString('base64');
 }
 
-function verifyOtpToken(email: string, code: string, token: string): boolean {
+function verifyOtpToken(identifier: string, code: string, token: string): boolean {
   try {
     const decoded = Buffer.from(token, 'base64').toString('utf8');
     const parts = decoded.split(':');
     if (parts.length !== 4) return false;
-    const [tokenEmail, tokenCode, tokenExpiresAtStr, secret] = parts;
+    const [tokenIdent, tokenCode, tokenExpiresAtStr, secret] = parts;
     if (secret !== 'estably_secret_2026') return false;
-    if (tokenEmail !== email) return false;
+    if (tokenIdent !== identifier) return false;
     if (tokenCode !== code) return false;
     if (Date.now() > Number(tokenExpiresAtStr)) return false;
     return true;
@@ -41,20 +146,147 @@ function verifyOtpToken(email: string, code: string, token: string): boolean {
   }
 }
 
+async function sendAutomatedWhatsAppMessage(phone: string, message: string): Promise<{ sent: boolean; provider?: string; error?: string }> {
+  // 1. UltraMsg (UltraMsg REST API for automated WhatsApp messages)
+  const ultramsgInstance = process.env.ULTRAMSG_INSTANCE_ID;
+  const ultramsgToken = process.env.ULTRAMSG_TOKEN;
+  if (ultramsgInstance && ultramsgToken) {
+    try {
+      const res = await fetch(`https://api.ultramsg.com/${ultramsgInstance}/messages/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: ultramsgToken,
+          to: phone,
+          body: message
+        })
+      });
+      const data = await res.json() as any;
+      if (data?.sent === 'true' || data?.id) {
+        return { sent: true, provider: 'بوابة UltraMsg الرسمية للواتساب' };
+      }
+    } catch (e: any) {
+      console.error('[UltraMsg Error]', e?.message);
+    }
+  }
+
+  // 2. Twilio WhatsApp API
+  const twilioSid = process.env.TWILIO_ACCOUNT_SID;
+  const twilioToken = process.env.TWILIO_AUTH_TOKEN;
+  const twilioFrom = process.env.TWILIO_WHATSAPP_NUMBER || 'whatsapp:+14155238886';
+  if (twilioSid && twilioToken) {
+    try {
+      const auth = Buffer.from(`${twilioSid}:${twilioToken}`).toString('base64');
+      const params = new URLSearchParams();
+      params.append('From', twilioFrom.startsWith('whatsapp:') ? twilioFrom : `whatsapp:${twilioFrom}`);
+      params.append('To', `whatsapp:+${phone.replace(/^\+/, '')}`);
+      params.append('Body', message);
+
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: params.toString()
+      });
+      const data = await res.json() as any;
+      if (data?.sid) {
+        return { sent: true, provider: 'بوابة Twilio WhatsApp API' };
+      }
+    } catch (e: any) {
+      console.error('[Twilio Error]', e?.message);
+    }
+  }
+
+  // 3. Meta / Facebook WhatsApp Cloud API
+  const metaToken = process.env.META_WHATSAPP_TOKEN;
+  const metaPhoneId = process.env.META_WHATSAPP_PHONE_ID;
+  if (metaToken && metaPhoneId) {
+    try {
+      const res = await fetch(`https://graph.facebook.com/v19.0/${metaPhoneId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${metaToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          messaging_product: 'whatsapp',
+          to: phone.replace(/^\+/, ''),
+          type: 'text',
+          text: { body: message }
+        })
+      });
+      const data = await res.json() as any;
+      if (data?.messages?.[0]?.id) {
+        return { sent: true, provider: 'بوابة Meta WhatsApp Cloud API' };
+      }
+    } catch (e: any) {
+      console.error('[Meta Cloud API Error]', e?.message);
+    }
+  }
+
+  return { sent: false };
+}
+
 // API Endpoint handler functions
 async function handleSendOtp(req: express.Request, res: express.Response) {
   try {
-    const email = req.body?.email || req.query?.email;
-    if (!email || typeof email !== 'string') {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني مطلوب' });
+    const { email, phone, method = 'email' } = req.body || req.query || {};
+    if (!email && !phone) {
+      return res.status(400).json({ success: false, error: 'البريد الإلكتروني أو رقم الهاتف مطلوب' });
     }
 
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    if (cleanEmail) {
+      const emailCheck = validateRealEmail(cleanEmail);
+      if (!emailCheck.isValid) {
+        return res.status(400).json({ success: false, error: emailCheck.error || 'البريد الإلكتروني المدخل غير صالح أو غير حقيقي.' });
+      }
+    }
+    const cleanPhone = normalizePhone(phone);
+    const isWhatsApp = method === 'whatsapp' || (!cleanEmail && Boolean(cleanPhone));
+
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
 
-    otpStore[cleanEmail] = { code, expiresAt };
-    const otpToken = generateOtpToken(cleanEmail, code, expiresAt);
+    if (cleanEmail) {
+      otpStore[cleanEmail] = { code, expiresAt };
+    }
+    if (cleanPhone) {
+      otpStore[cleanPhone] = { code, expiresAt };
+    }
+
+    const tokenTarget = isWhatsApp && cleanPhone ? cleanPhone : cleanEmail;
+    const otpToken = generateOtpToken(tokenTarget, code, expiresAt);
+
+    if (isWhatsApp && cleanPhone) {
+      const whatsappMsg = `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز تفعيل حسابك (OTP) هو: *${code}*\n\nالرمز صالح لمدة 10 دقائق لتأكيد رقم هاتفك وتفعيل اشتراكك في المنصة.`;
+      const encodedMsg = encodeURIComponent(whatsappMsg);
+      const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMsg}`;
+      const whatsappWebUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMsg}`;
+
+      // Attempt automated backend sending if provider configured
+      const autoResult = await sendAutomatedWhatsAppMessage(cleanPhone, whatsappMsg);
+
+      console.log(`[WhatsApp OTP] Code ${code} prepared for phone: ${cleanPhone}. Automated sent: ${autoResult.sent}`);
+
+      return res.json({
+        success: true,
+        method: 'whatsapp',
+        email: cleanEmail,
+        phone: cleanPhone,
+        code,
+        fallbackCode: code,
+        whatsappUrl,
+        whatsappWebUrl,
+        whatsappMessage: whatsappMsg,
+        sentViaRealApi: autoResult.sent,
+        automatedDispatch: autoResult.sent,
+        apiDeliveryMethod: autoResult.sent ? (autoResult.provider || 'بوابة الواتساب التلقائية') : 'رابط محادثة الواتساب المباشر (WhatsApp Direct)',
+        otpToken
+      });
+    }
 
     let sentViaRealApi = false;
     let apiDeliveryMethod = '';
@@ -271,28 +503,32 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
 
 function handleVerifyOtp(req: express.Request, res: express.Response) {
   try {
-    const { email, code, otpToken } = req.body || req.query || {};
-    if (!email || !code) {
-      return res.status(400).json({ success: false, error: 'البريد الإلكتروني وكود التفعيل مطلوبان' });
+    const { email, phone, code, otpToken } = req.body || req.query || {};
+    if ((!email && !phone) || !code) {
+      return res.status(400).json({ success: false, error: 'البريد الإلكتروني أو رقم الهاتف مع كود التفعيل مطلوبان' });
     }
 
-    const cleanEmail = String(email).trim().toLowerCase();
+    const cleanEmail = String(email || '').trim().toLowerCase();
+    const cleanPhone = normalizePhone(phone);
     const cleanCode = String(code).trim();
 
     let isVerified = false;
 
-    // 1. Check in-memory store
-    const stored = otpStore[cleanEmail];
+    // 1. Check in-memory store by email or phone
+    const stored = (cleanPhone && otpStore[cleanPhone]) || (cleanEmail && otpStore[cleanEmail]);
     if (stored) {
       if (Date.now() <= stored.expiresAt && stored.code === cleanCode) {
         isVerified = true;
-        delete otpStore[cleanEmail];
+        if (cleanEmail) delete otpStore[cleanEmail];
+        if (cleanPhone) delete otpStore[cleanPhone];
       }
     }
 
-    // 2. Check stateless token if in-memory store missing (e.g. Vercel serverless instance recycled)
+    // 2. Check stateless token if in-memory store missing (e.g. serverless instance recycled)
     if (!isVerified && otpToken && typeof otpToken === 'string') {
-      if (verifyOtpToken(cleanEmail, cleanCode, otpToken)) {
+      if (cleanEmail && verifyOtpToken(cleanEmail, cleanCode, otpToken)) {
+        isVerified = true;
+      } else if (cleanPhone && verifyOtpToken(cleanPhone, cleanCode, otpToken)) {
         isVerified = true;
       }
     }
@@ -301,7 +537,7 @@ function handleVerifyOtp(req: express.Request, res: express.Response) {
       return res.status(400).json({ success: false, error: 'كود التفعيل غير صحيح أو انتهت صلاحيته.' });
     }
 
-    return res.json({ success: true, email: cleanEmail });
+    return res.json({ success: true, email: cleanEmail, phone: cleanPhone });
   } catch (err: any) {
     console.error('Unhandled error in verify-otp:', err);
     return res.status(500).json({ success: false, error: 'حدث خطأ أثناء التأكد من كود التفعيل.' });

@@ -22,7 +22,8 @@ import {
   Key,
   MessageCircle,
   ArrowRight,
-  Clock
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
@@ -37,6 +38,7 @@ interface UserProfileModalProps {
   onClose: () => void;
   onUpdateUser: (updatedUser: User) => void;
   onOpenSubscriptions?: () => void;
+  onNavigateToUserDashboard?: () => void;
 }
 
 export default function UserProfileModal({
@@ -44,7 +46,8 @@ export default function UserProfileModal({
   currentUser,
   onClose,
   onUpdateUser,
-  onOpenSubscriptions
+  onOpenSubscriptions,
+  onNavigateToUserDashboard
 }: UserProfileModalProps) {
   const [name, setName] = useState(currentUser.name || '');
   const [email, setEmail] = useState(currentUser.email || '');
@@ -120,6 +123,24 @@ export default function UserProfileModal({
     if (!name.trim() || !email.trim() || !phone.trim()) {
       setError('يرجى ملء الاسم، البريد الإلكتروني، ورقم الهاتف.');
       return;
+    }
+
+    const trimmedName = name.trim();
+    const nameParts = trimmedName.split(/\s+/).filter(Boolean);
+    if (trimmedName.length < 10 || nameParts.length < 2) {
+      setError('يجب ألا يقل الاسم بالكامل عن 10 أحرف ويتضمن مسافة بحيث يحتوي على اسم الأب والجد.');
+      return;
+    }
+
+    if (newPassword) {
+      const hasMinLength = newPassword.length >= 8;
+      const hasNumbers = /[0-9]/.test(newPassword);
+      const hasUpper = /[A-Z]/.test(newPassword);
+      const hasSymbol = /[^a-zA-Z0-9\u0600-\u06FF\s]/.test(newPassword);
+      if (!hasMinLength || !hasNumbers || !hasUpper || !hasSymbol) {
+        setError('يجب أن تتكون كلمة السر من 8 خانات على الأقل (حروف وأرقام)، وتتضمن حرفاً كبيراً (Capital A-Z) ورمزاً خاصاً.');
+        return;
+      }
     }
 
     setIsSaving(true);
@@ -221,18 +242,21 @@ export default function UserProfileModal({
             
             {/* Full Name */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">الاسم الكامل (الثلاثي أو الرباعي)</label>
               <div className="relative">
                 <UserIcon className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="مثال: أحمد العتيبي"
+                  placeholder="مثال: محمد عبدالله الحربي"
                   required
                   className="w-full text-xs pl-3 pr-9 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
                 />
               </div>
+              <p className="text-[10px] text-slate-500 mt-1 leading-tight">
+                <span className="font-bold text-navy">تنويه:</span> لا يقل عن 10 أحرف ويتضمن مسافة ليشمل اسم الأب والجد.
+              </p>
             </div>
 
             {/* Email */}
@@ -310,6 +334,9 @@ export default function UserProfileModal({
                   className="w-full text-xs pl-3 pr-9 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
                 />
               </div>
+              <p className="text-[10px] text-slate-500 mt-1 leading-tight">
+                <span className="font-bold text-amber-700">تنويه:</span> 8 خانات (حروف وأرقام)، مع حرف كبير (A-Z) ورمز خاص.
+              </p>
             </div>
 
           </div>
@@ -431,6 +458,29 @@ export default function UserProfileModal({
               {/* Action Buttons: Go to Subscriptions Page & Request Dynamic Code */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                 
+                {/* User Dashboard & Ads Management Shortcut */}
+                {onNavigateToUserDashboard && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onNavigateToUserDashboard();
+                    }}
+                    className="col-span-1 sm:col-span-2 p-3.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white flex items-center justify-between transition cursor-pointer shadow-xs text-right group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center text-white shrink-0">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-black block text-white">صفحة المستخدم (إدارة إعلاناتي واشتراكاتي)</span>
+                        <span className="text-[10px] text-emerald-100 block">مشاهدة جميع إعلاناتك وتواريخ نشرها وتعديلها أو حذفها</span>
+                      </div>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-white transform rotate-180 shrink-0" />
+                  </button>
+                )}
+
                 {/* Button 1: Go to Subscriptions Page */}
                 {onOpenSubscriptions && (
                   <button
@@ -500,14 +550,15 @@ export default function UserProfileModal({
             </div>
           )}
 
-          {/* Badges / Account Status Info */}
-          <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between text-[11px] text-slate-600">
+          {/* Badges / Account Status Info with eye-friendly comfortable contrast */}
+          <div className="bg-amber-50/70 p-3.5 rounded-2xl border border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs text-slate-700 shadow-2xs">
             <div className="flex items-center gap-2">
-              <Shield className="w-4 h-4 text-navy" />
-              <span>نوع الحساب: <strong className="text-navy">{currentUser.role === 'admin' ? 'مدير نظام 🛡️' : currentUser.isGold ? 'عضوية ذهبية 👑 (إعلانات غير محدودة)' : currentUser.isSubscribed ? 'مشترك باقة' : 'عضو عادي (إعلان 1 فقط)'}</strong></span>
+              <Shield className="w-4 h-4 text-navy shrink-0" />
+              <span>نوع الحساب: <strong className="text-navy font-black">{currentUser.role === 'admin' ? 'مدير نظام 🛡️' : currentUser.isGold ? 'عضوية ذهبية 👑 (إعلانات غير محدودة)' : currentUser.isSubscribed ? 'مشترك باقة' : 'عضو عادي (إعلان 1 فقط)'}</strong></span>
             </div>
-            <div>
-              تاريخ الانضمام: {new Date(currentUser.createdAt).toLocaleDateString('ar-SA')}
+            <div className="inline-flex items-center gap-1.5 text-slate-800 font-bold bg-white/90 px-3 py-1 rounded-xl border border-amber-300/80 shadow-2xs self-start sm:self-auto">
+              <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>تاريخ الانضمام: <strong className="text-slate-900 font-black">{new Date(currentUser.createdAt).toLocaleDateString('ar-SA')}</strong></span>
             </div>
           </div>
 

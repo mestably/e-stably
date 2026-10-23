@@ -11,8 +11,15 @@ import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionSer
 import DetailModal from './DetailModal';
 import ConfirmModal from './ConfirmModal';
 import TermsAgreementModal from './TermsAgreementModal';
+import EditTermsAgreementModal from './EditTermsAgreementModal';
 import SubscriptionCodeField from './SubscriptionCodeField';
 import { compressImage } from '../lib/imageUtils';
+import AdVerifiedBadge from './AdVerifiedBadge';
+import AdPermissionNotice from './AdPermissionNotice';
+import AdActionPermissionModal from './AdActionPermissionModal';
+import { hasEditPermission } from '../lib/adPermissions';
+import { useAdminContact } from '../lib/useAdminContact';
+import { formatHorseAge } from '../lib/horseUtils';
 
 const SALE_HEALTH_CONDITIONS = [
   'سليم خالي من العيوب',
@@ -63,6 +70,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [selectedHorse, setSelectedHorse] = useState<Horse | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTotalAds, setUserTotalAds] = useState(0);
+  const { adminWhatsApp } = useAdminContact();
+  const [permissionModalHorse, setPermissionModalHorse] = useState<{ horse: Horse; action: 'edit' | 'sold' | 'delete' } | null>(null);
 
   // Subscription code state for posting additional ads
   const [subscriptionCode, setSubscriptionCode] = useState('');
@@ -86,6 +95,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [certificate, setCertificate] = useState('');
   const [breed, setBreed] = useState<'arabian' | 'shabi' | 'sisi'>('arabian');
   const [age, setAge] = useState(1);
+  const [ageYears, setAgeYears] = useState(1);
+  const [ageMonths, setAgeMonths] = useState(0);
   const [gender, setGender] = useState<'stallion' | 'mare' | 'gelding'>('stallion');
   const [color, setColor] = useState('');
   const [height, setHeight] = useState('');
@@ -105,6 +116,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [success, setSuccess] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
+  const [isEditTermsModalOpen, setIsEditTermsModalOpen] = useState(false);
   const [isSubmittingAd, setIsSubmittingAd] = useState(false);
 
   const fetchData = async () => {
@@ -154,6 +166,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setCertificate('');
     setBreed('arabian');
     setAge(1);
+    setAgeYears(1);
+    setAgeMonths(0);
     setGender('stallion');
     setColor('');
     setHeight('');
@@ -194,7 +208,14 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setSireName(horse.sireName || '');
     setCertificate(horse.certificate || '');
     setBreed(horse.breed || 'arabian');
+    
+    // Compute years and months from horse object
+    const initYears = horse.ageYears !== undefined ? horse.ageYears : (horse.age !== undefined ? Math.floor(horse.age) : 1);
+    const initMonths = horse.ageMonths !== undefined ? horse.ageMonths : 0;
     setAge(horse.age || 1);
+    setAgeYears(initYears);
+    setAgeMonths(initMonths);
+
     setGender(horse.gender || 'stallion');
     setColor(horse.color || '');
     setHeight(horse.height || '');
@@ -405,8 +426,114 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       }
     }
 
-    // Open terms and conditions modal for user confirmation before publishing
+    if (ageYears === 0 && ageMonths === 0) {
+      setError('يرجى تحديد عمر الخيل (بالسنوات أو الشهور على الأقل).');
+      return;
+    }
+
+    // If editing existing ad and not admin: open Edit Terms Modal
+    if (editingItemId && currentUser?.role !== 'admin') {
+      setIsEditTermsModalOpen(true);
+      return;
+    }
+
+    // New ad: Open terms and conditions modal for user confirmation before publishing
     setIsTermsModalOpen(true);
+  };
+
+  const handleConfirmedEditHorse = async () => {
+    if (!currentUser || !editingItemId) return;
+    setIsSubmittingAd(true);
+    setError('');
+
+    const existingHorse = horses.find(h => h.id === editingItemId);
+    const linkedStable = stables.find((s) => s.id === stableId);
+    const isArabian = breed === 'arabian';
+    const isRent = adType === 'rent';
+    const effectiveAge = ageYears > 0 
+      ? (ageMonths > 0 ? ageYears + parseFloat((ageMonths / 12).toFixed(2)) : ageYears)
+      : (ageMonths > 0 ? parseFloat((ageMonths / 12).toFixed(2)) : 1);
+
+    const horseData: Horse = {
+      id: editingItemId,
+      userId: existingHorse?.userId || currentUser.id,
+      userName: existingHorse?.userName || currentUser.name,
+      adType,
+      name: name.trim(),
+      damName: !isRent && isArabian ? damName.trim() : '',
+      sireName: !isRent && isArabian ? sireName.trim() : '',
+      certificate: !isRent && isArabian ? certificate : (!isRent ? (certificate || '') : ''),
+      breed,
+      age: effectiveAge,
+      ageYears,
+      ageMonths,
+      gender,
+      color: color.trim(),
+      height: !isRent && height.trim() ? height.trim() : undefined,
+      healthStatus: healthStatus.trim() || (isRent ? 'سليم وصحة ممتازة' : 'سليم خالي من العيوب'),
+      images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=800'],
+      stableId,
+      stableName: linkedStable ? linkedStable.name : 'غير مرتبط بإسطبل محدد',
+      phone: phone.trim() || currentUser.phone || '',
+      price: isRent ? (price > 0 ? price : undefined) : (hasPrice && price > 0 ? price : undefined),
+      rentType: adType === 'rent' ? rentType : undefined,
+      rentStart: adType === 'rent' && rentStart ? rentStart : undefined,
+      rentEnd: adType === 'rent' && rentEnd ? rentEnd : undefined,
+      isSold: isSold,
+      soldAt: isSold ? (existingHorse?.soldAt || new Date().toISOString()) : undefined,
+      createdAt: existingHorse?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Keep live horse data intact so the public ad does not change until admin approves!
+    const horseWithPendingEdit: Horse = {
+      ...(existingHorse || horseData),
+      id: editingItemId,
+      isPendingEditApproval: true,
+      pendingEditAt: new Date().toISOString(),
+      pendingEditData: horseData
+    };
+
+    try {
+      await FirebaseService.saveHorse(horseWithPendingEdit);
+      setHorses((prev) => prev.map((h) => (h.id === editingItemId ? horseWithPendingEdit : h)));
+      setSuccess('تم حفظ التعديلات وإرسالها للمدير بنجاح! لن يتم نشر التعديل إلا بعد موافقة الإدارة.');
+      setIsEditTermsModalOpen(false);
+
+      // Clear fields
+      setName('');
+      setDamName('');
+      setSireName('');
+      setCertificate('');
+      setBreed('arabian');
+      setAge(1);
+      setGender('stallion');
+      setColor('');
+      setHeight('');
+      setHealthStatus('سليم خالي من العيوب');
+      setImages([]);
+      setStableId('');
+      setPhone('');
+      setHasPrice(false);
+      setPrice(0);
+      setRentStart('');
+      setRentEnd('');
+      setIsSold(false);
+      setSubscriptionCode('');
+      setIsCodeValid(false);
+      setValidatedCodeObj(null);
+      setEditingItemId(null);
+
+      setTimeout(() => {
+        setIsAddOpen(false);
+        fetchData();
+        onAdCreated?.();
+      }, 1500);
+    } catch (err) {
+      setError('حدث خطأ أثناء حفظ التعديلات.');
+    } finally {
+      setIsSubmittingAd(false);
+    }
   };
 
   const handleConfirmedPublishHorse = async () => {
@@ -417,6 +544,9 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     const linkedStable = stables.find((s) => s.id === stableId);
     const isArabian = breed === 'arabian';
     const isRent = adType === 'rent';
+    const effectiveAge = ageYears > 0 
+      ? (ageMonths > 0 ? ageYears + parseFloat((ageMonths / 12).toFixed(2)) : ageYears)
+      : (ageMonths > 0 ? parseFloat((ageMonths / 12).toFixed(2)) : 1);
 
     const horseData: Horse = {
       id: editingItemId ? editingItemId : 'hrs_' + Date.now(),
@@ -428,7 +558,9 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       sireName: !isRent && isArabian ? sireName.trim() : '',
       certificate: !isRent && isArabian ? certificate : (!isRent ? (certificate || '') : ''),
       breed,
-      age,
+      age: effectiveAge,
+      ageYears,
+      ageMonths,
       gender,
       color: color.trim(),
       height: !isRent && height.trim() ? height.trim() : undefined,
@@ -942,30 +1074,76 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">عمر الخيل (بالسنوات) *</label>
-                  <input
-                    type="number"
-                    value={age}
-                    onChange={(e) => setAge(parseInt(e.target.value) || 1)}
-                    min={1}
-                    required
-                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy text-left"
-                  />
+              {/* Horse Age (Years & Months) + Gender */}
+              <div className="p-3.5 bg-slate-50/90 rounded-2xl border border-slate-200/90 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-navy flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-gold-dark" />
+                    <span>عمر الخيل (بالسنوات والشهور) *</span>
+                  </label>
+                  <span className="text-[11px] font-bold text-navy bg-white px-2.5 py-0.5 rounded-lg border border-slate-200 shadow-2xs">
+                    {formatHorseAge(ageYears, ageMonths, ageYears)}
+                  </span>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">الجنس *</label>
-                  <select
-                    value={gender}
-                    onChange={(e: any) => setGender(e.target.value)}
-                    className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
-                  >
-                    <option value="stallion">ذكر (حصان)</option>
-                    <option value="mare">أنثى (فرس)</option>
-                    <option value="gelding">مخصى</option>
-                  </select>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">السنوات</label>
+                    <select
+                      value={ageYears}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        setAgeYears(val);
+                        setAge(val > 0 ? val : (ageMonths > 0 ? parseFloat((ageMonths / 12).toFixed(2)) : 0));
+                      }}
+                      className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy bg-white font-bold"
+                    >
+                      {Array.from({ length: 36 }, (_, i) => (
+                        <option key={i} value={i}>
+                          {i === 0 ? '0 سنة (أقل من سنة)' : i === 1 ? '1 سنة' : i === 2 ? '2 سنتان' : `${i} سنوات`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">الشهور</label>
+                    <select
+                      value={ageMonths}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 0;
+                        setAgeMonths(val);
+                        if (ageYears === 0) {
+                          setAge(parseFloat((val / 12).toFixed(2)));
+                        }
+                      }}
+                      className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy bg-white font-bold"
+                    >
+                      {Array.from({ length: 12 }, (_, i) => (
+                        <option key={i} value={i}>
+                          {i === 0 ? '0 شهر' : i === 1 ? '1 شهر' : i === 2 ? 'شهران' : `${i} أشهر`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">الجنس *</label>
+                    <select
+                      value={gender}
+                      onChange={(e: any) => setGender(e.target.value)}
+                      className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy bg-white font-bold"
+                    >
+                      <option value="stallion">ذكر (حصان)</option>
+                      <option value="mare">أنثى (فرس)</option>
+                      <option value="gelding">مخصى</option>
+                    </select>
+                  </div>
                 </div>
+
+                <p className="text-[10px] text-slate-400">
+                  متاح لإعلانات البيع والإيجار: يمكنك إدخال العمر بالشهور فقط (مثال للمهور: 0 سنة و 6 أشهر) أو بالسنوات والشهور معاً.
+                </p>
               </div>
 
               {/* Color and Height: Height is ONLY for Sale, hidden for Rent */}
@@ -1165,21 +1343,21 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
         </div>
       )}
 
-      {/* Listings Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Listings Grid (2 columns on mobile side by side) */}
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-6">
         {filteredHorses.length > 0 ? (
           filteredHorses.map((horse) => (
             <div
               key={horse.id}
               onClick={() => setSelectedHorse(horse)}
-              className={`bg-white rounded-2xl overflow-hidden border transition-all duration-300 flex flex-col cursor-pointer group relative ${
+              className={`bg-white rounded-xl sm:rounded-2xl overflow-hidden border transition-all duration-300 flex flex-col cursor-pointer group relative ${
                 horse.isSold
                   ? 'border-red-200/80 shadow-xs hover:shadow-md'
-                  : 'border-slate-100 hover:shadow-xl'
+                  : 'border-slate-100 hover:shadow-xl shadow-xs'
               }`}
             >
               {/* Image Container */}
-              <div className="h-48 bg-slate-100 relative overflow-hidden">
+              <div className="h-32 sm:h-48 bg-slate-100 relative overflow-hidden">
                 <img
                   src={horse.images?.[0] || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=800'}
                   referrerPolicy="no-referrer"
@@ -1191,60 +1369,61 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                 
                 {/* Rating Badge Top Left */}
-                <div className="absolute top-3 left-3 bg-black/60 backdrop-blur-xs text-amber-400 text-[10px] px-2 py-0.5 rounded-full font-extrabold flex items-center gap-1 shadow-md border border-amber-400/30">
-                  <Star className="w-3 h-3 fill-current text-amber-400" />
+                <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-black/60 backdrop-blur-xs text-amber-400 text-[8px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-extrabold flex items-center gap-0.5 sm:gap-1 shadow-md border border-amber-400/30">
+                  <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current text-amber-400" />
                   <span>{horse.rating || 5}</span>
-                  <span className="text-slate-300 text-[9px]">({horse.reviews?.length || 0})</span>
+                  <span className="text-slate-300 text-[8px] sm:text-[9px] hidden sm:inline">({horse.reviews?.length || 0})</span>
                 </div>
 
                 {/* Sold Badge or Sale / Rent Badge */}
-                <div className="absolute top-3 right-3 flex flex-col items-end gap-1">
+                <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex flex-col items-end gap-0.5 sm:gap-1">
+                  <AdVerifiedBadge item={horse} variant="compact" />
                   {horse.isSold ? (
-                    <span className="bg-red-600 text-white text-[10px] px-2.5 py-0.5 rounded-full font-black shadow-lg flex items-center gap-1 border border-white/30 animate-pulse">
-                      <CheckCircle2 className="w-3 h-3 text-white" /> تم البيع
+                    <span className="bg-red-600 text-white text-[8px] sm:text-[10px] px-1.5 sm:px-2.5 py-0.5 rounded-full font-black shadow-lg flex items-center gap-1 border border-white/30 animate-pulse">
+                      <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" /> تم البيع
                     </span>
                   ) : (
-                    <span className={`text-[9px] px-2.5 py-0.5 rounded-full font-bold shadow-md text-white ${
+                    <span className={`text-[8px] sm:text-[9px] px-1.5 sm:px-2.5 py-0.5 rounded-full font-bold shadow-md text-white ${
                       horse.adType === 'sale' ? 'bg-amber-500' : 'bg-navy'
                     }`}>
                       {horse.adType === 'sale' ? 'خيل للبيع' : 'خيل للإيجار'}
                     </span>
                   )}
                   {horse.certificate && (
-                    <span className="bg-gold text-navy text-[9px] px-2 py-0.5 rounded-full font-bold shadow-md flex items-center gap-0.5 border border-amber-300">
-                      <Award className="w-2.5 h-2.5" /> شهادة نسب
+                    <span className="bg-gold text-navy text-[7px] sm:text-[9px] px-1.5 sm:px-2 py-0.5 rounded-full font-bold shadow-md flex items-center gap-0.5 border border-amber-300">
+                      <Award className="w-2 h-2 sm:w-2.5 sm:h-2.5" /> شهادة نسب
                     </span>
                   )}
                 </div>
 
                 {/* Left Bottom Badges (Images count) */}
                 {horse.images && horse.images.length > 1 && (
-                  <div className="absolute bottom-3 left-3 flex items-center gap-1">
-                    <span className="bg-black/65 backdrop-blur-xs text-white text-[9px] px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-md border border-white/20">
-                      <Image className="w-2.5 h-2.5 text-gold" /> {horse.images.length} صور
+                  <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 flex items-center gap-1">
+                    <span className="bg-black/65 backdrop-blur-xs text-white text-[8px] sm:text-[9px] px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-md border border-white/20">
+                      <Image className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-gold" /> {horse.images.length}
                     </span>
                   </div>
                 )}
 
                 {/* Price Display */}
-                <div className="absolute bottom-3 right-3 text-white font-bold">
+                <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 text-white font-bold">
                   {horse.adType === 'sale' ? (
                     horse.price && horse.price > 0 ? (
-                      <div className="bg-black/70 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-white/20 shadow-md">
-                        <span className="text-sm font-mono text-gold font-black">{horse.price.toLocaleString('ar-SA')}</span>
-                        <span className="text-[10px] mr-1 text-slate-200">ريال</span>
+                      <div className="bg-black/70 backdrop-blur-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-white/20 shadow-md">
+                        <span className="text-xs sm:text-sm font-mono text-gold font-black">{horse.price.toLocaleString('ar-SA')}</span>
+                        <span className="text-[8px] sm:text-[10px] mr-1 text-slate-200">ريال</span>
                       </div>
                     ) : (
-                      <div className="bg-navy/90 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-gold/40 text-gold text-[10px] sm:text-[11px] font-bold shadow-md flex items-center gap-1">
-                        <Sparkles className="w-2.5 h-2.5 text-gold" />
-                        <span>السعر حسب الاتفاق</span>
+                      <div className="bg-navy/90 backdrop-blur-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-gold/40 text-gold text-[8px] sm:text-[11px] font-bold shadow-md flex items-center gap-1">
+                        <Sparkles className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-gold" />
+                        <span>حسب الاتفاق</span>
                       </div>
                     )
                   ) : (
                     horse.price && horse.price > 0 ? (
-                      <div className="bg-black/70 backdrop-blur-xs px-2.5 py-1 rounded-lg border border-white/20 shadow-md">
-                        <span className="text-sm font-mono text-gold font-black">{horse.price.toLocaleString('ar-SA')}</span>
-                        <span className="text-[10px] mr-1 text-slate-200">
+                      <div className="bg-black/70 backdrop-blur-xs px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-lg border border-white/20 shadow-md">
+                        <span className="text-xs sm:text-sm font-mono text-gold font-black">{horse.price.toLocaleString('ar-SA')}</span>
+                        <span className="text-[8px] sm:text-[10px] mr-1 text-slate-200">
                           ريال / {getRentDurationLabel(horse.rentType)}
                         </span>
                       </div>
@@ -1254,95 +1433,127 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               </div>
 
               {/* Horse Info Details */}
-              <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+              <div className="p-2.5 sm:p-4 flex-1 flex flex-col justify-between space-y-2 sm:space-y-3">
                 <div>
                   <div className="flex items-center justify-between gap-1">
-                    <h4 className="font-bold text-navy group-hover:text-gold transition text-xs leading-tight">{horse.name}</h4>
+                    <h4 className="font-bold text-navy group-hover:text-gold transition text-xs sm:text-sm leading-tight line-clamp-1">{horse.name}</h4>
                     {horse.isSold && (
-                      <span className="text-[9px] bg-red-50 text-red-700 font-bold px-1.5 py-0.5 rounded border border-red-200 shrink-0">
+                      <span className="text-[8px] sm:text-[9px] bg-red-50 text-red-700 font-bold px-1.5 py-0.5 rounded border border-red-200 shrink-0">
                         مُباع
                       </span>
                     )}
                   </div>
                   
                   {/* Small attributes */}
-                  <div className="grid grid-cols-2 gap-x-2 gap-y-1 mt-2 text-[10px] text-slate-500 border-b border-slate-50 pb-2">
-                    <span>السلالة: <strong>{horse.breed === 'arabian' ? 'عربي أصيل' : horse.breed === 'shabi' ? 'شعبي' : 'سيسي'}</strong></span>
-                    <span>العمر: <strong>{horse.age} سنوات</strong></span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-0.5 sm:gap-y-1 mt-1.5 sm:mt-2 text-[9px] sm:text-[10px] text-slate-500 border-b border-slate-50 pb-1.5 sm:pb-2">
+                    <span className="truncate">السلالة: <strong>{horse.breed === 'arabian' ? 'عربي أصيل' : horse.breed === 'shabi' ? 'شعبي' : 'سيسي'}</strong></span>
+                    <span className="truncate">العمر: <strong>{formatHorseAge(horse.age, horse.ageMonths, horse.ageYears)}</strong></span>
                     <span>الجنس: <strong>{horse.gender === 'stallion' ? 'ذكر' : horse.gender === 'mare' ? 'أنثى' : 'مخصى'}</strong></span>
                     <span className="truncate">اللون: <strong>{horse.color}</strong></span>
-                    {horse.height && <span className="col-span-2 text-slate-600 font-medium">الارتفاع / الطول: <strong>{horse.height}</strong></span>}
+                    {horse.height && <span className="col-span-1 sm:col-span-2 text-slate-600 font-medium truncate">الارتفاع: <strong>{horse.height}</strong></span>}
                   </div>
 
                   {horse.adType === 'rent' && (
-                    <div className="mt-2 bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3 text-red-600 shrink-0" />
-                      <span>تأكيد الحجز قبل الموعد بيوم</span>
+                    <div className="mt-1.5 bg-red-50 text-red-700 border border-red-200 px-1.5 py-0.5 sm:py-1 rounded-lg text-[8px] sm:text-[10px] font-bold flex items-center gap-1">
+                      <AlertCircle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-red-600 shrink-0" />
+                      <span className="truncate">تأكيد الحجز قبل الموعد بيوم</span>
                     </div>
                   )}
                 </div>
 
-                <div className="flex justify-between items-center text-[9px] text-slate-400">
-                  <span>بواسطة: {horse.userName}</span>
-                  {horse.stableName && <span className="bg-slate-50 text-slate-600 px-2 py-0.5 rounded border border-slate-100">{horse.stableName}</span>}
+                <div className="flex justify-between items-center text-[8px] sm:text-[9px] text-slate-400">
+                  <span className="truncate">بواسطة: {horse.userName}</span>
+                  {horse.stableName && <span className="bg-slate-50 text-slate-600 px-1.5 py-0.5 rounded border border-slate-100 truncate max-w-[80px] sm:max-w-none">{horse.stableName}</span>}
                 </div>
 
                 {/* Direct quick contact buttons on card (Call & WhatsApp) */}
-                <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                <div className="grid grid-cols-2 gap-1 sm:gap-1.5 pt-1.5 sm:pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
                   <a
                     href={`tel:${horse.phone || '0559595055'}`}
-                    className="py-1.5 px-2 bg-navy hover:bg-navy-dark text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition shadow-xs cursor-pointer"
+                    className="py-1 sm:py-1.5 px-1 sm:px-2 bg-navy hover:bg-navy-dark text-white rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center justify-center gap-0.5 sm:gap-1 transition shadow-xs cursor-pointer"
                     title={`اتصال هاتفي: ${horse.phone || '0559595055'}`}
                   >
-                    <Phone className="w-3 h-3 shrink-0" />
+                    <Phone className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                     <span>اتصال</span>
                   </a>
                   <a
                     href={`https://wa.me/${(horse.phone || '0559595055').replace(/^0/, '966')}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center justify-center gap-1 transition shadow-xs cursor-pointer"
+                    className="py-1 sm:py-1.5 px-1 sm:px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[9px] sm:text-[10px] font-bold flex items-center justify-center gap-0.5 sm:gap-1 transition shadow-xs cursor-pointer"
                     title={`واتساب مباشر: ${horse.phone || '0559595055'}`}
                   >
-                    <MessageSquare className="w-3 h-3 shrink-0" />
+                    <MessageSquare className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
                     <span>واتساب</span>
                   </a>
                 </div>
 
                 {/* Edit & Delete & Toggle Sold Actions for owner/admin */}
                 {(currentUser?.role === 'admin' || currentUser?.id === horse.userId) && (
-                  <div className="flex flex-wrap gap-1.5 pt-2 border-t border-slate-50 justify-end" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={(e) => handleToggleSoldStatus(horse, e)}
-                      className={`px-2 py-1 text-[10px] font-bold rounded-lg flex items-center gap-1 transition ${
-                        horse.isSold
-                          ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
-                          : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200'
-                      }`}
-                      title={horse.isSold ? 'إلغاء وسم تم البيع وإعادة العرض' : 'وضع علامة تم البيع'}
-                    >
-                      {horse.isSold ? (
-                        <>
-                          <RotateCcw className="w-3 h-3 text-emerald-600" /> متاح
-                        </>
-                      ) : (
-                        <>
-                          <Tag className="w-3 h-3 text-amber-600" /> تم البيع
-                        </>
-                      )}
-                    </button>
-                    <button
-                      onClick={() => handleEditClick(horse)}
-                      className="px-2 py-1 text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg flex items-center gap-1 transition"
-                    >
-                      <Edit2 className="w-3 h-3" /> تعديل
-                    </button>
-                    <button
-                      onClick={() => handleDeleteClick(horse.id)}
-                      className="px-2 py-1 text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 rounded-lg flex items-center gap-1 transition"
-                    >
-                      <Trash2 className="w-3 h-3" /> حذف
-                    </button>
+                  <div className="space-y-1.5 pt-1.5 sm:pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    <AdPermissionNotice ad={horse} category="horse" currentUser={currentUser} compact />
+
+                    <div className="grid grid-cols-3 gap-1">
+                      {/* Toggle Sold Status Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (currentUser?.role !== 'admin' && !hasEditPermission(horse, currentUser)) {
+                            setPermissionModalHorse({ horse, action: 'sold' });
+                            return;
+                          }
+                          handleToggleSoldStatus(horse, e);
+                        }}
+                        className={`py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer border active:scale-95 ${
+                          horse.isSold
+                            ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                            : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
+                        }`}
+                        title={horse.isSold ? 'إلغاء وسم تم البيع وإعادة العرض' : 'وضع علامة تم البيع (يتطلب موافقة 12 ساعة)'}
+                      >
+                        {horse.isSold ? (
+                          <>
+                            <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-600 shrink-0" />
+                            <span className="truncate">متاح</span>
+                          </>
+                        ) : (
+                          <>
+                            <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600 shrink-0" />
+                            <span className="truncate">تم البيع</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Edit Button - Allowed for owner or admin */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditClick(horse);
+                        }}
+                        className="py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer active:scale-95"
+                        title="تعديل بيانات وصور الإعلان"
+                      >
+                        <Edit2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                        <span className="truncate">تعديل</span>
+                      </button>
+
+                      {/* Delete Button */}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (currentUser?.role !== 'admin' && !hasEditPermission(horse, currentUser)) {
+                            setPermissionModalHorse({ horse, action: 'delete' });
+                            return;
+                          }
+                          handleDeleteClick(horse.id);
+                        }}
+                        className="py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer active:scale-95"
+                        title="حذف الإعلان (يتطلب موافقة 12 ساعة)"
+                      >
+                        <Trash2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 shrink-0" />
+                        <span className="truncate">حذف</span>
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1383,6 +1594,33 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
         categoryName="إعلان الجواد"
         isSubmitting={isSubmittingAd}
       />
+
+      {/* Edit Terms & Conditions Agreement Modal */}
+      {isEditTermsModalOpen && (
+        <EditTermsAgreementModal
+          isOpen={isEditTermsModalOpen}
+          onClose={() => setIsEditTermsModalOpen(false)}
+          onConfirm={handleConfirmedEditHorse}
+          adTitle={name}
+          adCategoryName="الخيول"
+          adId={editingItemId || undefined}
+          userName={currentUser?.name}
+          userPhone={currentUser?.phone || phone}
+          isSubmitting={isSubmittingAd}
+        />
+      )}
+
+      {/* 12-Hour Permission Request Modal */}
+      {permissionModalHorse && (
+        <AdActionPermissionModal
+          isOpen={!!permissionModalHorse}
+          onClose={() => setPermissionModalHorse(null)}
+          ad={permissionModalHorse.horse}
+          category="horse"
+          action={permissionModalHorse.action}
+          adminWhatsApp={adminWhatsApp}
+        />
+      )}
 
     </div>
   );

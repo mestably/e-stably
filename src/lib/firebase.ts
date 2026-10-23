@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner, SiteSettings } from '../types';
+import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner, SiteSettings, ArchivedDeletedAd, BankReceipt } from '../types';
 
 const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
@@ -183,12 +183,51 @@ async function saveDocument<T extends { id: string; email?: string; updatedAt?: 
   }
 }
 
+async function archiveDeletedAdRecord(archivedAd: ArchivedDeletedAd): Promise<void> {
+  try {
+    const local = getLocal<ArchivedDeletedAd>('deleted_ads_archive');
+    const filtered = local.filter(a => a.id !== archivedAd.id && a.originalId !== archivedAd.originalId);
+    filtered.unshift(archivedAd);
+    setLocal('deleted_ads_archive', filtered);
+
+    await fetch(`${RTDB_BASE_URL}/deleted_ads_archive/${archivedAd.id}.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(archivedAd)
+    }).catch(() => {});
+  } catch (e) {
+    console.warn('Archiving deleted ad failed:', e);
+  }
+}
+
 async function deleteDocument(nodeName: string, docId: string): Promise<boolean> {
   // Record deletion locally and in memory
   addDeletedId(docId);
   cloudDeletedIdsSet.add(docId);
 
   const local = getLocal<any>(nodeName);
+  const itemToArchive = local.find((item) => item.id === docId);
+
+  // If this is an ad from horses, stables, shelters, or transports, archive it for user dashboard
+  if (itemToArchive && (nodeName === 'horses' || nodeName === 'stables' || nodeName === 'shelters' || nodeName === 'transports')) {
+    const category = nodeName === 'horses' ? 'horse' : nodeName === 'stables' ? 'stable' : nodeName === 'shelters' ? 'shelter' : 'transport';
+    const title = itemToArchive.name || itemToArchive.title || itemToArchive.vehicleType || 'إعلان';
+    const archivedAd: ArchivedDeletedAd = {
+      id: `del_${docId}`,
+      originalId: docId,
+      category,
+      userId: itemToArchive.userId || '',
+      userName: itemToArchive.userName || '',
+      title,
+      images: itemToArchive.images || [],
+      price: itemToArchive.price,
+      createdAt: itemToArchive.createdAt || new Date().toISOString(),
+      deletedAt: new Date().toISOString(),
+      data: itemToArchive
+    };
+    archiveDeletedAdRecord(archivedAd);
+  }
+
   const updated = local.filter((item) => item.id !== docId);
   setLocal(nodeName, updated);
 
@@ -743,6 +782,193 @@ export const FirebaseService = {
         shelters: this.getLocalShelters(),
         transports: this.getLocalTransports()
       };
+    }
+  },
+
+  /**
+   * Fetches all active & ended ads belonging to a specific user across all 4 sections.
+   */
+  async getUserAllAds(userId: string): Promise<{
+    horses: Horse[];
+    stables: Stable[];
+    shelters: Shelter[];
+    transports: Transport[];
+    totalCount: number;
+    activeCount: number;
+    endedCount: number;
+  }> {
+    if (!userId) {
+      return { horses: [], stables: [], shelters: [], transports: [], totalCount: 0, activeCount: 0, endedCount: 0 };
+    }
+
+    try {
+      const [allHorses, allStables, allShelters, allTransports] = await Promise.all([
+        this.getHorses(),
+        this.getStables(),
+        this.getShelters(),
+        this.getTransports()
+      ]);
+
+      const userHorses = allHorses.filter(h => h.userId === userId);
+      const userStables = allStables.filter(s => s.userId === userId);
+      const userShelters = allShelters.filter(sh => sh.userId === userId);
+      const userTransports = allTransports.filter(t => t.userId === userId);
+
+      const totalCount = userHorses.length + userStables.length + userShelters.length + userTransports.length;
+
+      let endedCount = 0;
+      userHorses.forEach(h => { if (h.isSold) endedCount++; });
+      userStables.forEach(s => { if (s.isEnded) endedCount++; });
+      userShelters.forEach(sh => { if (sh.isEnded) endedCount++; });
+      userTransports.forEach(t => { if (t.isEnded) endedCount++; });
+
+      const activeCount = totalCount - endedCount;
+
+      return {
+        horses: userHorses,
+        stables: userStables,
+        shelters: userShelters,
+        transports: userTransports,
+        totalCount,
+        activeCount,
+        endedCount
+      };
+    } catch (e) {
+      console.warn('Failed to fetch user all ads:', e);
+      const horses = this.getLocalHorses().filter(h => h.userId === userId);
+      const stables = this.getLocalStables().filter(s => s.userId === userId);
+      const shelters = this.getLocalShelters().filter(sh => sh.userId === userId);
+      const transports = this.getLocalTransports().filter(t => t.userId === userId);
+      const totalCount = horses.length + stables.length + shelters.length + transports.length;
+      return { horses, stables, shelters, transports, totalCount, activeCount: totalCount, endedCount: 0 };
+    }
+  },
+
+  /**
+   * Fetches deleted ads archive for a user.
+   */
+  async getUserDeletedAds(userId: string): Promise<ArchivedDeletedAd[]> {
+    if (!userId) return [];
+    try {
+      const res = await fetch(`${RTDB_BASE_URL}/deleted_ads_archive.json`, {
+        signal: AbortSignal.timeout(5000)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data === 'object') {
+          const list: ArchivedDeletedAd[] = Object.keys(data).map(key => ({
+            id: key,
+            ...data[key]
+          })).filter(a => a.userId === userId);
+
+          list.sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+          setLocal('deleted_ads_archive', list);
+          return list;
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to load deleted ads archive from cloud:', e);
+    }
+
+    const local = getLocal<ArchivedDeletedAd>('deleted_ads_archive');
+    return local.filter(a => a.userId === userId).sort((a, b) => new Date(b.deletedAt).getTime() - new Date(a.deletedAt).getTime());
+  },
+
+  /**
+   * Restores a deleted ad back into its original collection.
+   */
+  async restoreDeletedAd(archivedAd: ArchivedDeletedAd): Promise<boolean> {
+    try {
+      const nodeName = archivedAd.category === 'horse' ? 'horses'
+        : archivedAd.category === 'stable' ? 'stables'
+        : archivedAd.category === 'shelter' ? 'shelters'
+        : 'transports';
+
+      // 1. Remove docId from deleted IDs
+      cloudDeletedIdsSet.delete(archivedAd.originalId);
+      const currentDeleted = getDeletedIds().filter(id => id !== archivedAd.originalId);
+      try {
+        localStorage.setItem('horses_forum_deleted_ids', JSON.stringify(currentDeleted));
+      } catch {}
+
+      // 2. Remove tombstone from cloud
+      fetch(`${RTDB_BASE_URL}/deleted_records/${archivedAd.originalId}.json`, {
+        method: 'DELETE'
+      }).catch(() => {});
+
+      // 3. Remove from deleted archive
+      const localArchive = getLocal<ArchivedDeletedAd>('deleted_ads_archive').filter(a => a.id !== archivedAd.id && a.originalId !== archivedAd.originalId);
+      setLocal('deleted_ads_archive', localArchive);
+      fetch(`${RTDB_BASE_URL}/deleted_ads_archive/${archivedAd.id}.json`, {
+        method: 'DELETE'
+      }).catch(() => {});
+
+      // 4. Save back to collection
+      await saveDocument(nodeName, {
+        ...archivedAd.data,
+        id: archivedAd.originalId,
+        updatedAt: new Date().toISOString()
+      });
+
+      return true;
+    } catch (e) {
+      console.error('Failed to restore deleted ad:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Permanently deletes an archived ad.
+   */
+  async permanentlyDeleteArchivedAd(archivedId: string): Promise<boolean> {
+    try {
+      const localArchive = getLocal<ArchivedDeletedAd>('deleted_ads_archive').filter(a => a.id !== archivedId);
+      setLocal('deleted_ads_archive', localArchive);
+      await fetch(`${RTDB_BASE_URL}/deleted_ads_archive/${archivedId}.json`, {
+        method: 'DELETE'
+      });
+      return true;
+    } catch (e) {
+      console.warn('Failed to permanently delete archived ad:', e);
+      return false;
+    }
+  },
+
+  /**
+   * Bank Receipts & Deposit Slips operations
+   */
+  async getBankReceipts(): Promise<BankReceipt[]> {
+    return getCollection<BankReceipt>('bank_receipts');
+  },
+
+  async getUserBankReceipts(userId: string): Promise<BankReceipt[]> {
+    const all = await this.getBankReceipts();
+    return all.filter(r => r.userId === userId);
+  },
+
+  async saveBankReceipt(receipt: BankReceipt): Promise<void> {
+    await saveDocument('bank_receipts', receipt);
+  },
+
+  async deleteBankReceipt(id: string): Promise<void> {
+    await deleteDocument('bank_receipts', id);
+  },
+
+  async updateBankReceiptStatus(
+    id: string,
+    status: 'approved' | 'rejected' | 'pending',
+    adminNotes?: string
+  ): Promise<void> {
+    const receipts = await this.getBankReceipts();
+    const existing = receipts.find(r => r.id === id);
+    if (existing) {
+      const updated: BankReceipt = {
+        ...existing,
+        status,
+        adminNotes: adminNotes !== undefined ? adminNotes : existing.adminNotes,
+        reviewedAt: new Date().toISOString()
+      };
+      await saveDocument('bank_receipts', updated);
     }
   }
 };

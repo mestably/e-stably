@@ -4,12 +4,18 @@
  */
 
 import { useState, useEffect, FormEvent } from 'react';
-import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2, Copy, Send, MessageCircle, FileText, ChevronDown, ChevronUp } from 'lucide-react';
+import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2, Copy, Send, MessageCircle, FileText, ChevronDown, ChevronUp, ShieldCheck, Clock } from 'lucide-react';
 import { Stable, Horse, Shelter, Transport, User, Review } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import ConfirmModal from './ConfirmModal';
 import ImageLightboxModal from './ImageLightboxModal';
 import { getRentDurationLabel } from './HorsesSection';
+import AdVerifiedBadge from './AdVerifiedBadge';
+import AdPermissionNotice from './AdPermissionNotice';
+import AdActionPermissionModal from './AdActionPermissionModal';
+import { hasEditPermission, generateWhatsAppEditRequestUrl } from '../lib/adPermissions';
+import { useAdminContact } from '../lib/useAdminContact';
+import { formatHorseAge } from '../lib/horseUtils';
 
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
@@ -45,6 +51,7 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [copyFeedback, setCopyFeedback] = useState<'link' | 'full' | null>(null);
   const [showShareTextPreview, setShowShareTextPreview] = useState(false);
+  const [permissionRequestAction, setPermissionRequestAction] = useState<'edit' | 'delete' | 'sold' | null>(null);
 
   // Lightbox viewer state
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
@@ -108,8 +115,13 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
 
   const isAdmin = currentUser?.role === 'admin';
   const isOwner = currentUser?.id === item.userId;
+  const { adminWhatsApp } = useAdminContact();
 
   const handleDeleteAd = async () => {
+    if (!isAdmin && !hasEditPermission(item, currentUser)) {
+      setPermissionRequestAction('delete');
+      return;
+    }
     setIsDeleteAdConfirmOpen(true);
   };
 
@@ -129,6 +141,10 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
   };
 
   const handleToggleEndedStatus = async () => {
+    if (!isAdmin && !hasEditPermission(item, currentUser)) {
+      setPermissionRequestAction('sold');
+      return;
+    }
     try {
       if (type === 'horse') {
         const newStatus = !item.isSold;
@@ -341,8 +357,8 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         `🏷️ *القسم:* خيل ${purposeAr} (${statusText})`,
         `🐎 *السلالة:* ${breedAr}`,
         genderAr ? `⚧ *الجنس:* ${genderAr}` : '',
-        item.age !== undefined && item.age !== null
-          ? `🎂 *العمر:* ${item.age} ${item.age === 1 ? 'سنة' : item.age === 2 ? 'سنتان' : item.age <= 10 ? 'سنوات' : 'سنة'}`
+        (item.age !== undefined && item.age !== null) || (item.ageMonths !== undefined && item.ageMonths !== null)
+          ? `🎂 *العمر:* ${formatHorseAge(item.age, item.ageMonths, item.ageYears)}`
           : '',
         item.color ? `🎨 *اللون:* ${item.color}` : '',
         item.height ? `📏 *الارتفاع:* ${item.height}` : '',
@@ -525,7 +541,7 @@ ${shareUrl}`;
       setCopyFeedback('link');
       setTimeout(() => setCopyFeedback(null), 3500);
     } catch (e) {
-      alert('الرابط المباشر: ' + shareUrl);
+      setError('تعذر نسخ الرابط مباشرة: ' + shareUrl);
     }
   };
 
@@ -586,6 +602,9 @@ ${shareUrl}`;
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           
+          {/* Official Verification Banner */}
+          <AdVerifiedBadge item={item} variant="banner" />
+
           {/* Status Banner when marked as ended / sold / booked */}
           {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) && (
             <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white p-3.5 rounded-xl flex items-center justify-between shadow-md border border-red-500/30 animate-in fade-in duration-300">
@@ -779,6 +798,21 @@ ${shareUrl}`;
                 </>
               )}
             </div>
+
+            {/* Owner Permission Notice (Only when active) */}
+            {(isAdmin || (isOwner && hasEditPermission(item, currentUser))) && (
+              <div className="w-full mt-2">
+                <AdPermissionNotice ad={item} category={type} currentUser={currentUser} />
+              </div>
+            )}
+
+            {/* Pending Edit Approval Notice (Visible only to owner & admin) */}
+            {item.isPendingEditApproval && (isAdmin || isOwner) && (
+              <div className="w-full mt-2 p-3 bg-amber-50 border border-amber-300 rounded-xl flex items-center gap-2 text-xs text-amber-950 font-bold shadow-2xs">
+                <Clock className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
+                <span>الإعلان في انتظار موافقة الإدارة على التعديلات لنشرها (هذا الإشعار يظهر لك فقط، والإعلان معروض حالياً للعامة ببياناته الأصلية).</span>
+              </div>
+            )}
           </div>
 
           {type === 'horse' && item.adType === 'rent' && (
@@ -885,7 +919,9 @@ ${shareUrl}`;
                 )}
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">العمر</span>
-                  <span className="text-xs font-bold text-slate-800">{item.age} سنوات</span>
+                  <span className="text-xs font-bold text-slate-800">
+                    {formatHorseAge(item.age, item.ageMonths, item.ageYears)}
+                  </span>
                 </div>
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">الجنس</span>
@@ -1535,6 +1571,18 @@ ${shareUrl}`;
 
           </div>
         </div>
+      )}
+
+      {/* 12-Hour Permission Request Modal */}
+      {permissionRequestAction && (
+        <AdActionPermissionModal
+          isOpen={!!permissionRequestAction}
+          onClose={() => setPermissionRequestAction(null)}
+          ad={item}
+          category={type}
+          action={permissionRequestAction}
+          adminWhatsApp={adminWhatsApp}
+        />
       )}
 
     </div>

@@ -4,10 +4,26 @@
  */
 
 import { useState, useEffect, useRef, FormEvent, KeyboardEvent } from 'react';
-import { Eye, EyeOff, User as UserIcon, Mail, Phone, Lock, Sparkles, CheckCircle, XCircle, AlertCircle, RefreshCw, Send, KeyRound } from 'lucide-react';
+import { 
+  Eye, 
+  EyeOff, 
+  User as UserIcon, 
+  Mail, 
+  Phone, 
+  Lock, 
+  Sparkles, 
+  CheckCircle, 
+  XCircle, 
+  AlertCircle, 
+  RefreshCw, 
+  Send, 
+  KeyRound, 
+  MessageSquare, 
+  Smartphone 
+} from 'lucide-react';
 import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
-import { AuthService } from '../lib/authService';
+import { AuthService, SendOtpResponse, normalizePhone, validateRealEmail } from '../lib/authService';
 import { googleDriveSignIn } from '../lib/drive';
 import NewSubscriberTermsView from './NewSubscriberTermsView';
 
@@ -46,11 +62,15 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [pendingGoogleNewUser, setPendingGoogleNewUser] = useState<User | null>(null);
   const [isFinalizingGoogle, setIsFinalizingGoogle] = useState(false);
 
+  // Preferred activation method: 'whatsapp' or 'email'
+  const [preferredMethod, setPreferredMethod] = useState<'whatsapp' | 'email'>('whatsapp');
+  const [activeOtpMethod, setActiveOtpMethod] = useState<'whatsapp' | 'email'>('whatsapp');
+
   // Pending Activation State & 6-Digit OTP
   const [pendingVerificationUser, setPendingVerificationUser] = useState<User | null>(null);
   const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [lastSentOtpCode, setLastSentOtpCode] = useState<string>('');
-  const [lastOtpResult, setLastOtpResult] = useState<{ fallbackCode?: string; sentViaRealApi?: boolean; apiDeliveryMethod?: string } | null>(null);
+  const [lastOtpResult, setLastOtpResult] = useState<SendOtpResponse | null>(null);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [showDirectCode, setShowDirectCode] = useState(false);
@@ -109,12 +129,13 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
   if (!isOpen) return null;
 
-  // Validate password strength (at least 8 chars, containing letters and numbers)
+  // Validate password strength: at least 8 chars, numbers, uppercase letter (A-Z), and symbol
   const validatePassword = (pass: string) => {
-    const hasLetters = /[a-zA-Z]/.test(pass);
-    const hasArabicLetters = /[\u0600-\u06FF]/.test(pass);
+    const hasMinLength = pass.length >= 8;
     const hasNumbers = /[0-9]/.test(pass);
-    return pass.length >= 8 && (hasLetters || hasArabicLetters) && hasNumbers;
+    const hasUpper = /[A-Z]/.test(pass);
+    const hasSymbol = /[^a-zA-Z0-9\u0600-\u06FF\s]/.test(pass);
+    return hasMinLength && hasNumbers && hasUpper && hasSymbol;
   };
 
   const handleRegister = async (e: FormEvent) => {
@@ -127,18 +148,42 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       return;
     }
 
+    const trimmedName = name.trim();
+    const nameParts = trimmedName.split(/\s+/).filter(Boolean);
+
+    if (trimmedName.length < 10) {
+      setError('يجب ألا يقل الاسم بالكامل عن 10 أحرف.');
+      return;
+    }
+
+    if (nameParts.length < 2) {
+      setError('يجب أن يحتوي الاسم على مسافة ومسافات بحيث يشتمل على اسم الأب والجد (اسم ثلاثي على الأقل).');
+      return;
+    }
+
+    const emailCheck = validateRealEmail(email);
+    if (!emailCheck.isValid) {
+      setError(emailCheck.error || 'يرجى إدخال بريد إلكتروني حقيقي ونشط.');
+      return;
+    }
+
     if (nicknameAvailable === false) {
       setError('الاسم المستعار غير متاح، يرجى اختيار اسم آخر.');
       return;
     }
 
     if (!validatePassword(password)) {
-      setError('يجب أن تتكون كلمة السر من حروف وأرقام وألا تقل عن 8 خانات.');
+      setError('يجب أن تتكون كلمة السر من 8 خانات على الأقل (حروف وأرقام)، وتتضمن حرفاً كبيراً (Capital A-Z) ورمزاً خاصاً.');
       return;
     }
 
     if (password !== confirmPassword) {
       setError('كلمتا السر غير متطابقتين.');
+      return;
+    }
+
+    if (preferredMethod === 'whatsapp' && phone.trim().length < 8) {
+      setError('يرجى إدخال رقم هاتف صحيح (مثل: 0559595055) لتفعيل الحساب واستلام كود الواتساب.');
       return;
     }
 
@@ -154,9 +199,14 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         password,
       });
 
-      // 2. Send real OTP email
-      const otpRes = await AuthService.sendOtpCode(newUserPayload.email);
+      // 2. Send real OTP via chosen method (whatsapp or email)
+      const otpRes = await AuthService.sendOtpCode({
+        email: newUserPayload.email,
+        phone: newUserPayload.phone,
+        method: preferredMethod
+      });
       setLastOtpResult(otpRes);
+      setActiveOtpMethod(preferredMethod);
       if (otpRes.fallbackCode) {
         setLastSentOtpCode(otpRes.fallbackCode);
       }
@@ -164,7 +214,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       // 3. Set pending user state & switch to 6-digit OTP activation screen
       setPendingVerificationUser(newUserPayload);
       setOtpDigits(['', '', '', '', '', '']);
-      if (otpRes.sentViaRealApi) {
+      if (preferredMethod === 'whatsapp') {
+        setSuccess(`تم تجهيز وإرسال كود التفعيل المكون من 6 أرقام إلى رقمك على الواتساب: ${newUserPayload.phone}`);
+      } else if (otpRes.sentViaRealApi) {
         setSuccess(`أرسلنا كود تفعيل مكون من 6 أرقام إلى بريدك الإلكتروني: ${newUserPayload.email}`);
       } else {
         setSuccess(`تم إصدار كود التفعيل المباشر لتفعيل حسابك.`);
@@ -172,7 +224,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       setResendCooldown(60);
     } catch (err: any) {
       console.error(err);
-      setError(err.message || 'حدث خطأ أثناء إرسال كود التفعيل عبر البريد الإلكتروني، يرجى المحاولة لاحقاً.');
+      setError(err.message || 'حدث خطأ أثناء إرسال كود التفعيل، يرجى المحاولة لاحقاً.');
     } finally {
       setIsLoading(false);
     }
@@ -224,8 +276,12 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setSuccess('');
 
     try {
-      // 1. Verify code via server API
-      await AuthService.verifyOtpCode(pendingVerificationUser.email, fullCode);
+      // 1. Verify code via server API (passing email and phone)
+      await AuthService.verifyOtpCode(
+        pendingVerificationUser.email, 
+        fullCode, 
+        pendingVerificationUser.phone
+      );
 
       // 2. Save user to database ONLY after real activation succeeds
       const verifiedUser: User = { 
@@ -246,40 +302,77 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     }
   };
 
-  const handleResendOtp = async () => {
+  const handleResendOtp = async (targetMethod?: 'whatsapp' | 'email') => {
     if (resendCooldown > 0 || !pendingVerificationUser) return;
+    const methodToUse = targetMethod || activeOtpMethod;
     setError('');
     setSuccess('');
     setShowDirectCode(false);
 
     try {
-      const otpRes = await AuthService.sendOtpCode(pendingVerificationUser.email);
+      const otpRes = await AuthService.sendOtpCode({
+        email: pendingVerificationUser.email,
+        phone: pendingVerificationUser.phone,
+        method: methodToUse
+      });
       setLastOtpResult(otpRes);
+      setActiveOtpMethod(methodToUse);
       if (otpRes.fallbackCode) {
         setLastSentOtpCode(otpRes.fallbackCode);
       }
       setOtpDigits(['', '', '', '', '', '']);
-      if (otpRes.sentViaRealApi) {
-        setSuccess(`تم إعادة إرسال كود التفعيل إلى بريدك الإلكتروني: ${pendingVerificationUser.email}`);
+      if (methodToUse === 'whatsapp') {
+        setSuccess(`تم إعادة إرسال كود التفعيل إلى رقمك عبر الواتساب: ${pendingVerificationUser.phone}`);
       } else {
-        setSuccess(`تم تجديد كود التفعيل لتفعيل حسابك.`);
+        setSuccess(`تم إعادة إرسال كود التفعيل إلى بريدك الإلكتروني: ${pendingVerificationUser.email}`);
       }
       setResendCooldown(60);
       otpInputRefs[0].current?.focus();
     } catch (err: any) {
-      setError(err.message || 'تعذر إعادة إرسال الكود، يرجى التأكد من البريد والمحاولة لاحقاً.');
+      setError(err.message || 'تعذر إعادة إرسال الكود، يرجى التأكد من البيانات والمحاولة لاحقاً.');
+    }
+  };
+
+  const handleSwitchOtpMethod = async (newMethod: 'whatsapp' | 'email') => {
+    if (!pendingVerificationUser) return;
+    setActiveOtpMethod(newMethod);
+    setError('');
+    setShowDirectCode(false);
+
+    try {
+      const otpRes = await AuthService.sendOtpCode({
+        email: pendingVerificationUser.email,
+        phone: pendingVerificationUser.phone,
+        method: newMethod
+      });
+      setLastOtpResult(otpRes);
+      if (otpRes.fallbackCode) {
+        setLastSentOtpCode(otpRes.fallbackCode);
+      }
+      if (newMethod === 'whatsapp') {
+        setSuccess(`تم تحويل التفعيل إلى الواتساب على رقمك: ${pendingVerificationUser.phone}`);
+      } else {
+        setSuccess(`تم تحويل التفعيل إلى بريدك الإلكتروني: ${pendingVerificationUser.email}`);
+      }
+      setResendCooldown(60);
+      otpInputRefs[0].current?.focus();
+    } catch (e: any) {
+      console.warn('Switch otp error:', e);
     }
   };
 
   const handleRevealCode = () => {
     let codeToShow = lastSentOtpCode || lastOtpResult?.fallbackCode;
     if (!codeToShow && pendingVerificationUser) {
-      codeToShow = AuthService.getLatestOtpCode(pendingVerificationUser.email);
+      codeToShow = AuthService.getLatestOtpCode(
+        activeOtpMethod === 'whatsapp' ? pendingVerificationUser.phone : pendingVerificationUser.email
+      );
     }
     if (!codeToShow) {
       codeToShow = Math.floor(100000 + Math.random() * 900000).toString();
       if (pendingVerificationUser && typeof window !== 'undefined') {
         sessionStorage.setItem('local_otp_' + pendingVerificationUser.email.toLowerCase(), codeToShow);
+        sessionStorage.setItem('local_otp_' + pendingVerificationUser.phone.toLowerCase(), codeToShow);
       }
       setLastSentOtpCode(codeToShow);
     }
@@ -306,15 +399,26 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
       if (!isVerified) {
         // Send a fresh OTP and prompt activation view
-        const otpRes = await AuthService.sendOtpCode(user.email);
+        const hasPhone = Boolean(user.phone && user.phone.trim().length >= 8);
+        const method = hasPhone ? 'whatsapp' : 'email';
+        const otpRes = await AuthService.sendOtpCode({
+          email: user.email,
+          phone: user.phone,
+          method
+        });
         setLastOtpResult(otpRes);
+        setActiveOtpMethod(method);
         if (otpRes.fallbackCode) {
           setLastSentOtpCode(otpRes.fallbackCode);
         }
         setPendingVerificationUser(user);
         setOtpDigits(['', '', '', '', '', '']);
         setResendCooldown(60);
-        setError(`حسابك غير مفعل بعد. أرسلنا كود تفعيل مكون من 6 أرقام لتفعيل الحساب (${user.email}).`);
+        setError(
+          hasPhone 
+            ? `حسابك غير مفعل بعد. جهزنا كود تفعيل مكون من 6 أرقام لرقم هاتفك على الواتساب (${user.phone}).`
+            : `حسابك غير مفعل بعد. أرسلنا كود تفعيل مكون من 6 أرقام لتفعيل الحساب (${user.email}).`
+        );
         setIsLoading(false);
         return;
       }
@@ -445,46 +549,136 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
           {/* --- 6-DIGIT OTP ACTIVATION VIEW --- */}
           {pendingVerificationUser ? (
-            <div className="py-2 space-y-5 text-center">
-              <div className="w-16 h-16 bg-navy/10 text-navy rounded-full flex items-center justify-center mx-auto border border-navy/20 relative shadow-inner">
-                <KeyRound className="w-8 h-8 text-navy" />
-                <span className="absolute -top-1 -right-1 bg-gold text-white font-extrabold text-[10px] w-6 h-6 rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+            <div className="py-2 space-y-4 text-center">
+              {/* Method Switcher Header */}
+              <div className="flex items-center justify-center p-1 bg-slate-100 rounded-xl max-w-xs mx-auto">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchOtpMethod('whatsapp')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    activeOtpMethod === 'whatsapp'
+                      ? 'bg-white text-emerald-700 shadow-xs ring-1 ring-emerald-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>تفعيل الواتساب</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSwitchOtpMethod('email')}
+                  className={`flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer ${
+                    activeOtpMethod === 'email'
+                      ? 'bg-white text-blue-700 shadow-xs ring-1 ring-blue-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  <Mail className="w-3.5 h-3.5 text-blue-600" />
+                  <span>تفعيل الإيميل</span>
+                </button>
+              </div>
+
+              {/* Main Badge & Title */}
+              <div className={`w-14 h-14 rounded-full flex items-center justify-center mx-auto border relative shadow-inner ${
+                activeOtpMethod === 'whatsapp' 
+                  ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                  : 'bg-navy/10 text-navy border-navy/20'
+              }`}>
+                {activeOtpMethod === 'whatsapp' ? (
+                  <MessageSquare className="w-7 h-7 text-emerald-600" />
+                ) : (
+                  <KeyRound className="w-7 h-7 text-navy" />
+                )}
+                <span className={`absolute -top-1 -right-1 font-extrabold text-[9px] px-1.5 py-0.5 rounded-full border shadow-xs ${
+                  activeOtpMethod === 'whatsapp'
+                    ? 'bg-emerald-600 text-white border-white'
+                    : 'bg-gold text-white border-white'
+                }`}>
                   OTP
                 </span>
               </div>
 
               <div>
-                <h3 className="font-extrabold text-base text-slate-800">أدخل كود التفعيل المكون من 6 أرقام</h3>
-                <p className="text-xs text-slate-600 mt-1.5 leading-relaxed">
-                  تم إرسال كود التفعيل إلى بريدك الإلكتروني:<br />
-                  <strong className="text-navy font-bold text-sm bg-slate-100 px-3 py-1 rounded-lg inline-block mt-1 font-mono" dir="ltr">
-                    {pendingVerificationUser.email}
-                  </strong>
+                <h3 className="font-extrabold text-base text-slate-800">
+                  {activeOtpMethod === 'whatsapp' ? 'كود التفعيل عبر الواتساب' : 'أدخل كود التفعيل المكون من 6 أرقام'}
+                </h3>
+                <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                  {activeOtpMethod === 'whatsapp' ? (
+                    <>
+                      تم تجهيز كود التفعيل المكون من 6 أرقام لرقم هاتفك على الواتساب:<br />
+                      <strong className="text-emerald-800 font-bold text-sm bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-lg inline-block mt-1 font-mono" dir="ltr">
+                        {pendingVerificationUser.phone}
+                      </strong>
+                    </>
+                  ) : (
+                    <>
+                      تم إرسال كود التفعيل إلى بريدك الإلكتروني:<br />
+                      <strong className="text-navy font-bold text-sm bg-slate-100 border border-slate-200 px-3 py-1 rounded-lg inline-block mt-1 font-mono" dir="ltr">
+                        {pendingVerificationUser.email}
+                      </strong>
+                    </>
+                  )}
                 </p>
               </div>
 
-              {/* Real Email Verification Guidance */}
-              <div className="bg-emerald-50 border border-emerald-200/80 rounded-xl p-3.5 text-center space-y-1.5 my-2 shadow-xs">
-                <div className="flex items-center justify-center gap-1.5 text-emerald-900 font-bold text-xs">
-                  <Mail className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span>يرجى تفقد بريدك الإلكتروني للحصول على كود التفعيل</span>
+              {/* Active Method Delivery Guidance */}
+              {activeOtpMethod === 'whatsapp' ? (
+                <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3.5 text-center space-y-2.5 shadow-xs">
+                  <div className="flex items-center justify-center gap-1.5 text-emerald-950 font-bold text-xs">
+                    <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>تفعيل فوري ومباشر عبر الواتساب</span>
+                  </div>
+
+                  {/* Dual Action Buttons: WhatsApp Web & WhatsApp App */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <a
+                      href={lastOtpResult?.whatsappWebUrl || `https://web.whatsapp.com/send?phone=${normalizePhone(pendingVerificationUser.phone)}&text=${encodeURIComponent(lastOtpResult?.whatsappMessage || 'كود التفعيل: ' + (lastSentOtpCode || '123456'))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-[#25D366] hover:bg-[#20bd5a] active:scale-98 text-white font-extrabold py-2.5 px-3 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <MessageSquare className="w-4 h-4 fill-white shrink-0" />
+                      <span>فتح واتساب ويب (الكمبيوتر)</span>
+                    </a>
+
+                    <a
+                      href={lastOtpResult?.whatsappUrl || `https://api.whatsapp.com/send?phone=${normalizePhone(pendingVerificationUser.phone)}&text=${encodeURIComponent(lastOtpResult?.whatsappMessage || 'كود التفعيل: ' + (lastSentOtpCode || '123456'))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bg-emerald-700 hover:bg-emerald-800 active:scale-98 text-white font-bold py-2.5 px-3 rounded-xl text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Smartphone className="w-4 h-4 shrink-0" />
+                      <span>فتح تطبيق الواتساب (الهاتف)</span>
+                    </a>
+                  </div>
+
+                  <p className="text-[11px] text-emerald-800 leading-relaxed bg-white/70 p-2 rounded-lg border border-emerald-200/60">
+                    💡 <strong>ملاحظة لمستخدمي واتساب ويب:</strong> إذا لم تكن مسجلاً في واتساب ويب أو واجهت أي تأخير، يمكنك الضغط على زر <strong>(أظهر لي كود التفعيل هنا)</strong> بالأسفل لتعبئة الرمز والتفعيل فوراً!
+                  </p>
                 </div>
-                <p className="text-[11px] text-emerald-700 leading-relaxed">
-                  إذا لم تجد الرسالة في صندوق الوارد الرئيسي (Inbox)، يرجى مراجعة مجلد الرسائل غير المرغوب فيها (Spam / Junk).
-                </p>
-              </div>
+              ) : (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center space-y-1.5 shadow-xs">
+                  <div className="flex items-center justify-center gap-1.5 text-blue-900 font-bold text-xs">
+                    <Mail className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>يرجى تفقد بريدك الإلكتروني للحصول على كود التفعيل</span>
+                  </div>
+                  <p className="text-[11px] text-blue-700 leading-relaxed">
+                    إذا لم تجد الرسالة في صندوق الوارد (Inbox)، يرجى مراجعة مجلد الرسائل غير المرغوب فيها (Spam / Junk).
+                  </p>
+                </div>
+              )}
 
               {/* Instant Code Display Fallback Button */}
-              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-center space-y-2.5 shadow-xs">
+              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-center space-y-2 shadow-xs">
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-right">
                   <div>
-                    <p className="text-xs font-bold text-amber-950">تعذر وصول الرسالة أو تريد التفعيل الفوري؟</p>
+                    <p className="text-xs font-bold text-amber-950">تعذر وصول الرسالة أو تريد التفعيل السريع؟</p>
                     <p className="text-[11px] text-amber-800">اضغط لإظهار رمز التفعيل الخاص بك هنا مباشرة</p>
                   </div>
                   <button
                     type="button"
                     onClick={handleRevealCode}
-                    className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold px-3.5 py-2 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
                   >
                     <KeyRound className="w-3.5 h-3.5" />
                     <span>أظهر لي كود التفعيل هنا</span>
@@ -492,10 +686,10 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                 </div>
 
                 {showDirectCode && (
-                  <div className="bg-white border-2 border-dashed border-amber-400 rounded-xl p-3.5 text-center space-y-2 mt-2">
+                  <div className="bg-white border-2 border-dashed border-amber-400 rounded-xl p-3 text-center space-y-2 mt-2">
                     <div className="text-xs text-slate-600 font-semibold">رمز التفعيل المخصص لحسابك هو:</div>
-                    <div className="text-2xl font-black font-mono tracking-widest text-navy bg-amber-50 py-2 px-6 rounded-xl inline-block border border-amber-300 shadow-inner" dir="ltr">
-                      {lastSentOtpCode || lastOtpResult?.fallbackCode || (pendingVerificationUser && AuthService.getLatestOtpCode(pendingVerificationUser.email)) || '123456'}
+                    <div className="text-2xl font-black font-mono tracking-widest text-navy bg-amber-50 py-1.5 px-6 rounded-xl inline-block border border-amber-300 shadow-inner" dir="ltr">
+                      {lastSentOtpCode || lastOtpResult?.fallbackCode || (pendingVerificationUser && AuthService.getLatestOtpCode(activeOtpMethod === 'whatsapp' ? pendingVerificationUser.phone : pendingVerificationUser.email)) || '123456'}
                     </div>
                     <div className="text-[11px] text-emerald-700 font-medium flex items-center justify-center gap-1">
                       <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
@@ -546,20 +740,44 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
               {/* Resend Code Button & Timer */}
               <div className="pt-2 border-t border-slate-100 space-y-2">
-                <p className="text-xs text-slate-500">لم يصلك كود التفعيل؟</p>
-                <button
-                  type="button"
-                  onClick={handleResendOtp}
-                  disabled={resendCooldown > 0}
-                  className="w-full border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-50"
-                >
-                  <Send className="w-3.5 h-3.5 text-slate-500" />
-                  <span>
-                    {resendCooldown > 0 
-                      ? `إعادة إرسال الكود خلال (${resendCooldown} ثانية)` 
-                      : 'إعادة إرسال كود التفعيل الآن'}
-                  </span>
-                </button>
+                <p className="text-xs text-slate-500">
+                  لم يصلك كود التفعيل عبر {activeOtpMethod === 'whatsapp' ? 'الواتساب' : 'البريد'}؟
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleResendOtp()}
+                    disabled={resendCooldown > 0}
+                    className="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-700 font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2 text-xs cursor-pointer disabled:opacity-50"
+                  >
+                    <Send className="w-3.5 h-3.5 text-slate-500" />
+                    <span>
+                      {resendCooldown > 0 
+                        ? `إعادة الإرسال خلال (${resendCooldown} ث)` 
+                        : activeOtpMethod === 'whatsapp' 
+                        ? 'إعادة إرسال كود الواتساب' 
+                        : 'إعادة إرسال كود الإيميل'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleSwitchOtpMethod(activeOtpMethod === 'whatsapp' ? 'email' : 'whatsapp')}
+                    className="border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold py-2.5 px-3 rounded-xl transition flex items-center justify-center gap-1.5 text-xs cursor-pointer"
+                  >
+                    {activeOtpMethod === 'whatsapp' ? (
+                      <>
+                        <Mail className="w-3.5 h-3.5 text-blue-600" />
+                        <span>تحويل للإيميل</span>
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>تحويل للواتساب</span>
+                      </>
+                    )}
+                  </button>
+                </div>
 
                 <button
                   type="button"
@@ -568,7 +786,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                     setError('');
                     setSuccess('');
                   }}
-                  className="text-xs text-slate-400 hover:text-slate-600 underline pt-1 block mx-auto"
+                  className="text-xs text-slate-400 hover:text-slate-600 underline pt-1 block mx-auto cursor-pointer"
                 >
                   العودة لتسجيل الدخول
                 </button>
@@ -687,37 +905,85 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">الاسم الكامل</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">الاسم الكامل (الثلاثي أو الرباعي)</label>
                 <div className="relative">
                   <UserIcon className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="مثال: محمد الحربي"
+                    placeholder="مثال: محمد عبدالله الشمري"
                     required
-                    className="w-full text-sm pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                    className={`w-full text-sm pl-4 pr-10 py-2.5 border rounded-xl focus:outline-none transition-all ${
+                      name.trim().length > 0 && (name.trim().length < 10 || !name.trim().includes(' '))
+                        ? 'border-amber-300 focus:border-amber-500 bg-amber-50/20'
+                        : name.trim().length >= 10 && name.trim().includes(' ')
+                        ? 'border-emerald-300 focus:border-emerald-500'
+                        : 'border-slate-200 focus:border-navy'
+                    }`}
                   />
                 </div>
+                {/* تنويه الاسم الكامل */}
+                <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed bg-slate-50 p-2 rounded-lg border border-slate-200/80">
+                  <span className="font-bold text-navy">تنويه:</span> يجب ألا يقل الاسم بالكامل عن 10 أحرف ويتضمن مسافة بحيث يحتوي على اسم الأب والجد (مثال: محمد عبدالله الحربي).
+                </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">البريد الإلكتروني الحقيقي (للتفعيل)</label>
-                <div className="relative">
-                  <Mail className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="yourname@gmail.com"
-                    required
-                    className="w-full text-sm pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
-                  />
-                </div>
-              </div>
+              {(() => {
+                const emailStatus = email.trim() ? validateRealEmail(email) : null;
+                return (
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <label className="block text-xs font-semibold text-slate-600">البريد الإلكتروني الحقيقي (للتفعيل)</label>
+                      {email.trim().length > 0 && emailStatus && (
+                        emailStatus.isValid ? (
+                          <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3 text-emerald-600" /> بريد حقيقي معتمد
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-amber-700 font-semibold flex items-center gap-1">
+                            <AlertCircle className="w-3 h-3 text-amber-600" /> غير مكتمل / غير صالح
+                          </span>
+                        )
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Mail className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
+                      <input
+                        type="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value.replace(/\s+/g, ''))}
+                        placeholder="yourname@gmail.com"
+                        required
+                        className={`w-full text-sm pl-4 pr-10 py-2.5 border rounded-xl focus:outline-none transition-all ${
+                          email.trim().length > 0 && emailStatus
+                            ? emailStatus.isValid
+                              ? 'border-emerald-300 focus:border-emerald-500 bg-emerald-50/15'
+                              : 'border-amber-300 focus:border-amber-500 bg-amber-50/20'
+                            : 'border-slate-200 focus:border-navy'
+                        }`}
+                        dir="ltr"
+                      />
+                    </div>
+                    {/* تنويه البريد الإلكتروني الحقيقي وملاحظة الخطأ الحية */}
+                    {email.trim().length > 0 && emailStatus && !emailStatus.isValid ? (
+                      <p className="text-[11px] text-amber-800 mt-1.5 leading-relaxed bg-amber-50 p-2 rounded-lg border border-amber-200 flex items-start gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                        <span>{emailStatus.error}</span>
+                      </p>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed bg-slate-50 p-2 rounded-lg border border-slate-200/80">
+                        <span className="font-bold text-navy">تنويه:</span> يجب إدخال بريد إلكتروني حقيقي ونشط (مثل Gmail أو Outlook أو Yahoo أو بريدك الرسمي) لاستلام كود التفعيل وتجنب إيقاف الحساب.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">رقم الهاتف للتواصل</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">
+                  رقم الهاتف (الواتساب للتفعيل والتواصل)
+                </label>
                 <div className="relative">
                   <Phone className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
                   <input
@@ -729,6 +995,9 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                     className="w-full text-sm pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
                   />
                 </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  يُستخدم للتواصل وتفعيل اشتراكك واستلام كود التفعيل عبر الواتساب.
+                </p>
               </div>
 
               <div>
@@ -764,24 +1033,63 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">كلمة السر (حروف وأرقام، لا تقل عن 8 خانات)</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">كلمة السر</label>
                 <div className="relative">
                   <Lock className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
                   <input
                     type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="أرقام وحروف مدمجة"
+                    placeholder="أدخل كلمة السر..."
                     required
-                    className="w-full text-sm pl-12 pr-10 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                    className={`w-full text-sm pl-12 pr-10 py-2.5 border rounded-xl focus:outline-none transition-all ${
+                      password.length > 0 && !validatePassword(password)
+                        ? 'border-amber-300 focus:border-amber-500 bg-amber-50/20'
+                        : password.length > 0 && validatePassword(password)
+                        ? 'border-emerald-300 focus:border-emerald-500'
+                        : 'border-slate-200 focus:border-navy'
+                    }`}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute left-3 top-3 text-slate-400 hover:text-navy"
+                    className="absolute left-3 top-3 text-slate-400 hover:text-navy cursor-pointer"
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
+                </div>
+
+                {/* تنويه كلمة السر والمؤشرات الحية */}
+                <div className="mt-2 p-2.5 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5">
+                  <p className="text-[11px] text-slate-700 leading-relaxed font-semibold">
+                    <span className="text-amber-800 font-extrabold">تنويه:</span> يجب وضع حرف كابيتال كبير (A-Z) ورمز خاص وتكون كلمة السر 8 خانات (حروف وأرقام).
+                  </p>
+                  <div className="grid grid-cols-2 gap-1.5 pt-1 text-[10px]">
+                    <div className={`flex items-center gap-1 font-medium ${password.length >= 8 ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${password.length >= 8 ? 'bg-emerald-100 text-emerald-700 font-bold' : 'bg-slate-200 text-slate-500'}`}>
+                        {password.length >= 8 ? '✓' : '•'}
+                      </span>
+                      <span>8 خانات على الأقل</span>
+                    </div>
+                    <div className={`flex items-center gap-1 font-medium ${/[A-Z]/.test(password) ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${/[A-Z]/.test(password) ? 'bg-emerald-100 text-emerald-700 font-bold' : 'bg-slate-200 text-slate-500'}`}>
+                        {/[A-Z]/.test(password) ? '✓' : '•'}
+                      </span>
+                      <span>حرف كابيتال (A-Z)</span>
+                    </div>
+                    <div className={`flex items-center gap-1 font-medium ${/[0-9]/.test(password) ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${/[0-9]/.test(password) ? 'bg-emerald-100 text-emerald-700 font-bold' : 'bg-slate-200 text-slate-500'}`}>
+                        {/[0-9]/.test(password) ? '✓' : '•'}
+                      </span>
+                      <span>أرقام (0-9)</span>
+                    </div>
+                    <div className={`flex items-center gap-1 font-medium ${/[^a-zA-Z0-9\u0600-\u06FF\s]/.test(password) ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                      <span className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[9px] ${/[^a-zA-Z0-9\u0600-\u06FF\s]/.test(password) ? 'bg-emerald-100 text-emerald-700 font-bold' : 'bg-slate-200 text-slate-500'}`}>
+                        {/[^a-zA-Z0-9\u0600-\u06FF\s]/.test(password) ? '✓' : '•'}
+                      </span>
+                      <span>رمز خاص (@ # $ ! %)</span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -807,12 +1115,81 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                 </div>
               </div>
 
+              {/* خيار طريقة استلام رمز التفعيل */}
+              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 space-y-2.5 mt-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Smartphone className="w-4 h-4 text-emerald-600" />
+                    <span>طريقة استلام كود التفعيل (OTP):</span>
+                  </span>
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full">
+                    متاح عبر الواتساب
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {/* تفعيل عبر الواتساب */}
+                  <button
+                    type="button"
+                    onClick={() => setPreferredMethod('whatsapp')}
+                    className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col gap-1 relative ${
+                      preferredMethod === 'whatsapp'
+                        ? 'bg-emerald-50/90 border-emerald-500 ring-2 ring-emerald-500/20 text-emerald-950 font-bold shadow-xs'
+                        : 'bg-white border-slate-200 hover:bg-slate-100/60 text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1 text-xs font-bold text-emerald-700">
+                        <MessageSquare className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>عبر الواتساب</span>
+                      </span>
+                      {preferredMethod === 'whatsapp' && (
+                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-normal leading-tight">
+                      يصلك الرمز مباشرة إلى رقمك في الواتساب
+                    </span>
+                  </button>
+
+                  {/* تفعيل عبر الإيميل */}
+                  <button
+                    type="button"
+                    onClick={() => setPreferredMethod('email')}
+                    className={`p-2.5 rounded-xl border text-right transition-all cursor-pointer flex flex-col gap-1 relative ${
+                      preferredMethod === 'email'
+                        ? 'bg-blue-50/90 border-blue-500 ring-2 ring-blue-500/20 text-blue-950 font-bold shadow-xs'
+                        : 'bg-white border-slate-200 hover:bg-slate-100/60 text-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="flex items-center gap-1 text-xs font-bold text-blue-700">
+                        <Mail className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                        <span>عبر الإيميل</span>
+                      </span>
+                      {preferredMethod === 'email' && (
+                        <CheckCircle className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                      )}
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-normal leading-tight">
+                      يصلك الرمز إلى صندوق بريدك الإلكتروني
+                    </span>
+                  </button>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-6 cursor-pointer disabled:opacity-50"
+                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-5 cursor-pointer disabled:opacity-50"
               >
-                <span>{isLoading ? 'جاري إنشاء الحساب...' : 'إنشاء الحساب وإرسال كود التفعيل (OTP)'}</span>
+                <span>
+                  {isLoading
+                    ? 'جاري تجهيز الحساب...'
+                    : preferredMethod === 'whatsapp'
+                    ? 'إنشاء الحساب وتفعيل عبر الواتساب (OTP)'
+                    : 'إنشاء الحساب وتفعيل عبر الإيميل (OTP)'}
+                </span>
               </button>
 
               <div className="relative my-6 text-center">

@@ -23,7 +23,8 @@ import {
   ShieldAlert,
   Crown,
   Edit,
-  Clock
+  Clock,
+  Layers
 } from 'lucide-react';
 import { User, AnnouncementBanner, SiteSettings } from './types';
 import { FirebaseService } from './lib/firebase';
@@ -41,6 +42,7 @@ import AdminControlSection from './components/AdminControlSection';
 import BannerModal from './components/BannerModal';
 import DetailModal from './components/DetailModal';
 import SubscriptionsSection from './components/SubscriptionsSection';
+import UserDashboardSection from './components/UserDashboardSection';
 import { HorsesScreensaver } from './components/HorsesScreensaver';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
@@ -49,7 +51,7 @@ import { SubscriptionService, FREE_USER_ADS_LIMIT } from './lib/subscriptionServ
 import { useVipCountdown } from './lib/useVipCountdown';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin' | 'subscriptions'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin' | 'subscriptions' | 'user-dashboard'>('home');
   const [currentUser, setCurrentUser] = useState<User | null>(null);
 
   const vipCountdown = useVipCountdown(
@@ -409,6 +411,7 @@ export default function App() {
                 </div>
               </button>
 
+
               {/* Subscriptions page shortcut */}
               <button
                 onClick={() => setIsSubscriptionsModalOpen(true)}
@@ -564,6 +567,30 @@ export default function App() {
               <span className="bg-amber-200/90 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-full">
                 VIP
               </span>
+            </button>
+
+            {/* User Dashboard Tab - صفحة المستخدم */}
+            <button
+              onClick={() => { setActiveTab('user-dashboard'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'user-dashboard' 
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md font-black' 
+                  : 'text-emerald-900 bg-emerald-50/80 hover:bg-emerald-100 border border-emerald-200/80'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Layers className={`w-4 h-4 ${activeTab === 'user-dashboard' ? 'text-white' : 'text-emerald-600'}`} />
+                <span>صفحة المستخدم (إعلاناتي)</span>
+              </div>
+              {currentUser && userTotalAds > 0 ? (
+                <span className="bg-emerald-200 text-emerald-950 text-[10px] font-black px-2 py-0.5 rounded-full font-mono">
+                  {userTotalAds} إعلان
+                </span>
+              ) : (
+                <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                  إدارة
+                </span>
+              )}
             </button>
 
             {/* Admin navigation tab if user is Admin */}
@@ -748,6 +775,29 @@ export default function App() {
               </button>
 
               <button
+                onClick={() => { setActiveTab('user-dashboard'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition ${
+                  activeTab === 'user-dashboard' 
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black' 
+                    : 'text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Layers className="w-4 h-4 text-emerald-600" />
+                  <span>صفحة المستخدم (إعلاناتي)</span>
+                </div>
+                {currentUser && userTotalAds > 0 ? (
+                  <span className="bg-emerald-200 text-emerald-950 text-[9px] font-black px-1.5 py-0.5 rounded-full font-mono">
+                    {userTotalAds} إعلان
+                  </span>
+                ) : (
+                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                    إدارة
+                  </span>
+                )}
+              </button>
+
+              <button
                 onClick={() => { setActiveTab('terms'); setIsMobileMenuOpen(false); }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'terms' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
               >
@@ -859,6 +909,16 @@ export default function App() {
             />
           )}
 
+          {activeTab === 'user-dashboard' && (
+            <UserDashboardSection
+              currentUser={currentUser}
+              onOpenAuth={() => setIsAuthOpen(true)}
+              onOpenProfile={() => setIsProfileOpen(true)}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+              onNavigateToTab={(t: string) => setActiveTab(t as any)}
+            />
+          )}
+
           {activeTab === 'terms' && (
             <TermsSection />
           )}
@@ -929,6 +989,25 @@ export default function App() {
         </button>
 
         <button
+          onClick={() => {
+            if (currentUser) {
+              setActiveTab('user-dashboard');
+            } else {
+              setIsAuthOpen(true);
+            }
+          }}
+          className={`flex flex-col items-center gap-1 p-2 transition-colors relative ${activeTab === 'user-dashboard' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Layers className={`w-5 h-5 ${activeTab === 'user-dashboard' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">إعلاناتي</span>
+          {currentUser && userTotalAds > 0 && (
+            <span className="absolute top-1 right-2 bg-emerald-500 text-white text-[8px] font-bold px-1 rounded-full font-mono">
+              {userTotalAds}
+            </span>
+          )}
+        </button>
+
+        <button
           onClick={() => setActiveTab('contact')}
           className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'contact' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
@@ -956,6 +1035,10 @@ export default function App() {
             localStorage.setItem('horses_forum_session', JSON.stringify(updatedUser));
           }}
           onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+          onNavigateToUserDashboard={() => {
+            setIsProfileOpen(false);
+            setActiveTab('user-dashboard');
+          }}
         />
       )}
 

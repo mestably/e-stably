@@ -26,7 +26,7 @@ import DetailModal from './DetailModal';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
 interface HomeSectionProps {
-  onSelectTab: (tab: 'horses' | 'stables' | 'shelter' | 'transport') => void;
+  onSelectTab: (tab: 'horses' | 'stables' | 'shelter' | 'transport' | 'user-dashboard' | 'subscriptions' | string) => void;
   currentUser?: User | null;
 }
 
@@ -541,31 +541,31 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
           <span className="text-[10px] sm:text-xs text-slate-400 font-medium">اختر القسم للبدء</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="departments_grid">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4" id="departments_grid">
           
           {/* Card 1: Horses */}
           <div
             onClick={() => onSelectTab('horses')}
-            className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
+            className="bg-white hover:border-gold/60 rounded-xl sm:rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between min-h-[175px] sm:h-48"
           >
             <div>
-              <div className="w-10 h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-4">
-                <Award className="w-5 h-5" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-2 sm:mb-4">
+                <Award className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <h5 className="font-bold text-slate-800 text-sm group-hover:text-navy transition-colors">
+              <h5 className="font-bold text-slate-800 text-xs sm:text-sm group-hover:text-navy transition-colors line-clamp-1">
                 الخيول (بيع وإيجار)
               </h5>
-              <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">
-                عروض الخيل العربية الأصيلة، المهور والجمال، الشعبية والسباقات للبيع أو الإيجار اليومي والشهري.
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                عروض الخيل العربية الأصيلة، المهور والجمال، الشعبية والسباقات للبيع أو الإيجار.
               </p>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-50 mt-2">
-              <span className="text-[10px] font-bold text-gold-dark bg-gold-light px-2 py-0.5 rounded-md">
-                {stats.horsesCount} إعلان متاح
+              <span className="text-[9px] sm:text-[10px] font-bold text-gold-dark bg-gold-light px-1.5 sm:px-2 py-0.5 rounded-md truncate">
+                {stats.horsesCount} إعلان
               </span>
-              <span className="text-[10px] text-navy font-bold flex items-center gap-1 group-hover:underline">
-                تصفح الآن
-                <ArrowLeft className="w-3 h-3 text-gold" />
+              <span className="text-[9px] sm:text-[10px] text-navy font-bold flex items-center gap-0.5 sm:gap-1 group-hover:underline shrink-0">
+                تصفح
+                <ArrowLeft className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-gold" />
               </span>
             </div>
           </div>
@@ -573,26 +573,26 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
           {/* Card 2: Stables */}
           <div
             onClick={() => onSelectTab('stables')}
-            className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
+            className="bg-white hover:border-gold/60 rounded-xl sm:rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between min-h-[175px] sm:h-48"
           >
             <div>
-              <div className="w-10 h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-4">
-                <HomeIcon className="w-5 h-5" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-2 sm:mb-4">
+                <HomeIcon className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <h5 className="font-bold text-slate-800 text-sm group-hover:text-navy transition-colors">
+              <h5 className="font-bold text-slate-800 text-xs sm:text-sm group-hover:text-navy transition-colors line-clamp-1">
                 الإسطبلات والمشروعات
               </h5>
-              <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">
-                دليل الإسطبلات المسجلة ومرابط إنتاج الجياد المعتمدة مع صور ووسائل التواصل المباشرة والتقييمات.
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                دليل الإسطبلات المسجلة ومرابط إنتاج الجياد المعتمدة مع صور ووسائل التواصل المباشرة.
               </p>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-50 mt-2">
-              <span className="text-[10px] font-bold text-navy bg-navy-light px-2 py-0.5 rounded-md">
-                {stats.stablesCount} مربط مسجل
+              <span className="text-[9px] sm:text-[10px] font-bold text-navy bg-navy-light px-1.5 sm:px-2 py-0.5 rounded-md truncate">
+                {stats.stablesCount} مربط
               </span>
-              <span className="text-[10px] text-navy font-bold flex items-center gap-1 group-hover:underline">
-                تصفح الآن
-                <ArrowLeft className="w-3 h-3 text-gold" />
+              <span className="text-[9px] sm:text-[10px] text-navy font-bold flex items-center gap-0.5 sm:gap-1 group-hover:underline shrink-0">
+                تصفح
+                <ArrowLeft className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-gold" />
               </span>
             </div>
           </div>
@@ -600,26 +600,26 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
           {/* Card 3: Shelters */}
           <div
             onClick={() => onSelectTab('shelter')}
-            className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
+            className="bg-white hover:border-gold/60 rounded-xl sm:rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between min-h-[175px] sm:h-48"
           >
             <div>
-              <div className="w-10 h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-4">
-                <ShieldCheck className="w-5 h-5" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-2 sm:mb-4">
+                <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <h5 className="font-bold text-slate-800 text-sm group-hover:text-navy transition-colors">
+              <h5 className="font-bold text-slate-800 text-xs sm:text-sm group-hover:text-navy transition-colors line-clamp-1">
                 خدمات الإيواء والبوكسات
               </h5>
-              <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">
-                خدمات حجز البوكسات، الرعاية الطبية، تغذية وتدريب الخيول بشكل احترافي تحت إشراف طاقم فني.
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                خدمات حجز البوكسات، الرعاية الطبية، تغذية وتدريب الخيول بشكل احترافي.
               </p>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-50 mt-2">
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md">
-                {stats.sheltersCount} مركز إيواء
+              <span className="text-[9px] sm:text-[10px] font-bold text-emerald-700 bg-emerald-50 px-1.5 sm:px-2 py-0.5 rounded-md truncate">
+                {stats.sheltersCount} إيواء
               </span>
-              <span className="text-[10px] text-navy font-bold flex items-center gap-1 group-hover:underline">
-                تصفح الآن
-                <ArrowLeft className="w-3 h-3 text-gold" />
+              <span className="text-[9px] sm:text-[10px] text-navy font-bold flex items-center gap-0.5 sm:gap-1 group-hover:underline shrink-0">
+                تصفح
+                <ArrowLeft className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-gold" />
               </span>
             </div>
           </div>
@@ -627,26 +627,26 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
           {/* Card 4: Transports */}
           <div
             onClick={() => onSelectTab('transport')}
-            className="bg-white hover:border-gold/60 rounded-2xl p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between h-48"
+            className="bg-white hover:border-gold/60 rounded-xl sm:rounded-2xl p-3 sm:p-5 border border-slate-100 shadow-xs hover:shadow-md transition-all duration-300 cursor-pointer group text-right flex flex-col justify-between min-h-[175px] sm:h-48"
           >
             <div>
-              <div className="w-10 h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-4">
-                <Truck className="w-5 h-5" />
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-navy-light text-navy flex items-center justify-center group-hover:bg-navy group-hover:text-gold transition-colors duration-300 mb-2 sm:mb-4">
+                <Truck className="w-4 h-4 sm:w-5 sm:h-5" />
               </div>
-              <h5 className="font-bold text-slate-800 text-sm group-hover:text-navy transition-colors">
+              <h5 className="font-bold text-slate-800 text-xs sm:text-sm group-hover:text-navy transition-colors line-clamp-1">
                 نقل الخيول والمقطورات
               </h5>
-              <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2">
-                رحلات نقل الجياد ومشاركة الرحلات، مقطورات مكيفة، نقل سريع وموثق بمختلف مناطق ومدن المملكة.
+              <p className="text-[10px] sm:text-[11px] text-slate-400 mt-1 line-clamp-2 leading-relaxed">
+                رحلات نقل الجياد ومشاركة الرحلات، مقطورات مكيفة، نقل سريع وموثق.
               </p>
             </div>
             <div className="flex justify-between items-center pt-2 border-t border-slate-50 mt-2">
-              <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md">
-                {stats.transportsCount} رحلة نشطة
+              <span className="text-[9px] sm:text-[10px] font-bold text-indigo-700 bg-indigo-50 px-1.5 sm:px-2 py-0.5 rounded-md truncate">
+                {stats.transportsCount} رحلة
               </span>
-              <span className="text-[10px] text-navy font-bold flex items-center gap-1 group-hover:underline">
-                تصفح الآن
-                <ArrowLeft className="w-3 h-3 text-gold" />
+              <span className="text-[9px] sm:text-[10px] text-navy font-bold flex items-center gap-0.5 sm:gap-1 group-hover:underline shrink-0">
+                تصفح
+                <ArrowLeft className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-gold" />
               </span>
             </div>
           </div>

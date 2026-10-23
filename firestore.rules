@@ -34,5 +34,8 @@ service cloud.firestore {
     match /subscription_codes/{docId} {
       allow read, write: if true;
     }
+    match /bank_receipts/{docId} {
+      allow read, write: if true;
+    }
   }
 }

@@ -37,6 +37,137 @@ export function isSystemAdminEmail(emailOrNickname?: string): boolean {
   return ADMIN_EMAILS.includes(clean) || clean.endsWith('@m-estably.com') || clean === 'mfc' || clean === 'admin';
 }
 
+export function normalizePhone(rawPhone?: string): string {
+  if (!rawPhone) return '';
+  let cleaned = String(rawPhone).replace(/[^\d+]/g, '');
+  if (cleaned.startsWith('+')) cleaned = cleaned.slice(1);
+  if (cleaned.startsWith('00')) cleaned = cleaned.slice(2);
+
+  // Saudi Arabia prefix: 05xxxxxxxx -> 9665xxxxxxxx, or 5xxxxxxxx -> 9665xxxxxxxx
+  if (/^05\d{8}$/.test(cleaned)) {
+    cleaned = '966' + cleaned.slice(1);
+  } else if (/^5\d{8}$/.test(cleaned)) {
+    cleaned = '966' + cleaned;
+  }
+  // Egypt prefix: 010..., 011..., 012..., 015... (11 digits: 01xxxxxxxxx) -> 201xxxxxxxxx
+  else if (/^01[0125]\d{8}$/.test(cleaned)) {
+    cleaned = '20' + cleaned.slice(1);
+  } else if (/^1[0125]\d{8}$/.test(cleaned)) {
+    cleaned = '20' + cleaned;
+  }
+  // UAE prefix: 050..., 052..., 054..., 055..., 056..., 058... -> 9715xxxxxxxx
+  else if (/^05[024568]\d{7}$/.test(cleaned)) {
+    cleaned = '971' + cleaned.slice(1);
+  }
+  // Kuwait: 8 digits starting with 5, 6, 9 -> 965xxxxxxxx
+  else if (/^[569]\d{7}$/.test(cleaned)) {
+    cleaned = '965' + cleaned;
+  }
+  // Qatar: 8 digits starting with 3, 5, 6, 7 -> 974xxxxxxxx
+  else if (/^[3567]\d{7}$/.test(cleaned)) {
+    cleaned = '974' + cleaned;
+  }
+  // Bahrain: 8 digits -> 973xxxxxxxx
+  else if (/^[369]\d{7}$/.test(cleaned)) {
+    cleaned = '973' + cleaned;
+  }
+  // Jordan: 07[789]xxxxxxx -> 9627xxxxxxxx
+  else if (/^07[789]\d{7}$/.test(cleaned)) {
+    cleaned = '962' + cleaned.slice(1);
+  } else if (cleaned.startsWith('0') && cleaned.length >= 9) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+const DISPOSABLE_EMAIL_DOMAINS = new Set([
+  'mailinator.com', '10minutemail.com', 'tempmail.com', 'temp-mail.org', 'temp-mail.io',
+  'guerrillamail.com', 'yopmail.com', 'sharklasers.com', 'trashmail.com', 'getnada.com',
+  'dispostable.com', 'maildrop.cc', 'fakeinbox.com', 'mytemp.email', 'inboxkitten.com',
+  'mohmal.com', 'throwawaymail.com', 'emailondeck.com', 'burnermail.io', 'generator.email',
+  'crazymailing.com', 'dropmail.me', 'getairmail.com', 'nada.ltd', 'minuteinbox.com',
+  'test.com', 'example.com', 'fake.com', 'asdf.com', 'none.com', 'noemail.com',
+  'sample.com', 'domain.com', 'foo.com', 'bar.com', 'invalid.com', 'temporary.com',
+  'mailcatch.com', 'mytempemail.com', 'throwaway.com'
+]);
+
+export function validateRealEmail(rawEmail?: string): { isValid: boolean; error?: string } {
+  if (!rawEmail || !rawEmail.trim()) {
+    return { isValid: false, error: 'يرجى إدخال البريد الإلكتروني.' };
+  }
+  const email = rawEmail.trim().toLowerCase();
+
+  // 1. No spaces or Arabic letters
+  if (/[\s\u0600-\u06FF]/.test(email)) {
+    return { isValid: false, error: 'يجب أن يُكتب البريد الإلكتروني بحروف إنجليزية وبدون أي مسافات.' };
+  }
+
+  // 2. Strict RFC email regex
+  const emailRegex = /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/;
+  if (!emailRegex.test(email)) {
+    return { isValid: false, error: 'صيغة البريد الإلكتروني غير صحيحة (مثال: name@gmail.com).' };
+  }
+
+  const parts = email.split('@');
+  if (parts.length !== 2) {
+    return { isValid: false, error: 'البريد الإلكتروني يجب أن يحتوي على علامة @ واحدة فقط.' };
+  }
+
+  const [username, domain] = parts;
+
+  // 3. Username length & patterns
+  if (username.length < 2) {
+    return { isValid: false, error: 'اسم المستخدم في البريد الإلكتروني قصير جداً (حرفان على الأقل قبل @).' };
+  }
+
+  const dummyUsernames = ['test', 'asdf', 'fake', 'none', 'dummy', 'temp', '123', '12345', 'aaa', 'abc', 'xyz', 'noemail'];
+  if (dummyUsernames.includes(username)) {
+    return { isValid: false, error: 'يرجى إدخال بريد إلكتروني حقيقي وشخصي وليس اسماً وهمياً أو تجريبياً.' };
+  }
+
+  // 4. Domain & TLD checks
+  const domainParts = domain.split('.');
+  if (domainParts.length < 2) {
+    return { isValid: false, error: 'نطاق البريد الإلكتروني غير مكتمل (يجب أن يحتوي على نقطة مثل .com).' };
+  }
+
+  const tld = domainParts[domainParts.length - 1];
+  if (tld.length < 2 || !/^[a-zA-Z]+$/.test(tld)) {
+    return { isValid: false, error: 'امتداد نطاق البريد غير صالح (يجب أن ينتهي بـ .com أو .net أو كود دولة).' };
+  }
+
+  // 5. Disposable / fake domains
+  if (DISPOSABLE_EMAIL_DOMAINS.has(domain)) {
+    return { isValid: false, error: 'نطاق البريد المدخل يعتبر بريداً مؤقتاً أو وهمياً. يرجى إدخال بريدك الحقيقي الدائم (مثل Gmail أو Outlook أو Yahoo).' };
+  }
+
+  // 6. Username and domain should not be identical
+  if (username === domainParts[0]) {
+    return { isValid: false, error: 'البريد الإلكتروني يبدو وهمياً. يرجى كتابة بريدك الإلكتروني الحقيقي.' };
+  }
+
+  return { isValid: true };
+}
+
+export interface SendOtpParams {
+  email: string;
+  phone?: string;
+  method?: 'email' | 'whatsapp';
+}
+
+export interface SendOtpResponse {
+  email: string;
+  phone?: string;
+  method?: 'email' | 'whatsapp';
+  sentViaRealApi: boolean;
+  apiDeliveryMethod?: string;
+  fallbackCode?: string;
+  previewUrl?: string;
+  whatsappUrl?: string;
+  whatsappWebUrl?: string;
+  whatsappMessage?: string;
+}
+
 export const AuthService = {
   /**
    * Prepares a new user structure without saving it to DB yet.
@@ -51,6 +182,12 @@ export const AuthService = {
   }): Promise<User> {
     const cleanEmail = data.email.trim().toLowerCase();
     const cleanNick = data.nickname.trim().toLowerCase();
+
+    // Verify email validity
+    const emailValidation = validateRealEmail(cleanEmail);
+    if (!emailValidation.isValid) {
+      throw new Error(emailValidation.error || 'البريد الإلكتروني غير صالح، يرجى إدخال بريد إلكتروني حقيقي.');
+    }
 
     const users = await FirebaseService.getUsers();
     const existingByEmail = users.find((u) => u.email.toLowerCase() === cleanEmail);
@@ -79,13 +216,19 @@ export const AuthService = {
   },
 
   /**
-   * Returns the cached active OTP code for this email if available.
+   * Returns the cached active OTP code for this email or phone if available.
    */
-  getLatestOtpCode(email: string): string {
-    const cleanEmail = email.trim().toLowerCase();
+  getLatestOtpCode(emailOrPhone: string): string {
+    if (!emailOrPhone) return '';
+    const clean = emailOrPhone.trim().toLowerCase();
+    const cleanP = normalizePhone(emailOrPhone);
     if (typeof window !== 'undefined') {
       try {
-        return sessionStorage.getItem('local_otp_' + cleanEmail) || '';
+        return (
+          sessionStorage.getItem('local_otp_' + clean) ||
+          (cleanP ? sessionStorage.getItem('local_otp_' + cleanP) : '') ||
+          ''
+        );
       } catch (e) {}
     }
     return '';
@@ -106,24 +249,47 @@ export const AuthService = {
   },
 
   /**
-   * Generates and dispatches a 6-digit OTP code via backend API & real email service.
-   * Seamlessly falls back to local OTP if server is unavailable or returns an error.
+   * Generates and dispatches a 6-digit OTP code via email or WhatsApp.
    */
-  async sendOtpCode(email: string): Promise<{ email: string; sentViaRealApi: boolean; apiDeliveryMethod?: string; fallbackCode?: string; previewUrl?: string }> {
-    const cleanEmail = email.trim().toLowerCase();
+  async sendOtpCode(
+    target: string | SendOtpParams,
+    optionalPhone?: string,
+    optionalMethod: 'email' | 'whatsapp' = 'email'
+  ): Promise<SendOtpResponse> {
+    const cleanEmail = typeof target === 'string' ? target.trim().toLowerCase() : target.email.trim().toLowerCase();
+    const rawPhone = typeof target === 'string' ? optionalPhone : (target.phone || optionalPhone);
+    const cleanPhone = normalizePhone(rawPhone);
+    const method = typeof target === 'string' ? optionalMethod : (target.method || optionalMethod);
+    const isWhatsApp = method === 'whatsapp' || (!cleanEmail && Boolean(cleanPhone));
+
     const localCode = Math.floor(100000 + Math.random() * 900000).toString();
 
+    // Cache locally
     if (typeof window !== 'undefined') {
       try {
-        sessionStorage.setItem('local_otp_' + cleanEmail, localCode);
+        if (cleanEmail) sessionStorage.setItem('local_otp_' + cleanEmail, localCode);
+        if (cleanPhone) sessionStorage.setItem('local_otp_' + cleanPhone, localCode);
       } catch (e) {}
     }
+
+    const defaultWhatsappMsg = `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز تفعيل حسابك (OTP) هو: *${localCode}*\n\nالرمز صالح لمدة 10 دقائق لتأكيد رقم هاتفك وتفعيل اشتراكك في المنصة.`;
+    const encodedDefaultMsg = encodeURIComponent(defaultWhatsappMsg);
+    const defaultWhatsappUrl = cleanPhone 
+      ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedDefaultMsg}`
+      : '';
+    const defaultWhatsappWebUrl = cleanPhone
+      ? `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedDefaultMsg}`
+      : '';
 
     try {
       const res = await fetch('/api/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail })
+        body: JSON.stringify({ 
+          email: cleanEmail, 
+          phone: cleanPhone, 
+          method: isWhatsApp ? 'whatsapp' : 'email' 
+        })
       });
 
       if (res.ok) {
@@ -136,44 +302,59 @@ export const AuthService = {
         if (data.success) {
           if (data.otpToken && typeof window !== 'undefined') {
             try {
-              sessionStorage.setItem('otp_token_' + cleanEmail, data.otpToken);
+              if (cleanEmail) sessionStorage.setItem('otp_token_' + cleanEmail, data.otpToken);
+              if (cleanPhone) sessionStorage.setItem('otp_token_' + cleanPhone, data.otpToken);
             } catch (e) {}
           }
 
-          if (data.fallbackCode && typeof window !== 'undefined') {
+          const activeCode = data.fallbackCode || data.code || localCode;
+          if (activeCode && typeof window !== 'undefined') {
             try {
-              sessionStorage.setItem('local_otp_' + cleanEmail, data.fallbackCode);
+              if (cleanEmail) sessionStorage.setItem('local_otp_' + cleanEmail, activeCode);
+              if (cleanPhone) sessionStorage.setItem('local_otp_' + cleanPhone, activeCode);
             } catch (e) {}
           }
 
           const isReal = data.apiDeliveryMethod && !data.apiDeliveryMethod.includes('محلياً');
           return {
             email: cleanEmail,
+            phone: cleanPhone,
+            method: isWhatsApp ? 'whatsapp' : 'email',
             sentViaRealApi: Boolean(isReal),
             apiDeliveryMethod: data.apiDeliveryMethod,
-            fallbackCode: data.fallbackCode || localCode,
-            previewUrl: data.previewUrl
+            fallbackCode: activeCode,
+            previewUrl: data.previewUrl,
+            whatsappUrl: data.whatsappUrl || defaultWhatsappUrl,
+            whatsappWebUrl: data.whatsappWebUrl || defaultWhatsappWebUrl,
+            whatsappMessage: data.whatsappMessage || defaultWhatsappMsg
           };
         }
       }
     } catch (netErr) {
-      console.warn('Network or server error during send-otp, using local OTP fallback:', netErr);
+      console.warn('Network or server error during send-otp, using fallback:', netErr);
     }
 
-    // Fallback if server returned non-ok status or network failed
+    // Fallback response
     return {
       email: cleanEmail,
-      sentViaRealApi: false,
-      apiDeliveryMethod: 'كود التفعيل محلياً (وضع التطوير)',
-      fallbackCode: localCode
+      phone: cleanPhone,
+      method: isWhatsApp ? 'whatsapp' : 'email',
+      sentViaRealApi: isWhatsApp,
+      apiDeliveryMethod: isWhatsApp ? 'واتساب (WhatsApp OTP)' : 'كود التفعيل محلياً (وضع التطوير)',
+      fallbackCode: localCode,
+      whatsappUrl: defaultWhatsappUrl,
+      whatsappWebUrl: defaultWhatsappWebUrl,
+      whatsappMessage: defaultWhatsappMsg
     };
   },
 
   /**
    * Verifies the 6-digit OTP code using server API with client fallback.
+   * Supports email or phone number verification.
    */
-  async verifyOtpCode(email: string, inputCode: string): Promise<boolean> {
-    const cleanEmail = email.trim().toLowerCase();
+  async verifyOtpCode(emailOrPhone: string, inputCode: string, optionalPhone?: string): Promise<boolean> {
+    const cleanEmail = emailOrPhone.includes('@') ? emailOrPhone.trim().toLowerCase() : '';
+    const cleanPhone = normalizePhone(optionalPhone || (!emailOrPhone.includes('@') ? emailOrPhone : ''));
     const cleanCode = inputCode.trim();
 
     if (!cleanCode || cleanCode.length !== 6) {
@@ -184,15 +365,24 @@ export const AuthService = {
     let otpToken = '';
     if (typeof window !== 'undefined') {
       try {
-        localCode = sessionStorage.getItem('local_otp_' + cleanEmail) || '';
-        otpToken = sessionStorage.getItem('otp_token_' + cleanEmail) || '';
+        if (cleanEmail) {
+          localCode = sessionStorage.getItem('local_otp_' + cleanEmail) || localCode;
+          otpToken = sessionStorage.getItem('otp_token_' + cleanEmail) || otpToken;
+        }
+        if (cleanPhone) {
+          localCode = sessionStorage.getItem('local_otp_' + cleanPhone) || localCode;
+          otpToken = sessionStorage.getItem('otp_token_' + cleanPhone) || otpToken;
+        }
       } catch (e) {}
     }
 
     // Direct local check if code matches generated local code
     if (localCode && cleanCode === localCode) {
       const users = await FirebaseService.getUsers();
-      const existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+      const existingUser = users.find(u => 
+        (cleanEmail && u.email.toLowerCase() === cleanEmail) ||
+        (cleanPhone && normalizePhone(u.phone) === cleanPhone)
+      );
       if (existingUser) {
         existingUser.isVerified = true;
         await FirebaseService.saveUser(existingUser);
@@ -204,7 +394,12 @@ export const AuthService = {
       const res = await fetch('/api/verify-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: cleanEmail, code: cleanCode, otpToken })
+        body: JSON.stringify({ 
+          email: cleanEmail, 
+          phone: cleanPhone, 
+          code: cleanCode, 
+          otpToken 
+        })
       });
 
       const text = await res.text();
@@ -215,7 +410,10 @@ export const AuthService = {
 
       if (res.ok && data.success) {
         const users = await FirebaseService.getUsers();
-        const existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+        const existingUser = users.find(u => 
+          (cleanEmail && u.email.toLowerCase() === cleanEmail) ||
+          (cleanPhone && normalizePhone(u.phone) === cleanPhone)
+        );
         if (existingUser) {
           existingUser.isVerified = true;
           await FirebaseService.saveUser(existingUser);
@@ -235,7 +433,10 @@ export const AuthService = {
     // Final check for local code fallback
     if (localCode && cleanCode === localCode) {
       const users = await FirebaseService.getUsers();
-      const existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+      const existingUser = users.find(u => 
+        (cleanEmail && u.email.toLowerCase() === cleanEmail) ||
+        (cleanPhone && normalizePhone(u.phone) === cleanPhone)
+      );
       if (existingUser) {
         existingUser.isVerified = true;
         await FirebaseService.saveUser(existingUser);

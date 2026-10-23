@@ -46,17 +46,24 @@ import {
   Play,
   Key,
   MessageCircle,
+  MessageSquare,
   Copy,
-  Check
+  Check,
+  Landmark
 } from 'lucide-react';
 import { User, Horse, Stable, Shelter, Transport, AnnouncementBanner, SiteSettings, SubscriptionCode } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { SubscriptionService } from '../lib/subscriptionService';
 import { compressImage } from '../lib/imageUtils';
 import ConfirmModal from './ConfirmModal';
+import DetailModal from './DetailModal';
+import AdVerifiedBadge from './AdVerifiedBadge';
+import AdminBankReceiptsSection from './AdminBankReceiptsSection';
+import { isAdVerified, getEditPermissionRemaining, getAdCategoryTitle, getAdTitle } from '../lib/adPermissions';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 import { realWhiteHorseClipartUrl, realHorseIconUrl } from './ArabianHorseClipartHelper';
 import { ArabianHorseWhiteOnBlueIcon } from './ArabianHorseWhiteOnBlueIcon';
+import { formatHorseAge } from '../lib/horseUtils';
 import { getVipRemainingTime } from '../lib/countdownHelper';
 
 interface AdminControlSectionProps {
@@ -65,9 +72,19 @@ interface AdminControlSectionProps {
 }
 
 export default function AdminControlSection({ currentUser, onSiteSettingsUpdated }: AdminControlSectionProps) {
-  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'screensaver' | 'logo' | 'site' | 'subscriptions'>('screensaver');
+  const [activeTab, setActiveTab] = useState<'users' | 'listings' | 'banner' | 'screensaver' | 'logo' | 'site' | 'subscriptions' | 'verification' | 'bank_receipts'>('verification');
+  const [pendingReceiptsCount, setPendingReceiptsCount] = useState<number>(0);
+  const [totalReceiptsCount, setTotalReceiptsCount] = useState<number>(0);
   const [listingCategory, setListingCategory] = useState<'all' | 'horses' | 'stables' | 'shelters' | 'transports'>('all');
+  const [listingEditFilter, setListingEditFilter] = useState<'all' | 'pending_only'>('all');
   
+  // Verification Section State
+  const [verificationCategory, setVerificationCategory] = useState<'all' | 'horses' | 'stables' | 'shelters' | 'transports'>('all');
+  const [verificationStatusFilter, setVerificationStatusFilter] = useState<'all' | 'verified' | 'unverified'>('all');
+  const [verificationPermissionFilter, setVerificationPermissionFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [verificationSearchQuery, setVerificationSearchQuery] = useState('');
+  const [previewAdModal, setPreviewAdModal] = useState<{ item: any; type: 'horse' | 'stable' | 'shelter' | 'transport' } | null>(null);
+
   // Data State
   const [users, setUsers] = useState<User[]>([]);
   const [horses, setHorses] = useState<Horse[]>([]);
@@ -168,7 +185,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const loadData = async () => {
     setIsLoading(true);
     try {
-      const [u, h, s, sh, t, b, st, codes] = await Promise.all([
+      const [u, h, s, sh, t, b, st, codes, receipts] = await Promise.all([
         FirebaseService.getUsers(),
         FirebaseService.getHorses(),
         FirebaseService.getStables(),
@@ -176,7 +193,8 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         FirebaseService.getTransports(),
         FirebaseService.getBanner(),
         FirebaseService.getSiteSettings(),
-        SubscriptionService.getAllCodes()
+        SubscriptionService.getAllCodes(),
+        FirebaseService.getBankReceipts()
       ]);
       setUsers(u);
       setHorses(h);
@@ -184,6 +202,8 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       setShelters(sh);
       setTransports(t);
       setSubscriptionCodes(codes);
+      setTotalReceiptsCount(receipts.length);
+      setPendingReceiptsCount(receipts.filter(r => r.status === 'pending').length);
       if (b) {
         setBanner(b);
         setBannerEnabled(b.enabled ?? true);
@@ -664,6 +684,169 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     }
   };
 
+  // --- EDIT APPROVAL ADMIN ACTIONS ---
+
+  const handleApproveListingEdit = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => {
+    try {
+      const pendingData = item.pendingEditData || {};
+      const updated = {
+        ...item,
+        ...pendingData,
+        isPendingEditApproval: false,
+        pendingEditData: null,
+        pendingEditApprovedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      if (type === 'horse') {
+        await FirebaseService.saveHorse(updated);
+        setHorses(prev => prev.map(h => h.id === updated.id ? updated : h));
+      } else if (type === 'stable') {
+        await FirebaseService.saveStable(updated);
+        setStables(prev => prev.map(s => s.id === updated.id ? updated : s));
+      } else if (type === 'shelter') {
+        await FirebaseService.saveShelter(updated);
+        setShelters(prev => prev.map(sh => sh.id === updated.id ? updated : sh));
+      } else if (type === 'transport') {
+        await FirebaseService.saveTransport(updated);
+        setTransports(prev => prev.map(t => t.id === updated.id ? updated : t));
+      }
+      showNotify('success', `تمت الموافقة على تعديلات إعلان "${updated.title || updated.name}" ونشره رسمياً للمستخدمين بنجاح! ✓`);
+    } catch (err) {
+      showNotify('error', 'فشل اعتماد ونشر التعديل.');
+    }
+  };
+
+  const handleRejectListingEdit = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => {
+    try {
+      const updated = {
+        ...item,
+        isPendingEditApproval: false,
+        pendingEditData: null,
+        pendingEditRejectedAt: new Date().toISOString()
+      };
+      if (type === 'horse') {
+        await FirebaseService.saveHorse(updated);
+        setHorses(prev => prev.map(h => h.id === updated.id ? updated : h));
+      } else if (type === 'stable') {
+        await FirebaseService.saveStable(updated);
+        setStables(prev => prev.map(s => s.id === updated.id ? updated : s));
+      } else if (type === 'shelter') {
+        await FirebaseService.saveShelter(updated);
+        setShelters(prev => prev.map(sh => sh.id === updated.id ? updated : sh));
+      } else if (type === 'transport') {
+        await FirebaseService.saveTransport(updated);
+        setTransports(prev => prev.map(t => t.id === updated.id ? updated : t));
+      }
+      showNotify('success', `تم رفض التعديل والإبقاء على البيانات الأصلية لإعلان "${item.title || item.name}".`);
+    } catch (err) {
+      showNotify('error', 'فشل الإجراء.');
+    }
+  };
+
+  // --- VERIFICATION & 12-HOUR PERMISSION ADMIN ACTIONS ---
+
+  const handleToggleVerifyListing = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => {
+    const willBeVerified = !isAdVerified(item);
+    try {
+      if (type === 'horse') {
+        const updated: Horse = {
+          ...item,
+          isVerified: willBeVerified,
+          verifiedAt: willBeVerified ? new Date().toISOString() : undefined
+        };
+        await FirebaseService.saveHorse(updated);
+        setHorses(prev => prev.map(h => h.id === updated.id ? updated : h));
+      } else if (type === 'stable') {
+        const updated: Stable = {
+          ...item,
+          isVerified: willBeVerified,
+          verified: willBeVerified ? 'verified' : 'unverified',
+          verifiedAt: willBeVerified ? new Date().toISOString() : undefined
+        };
+        await FirebaseService.saveStable(updated);
+        setStables(prev => prev.map(s => s.id === updated.id ? updated : s));
+      } else if (type === 'shelter') {
+        const updated: Shelter = {
+          ...item,
+          isVerified: willBeVerified,
+          verifiedAt: willBeVerified ? new Date().toISOString() : undefined
+        };
+        await FirebaseService.saveShelter(updated);
+        setShelters(prev => prev.map(sh => sh.id === updated.id ? updated : sh));
+      } else if (type === 'transport') {
+        const updated: Transport = {
+          ...item,
+          isVerified: willBeVerified,
+          verifiedAt: willBeVerified ? new Date().toISOString() : undefined
+        };
+        await FirebaseService.saveTransport(updated);
+        setTransports(prev => prev.map(t => t.id === updated.id ? updated : t));
+      }
+
+      showNotify(
+        'success',
+        willBeVerified
+          ? `تم توثيق إعلان "${getAdTitle(item)}" رسمياً بنجاح ومنحه شارة التوثيق الرسمية 🛡️!`
+          : `تم إلغاء التوثيق عن إعلان "${getAdTitle(item)}".`
+      );
+    } catch (err) {
+      showNotify('error', 'حدث خطأ أثناء تحديث حالة التوثيق.');
+    }
+  };
+
+  const handleGrantEditPermission = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport', hours: number = 12) => {
+    try {
+      const expiresAt = new Date(Date.now() + hours * 3600 * 1000).toISOString();
+      if (type === 'horse') {
+        const updated: Horse = { ...item, editPermissionExpiresAt: expiresAt };
+        await FirebaseService.saveHorse(updated);
+        setHorses(prev => prev.map(h => h.id === updated.id ? updated : h));
+      } else if (type === 'stable') {
+        const updated: Stable = { ...item, editPermissionExpiresAt: expiresAt };
+        await FirebaseService.saveStable(updated);
+        setStables(prev => prev.map(s => s.id === updated.id ? updated : s));
+      } else if (type === 'shelter') {
+        const updated: Shelter = { ...item, editPermissionExpiresAt: expiresAt };
+        await FirebaseService.saveShelter(updated);
+        setShelters(prev => prev.map(sh => sh.id === updated.id ? updated : sh));
+      } else if (type === 'transport') {
+        const updated: Transport = { ...item, editPermissionExpiresAt: expiresAt };
+        await FirebaseService.saveTransport(updated);
+        setTransports(prev => prev.map(t => t.id === updated.id ? updated : t));
+      }
+
+      showNotify('success', `تم منح المعلن صلاحية التعديل والحذف (${hours} ساعة) بنجاح ⏱️!`);
+    } catch (err) {
+      showNotify('error', 'حدث خطأ أثناء منح الصلاحية.');
+    }
+  };
+
+  const handleRevokeEditPermission = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => {
+    try {
+      if (type === 'horse') {
+        const updated: Horse = { ...item, editPermissionExpiresAt: undefined };
+        await FirebaseService.saveHorse(updated);
+        setHorses(prev => prev.map(h => h.id === updated.id ? updated : h));
+      } else if (type === 'stable') {
+        const updated: Stable = { ...item, editPermissionExpiresAt: undefined };
+        await FirebaseService.saveStable(updated);
+        setStables(prev => prev.map(s => s.id === updated.id ? updated : s));
+      } else if (type === 'shelter') {
+        const updated: Shelter = { ...item, editPermissionExpiresAt: undefined };
+        await FirebaseService.saveShelter(updated);
+        setShelters(prev => prev.map(sh => sh.id === updated.id ? updated : sh));
+      } else if (type === 'transport') {
+        const updated: Transport = { ...item, editPermissionExpiresAt: undefined };
+        await FirebaseService.saveTransport(updated);
+        setTransports(prev => prev.map(t => t.id === updated.id ? updated : t));
+      }
+
+      showNotify('success', 'تم إلغاء صلاحية التعديل فوراً.');
+    } catch (err) {
+      showNotify('error', 'حدث خطأ أثناء إلغاء الصلاحية.');
+    }
+  };
+
   // Filtered lists
   const filteredUsers = users.filter(u => {
     const matchesSearch = 
@@ -687,13 +870,49 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     ...transports.map(t => ({ ...t, listingType: 'transport' as const, title: `نقل: ${t.vehicleType}` }))
   ];
 
+  const pendingEditsCount = allListings.filter(item => item.isPendingEditApproval).length;
+
   const filteredListings = allListings.filter(item => {
+    if (listingEditFilter === 'pending_only' && !item.isPendingEditApproval) return false;
     const matchesCat = listingCategory === 'all' ? true : item.listingType === listingCategory.replace(/s$/, '');
     const matchesSearch = 
       item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (item.userName && item.userName.toLowerCase().includes(searchQuery.toLowerCase())) ||
       (item.phone && item.phone.includes(searchQuery));
     return matchesCat && matchesSearch;
+  });
+
+  // Verification tab stats & filtered listings
+  const verifiedListingsCount = allListings.filter(item => isAdVerified(item)).length;
+  const unverifiedListingsCount = allListings.length - verifiedListingsCount;
+  const activePermissionsCount = allListings.filter(item => {
+    if (!item.editPermissionExpiresAt) return false;
+    return new Date(item.editPermissionExpiresAt).getTime() > Date.now();
+  }).length;
+
+  const filteredVerificationListings = allListings.filter(item => {
+    if (verificationCategory !== 'all' && item.listingType !== verificationCategory.replace(/s$/, '')) return false;
+
+    const verified = isAdVerified(item);
+    if (verificationStatusFilter === 'verified' && !verified) return false;
+    if (verificationStatusFilter === 'unverified' && verified) return false;
+
+    const hasActivePermission = Boolean(
+      item.editPermissionExpiresAt && new Date(item.editPermissionExpiresAt).getTime() > Date.now()
+    );
+    if (verificationPermissionFilter === 'active' && !hasActivePermission) return false;
+    if (verificationPermissionFilter === 'inactive' && hasActivePermission) return false;
+
+    if (verificationSearchQuery.trim()) {
+      const q = verificationSearchQuery.toLowerCase().trim();
+      const titleMatch = (item.title || item.name || '').toLowerCase().includes(q);
+      const userMatch = (item.userName || '').toLowerCase().includes(q);
+      const phoneMatch = (item.phone || '').includes(q);
+      const idMatch = (item.id || '').toLowerCase().includes(q);
+      if (!titleMatch && !userMatch && !phoneMatch && !idMatch) return false;
+    }
+
+    return true;
   });
 
   const pendingCodesCount = subscriptionCodes.filter(c => c.status === 'pending').length;
@@ -759,7 +978,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       )}
 
       {/* Statistics Header Cards (Clickable shortcuts to admin sections) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div 
           onClick={() => setActiveTab('users')}
           className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between ${
@@ -790,6 +1009,33 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
           </div>
         </div>
 
+        {/* Verification Hub Stat Card (Direct Shortcut) */}
+        <div 
+          onClick={() => setActiveTab('verification')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between ${
+            activeTab === 'verification' 
+              ? 'bg-amber-100/80 border-amber-500 ring-2 ring-amber-400/50' 
+              : 'bg-gradient-to-br from-amber-50/90 to-white hover:bg-amber-50 border-amber-300/80'
+          }`}
+          title="انقر للانتقال لقسم التوثيق واعتماد الإعلانات"
+        >
+          <div>
+            <span className="text-[11px] font-bold text-amber-900 block">قسم التوثيق</span>
+            <div className="flex items-center gap-1 mt-0.5">
+              <span className="text-xl font-extrabold text-amber-950 font-mono">{verifiedListingsCount}</span>
+              <span className="text-[10px] text-amber-700 font-bold">/ {allListings.length}</span>
+              {unverifiedListingsCount > 0 && (
+                <span className="text-[9.5px] bg-amber-500 text-white px-1.5 py-0.2 rounded-full font-black">
+                  {unverifiedListingsCount} متبقي
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-700 flex items-center justify-center">
+            <ShieldCheck className="w-5 h-5 text-amber-600" />
+          </div>
+        </div>
+
         <div 
           onClick={() => setActiveTab('listings')}
           className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between ${
@@ -799,7 +1045,14 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         >
           <div>
             <span className="text-[11px] font-bold text-slate-400 block">إجمالي الإعلانات</span>
-            <span className="text-xl font-extrabold text-gold-dark font-mono">{allListings.length}</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-xl font-extrabold text-gold-dark font-mono">{allListings.length}</span>
+              {pendingEditsCount > 0 && (
+                <span className="text-[9.5px] bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded-full font-black animate-pulse">
+                  {pendingEditsCount} تعديل للاعتماد
+                </span>
+              )}
+            </div>
           </div>
           <div className="w-10 h-10 rounded-xl bg-gold-light text-gold-dark flex items-center justify-center">
             <FileText className="w-5 h-5" />
@@ -820,7 +1073,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
           </div>
         </div>
 
-        {/* 5th Card: Subscriptions & Codes shortcut */}
+        {/* 6th Card: Subscriptions & Codes shortcut */}
         <div 
           onClick={() => setActiveTab('subscriptions')}
           className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between col-span-2 sm:col-span-1 ${
@@ -845,6 +1098,36 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
             <Crown className="w-5 h-5" />
           </div>
         </div>
+
+        {/* 7th Card: Bank Receipts Shortcut */}
+        <div 
+          onClick={() => setActiveTab('bank_receipts')}
+          className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between col-span-2 sm:col-span-1 ${
+            activeTab === 'bank_receipts' 
+              ? 'bg-emerald-100/80 border-emerald-500 ring-2 ring-emerald-400/40' 
+              : 'bg-gradient-to-br from-emerald-50/80 to-white hover:bg-emerald-50 border-emerald-300/80'
+          }`}
+          title="انقر للانتقال لصفحة الحسابات المرفوعة وإيصالات السداد"
+        >
+          <div>
+            <span className="text-[11px] font-bold text-emerald-900 block">إيصالات السداد البنكي</span>
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-xl font-extrabold text-emerald-950 font-mono">{totalReceiptsCount}</span>
+              {pendingReceiptsCount > 0 ? (
+                <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
+                  {pendingReceiptsCount} جديد ⏳
+                </span>
+              ) : (
+                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-bold">
+                  مكتمل ✓
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-700 flex items-center justify-center">
+            <Landmark className="w-5 h-5" />
+          </div>
+        </div>
       </div>
 
       {/* Main Tabs Navigation - Fully Responsive, Scrollable, and Subscriptions Visible in Priority Position */}
@@ -856,17 +1139,23 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
             <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
               <span>الانتقال السريع للقسم:</span>
             </span>
-            {pendingCodesCount > 0 && (
+            {pendingReceiptsCount > 0 ? (
+              <span className="text-[10px] font-black bg-emerald-600 text-white px-2 py-0.5 rounded-full animate-pulse">
+                {pendingReceiptsCount} إيصال بنكي بانتظار الاعتماد
+              </span>
+            ) : pendingCodesCount > 0 ? (
               <span className="text-[10px] font-black bg-red-600 text-white px-2 py-0.5 rounded-full animate-pulse">
                 {pendingCodesCount} كود بانتظار الاعتماد
               </span>
-            )}
+            ) : null}
           </div>
           <select
             value={activeTab}
             onChange={(e) => setActiveTab(e.target.value as any)}
             className="w-full bg-white border border-slate-300 rounded-xl py-2 px-3 text-xs font-bold text-slate-800 shadow-xs focus:outline-none focus:border-navy"
           >
+            <option value="bank_receipts">💳 الحسابات المرفوعة من المستخدمين ({totalReceiptsCount}) {pendingReceiptsCount > 0 ? `(${pendingReceiptsCount} جديد)` : ''}</option>
+            <option value="verification">🛡️ قسم التوثيق واعتماد الإعلانات ({verifiedListingsCount}/{allListings.length} موثق)</option>
             <option value="subscriptions">👑 إدارة الاشتراكات والأكواد ({subscriptionCodes.length}) {pendingCodesCount > 0 ? `(${pendingCodesCount} بانتظار الاعتماد)` : ''}</option>
             <option value="users">👥 إدارة المستخدمين ({users.length})</option>
             <option value="listings">📄 إدارة الإعلانات والخدمات ({allListings.length})</option>
@@ -877,9 +1166,53 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
           </select>
         </div>
 
-        {/* Scrollable Tabs Bar with High-Priority Subscriptions Tab in 3rd Position */}
+        {/* Scrollable Tabs Bar with High-Priority Verification & Subscriptions Tabs */}
         <div className="flex items-stretch overflow-x-auto scrollbar-thin scrollbar-thumb-slate-300 scrollbar-track-transparent px-2 sm:px-4 pt-2 gap-1 sm:gap-2">
           
+          {/* TAB: BANK RECEIPTS (الحسابات المرفوعة من المستخدمين) */}
+          <button
+            onClick={() => setActiveTab('bank_receipts')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl shadow-xs ${
+              activeTab === 'bank_receipts' 
+                ? 'border-emerald-600 text-emerald-950 font-black bg-gradient-to-t from-emerald-100/90 via-emerald-50 to-emerald-50 ring-1 ring-emerald-400/40' 
+                : 'border-emerald-300/80 text-emerald-900 bg-emerald-50/60 hover:bg-emerald-100/70 hover:text-emerald-950'
+            }`}
+          >
+            <Landmark className={`w-4 h-4 ${activeTab === 'bank_receipts' ? 'text-emerald-700 fill-emerald-500/20' : 'text-emerald-600'}`} />
+            <span>الحسابات المرفوعة من المستخدمين ({totalReceiptsCount})</span>
+            {pendingReceiptsCount > 0 ? (
+              <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse shadow-xs">
+                {pendingReceiptsCount} إيصال جديد ⏳
+              </span>
+            ) : (
+              <span className="bg-emerald-200/80 text-emerald-900 text-[10px] px-1.5 py-0.2 rounded-md font-bold">
+                إيداع بنكي
+              </span>
+            )}
+          </button>
+
+          {/* TAB: VERIFICATION (قسم التوثيق) - High Priority Tab */}
+          <button
+            onClick={() => setActiveTab('verification')}
+            className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
+              activeTab === 'verification' 
+                ? 'border-amber-600 text-amber-950 font-black bg-gradient-to-t from-amber-100/90 via-amber-50 to-amber-50 ring-1 ring-amber-400/40 shadow-xs' 
+                : 'border-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+            }`}
+          >
+            <ShieldCheck className={`w-4 h-4 ${activeTab === 'verification' ? 'text-amber-600' : 'text-amber-500'}`} />
+            <span>قسم التوثيق ({verifiedListingsCount}/{allListings.length})</span>
+            {unverifiedListingsCount > 0 ? (
+              <span className="bg-amber-500 text-white text-[10px] px-2 py-0.5 rounded-full font-black shadow-2xs">
+                {unverifiedListingsCount} بانتظار التوثيق
+              </span>
+            ) : (
+              <span className="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 py-0.2 rounded font-bold">
+                موثق بالكامل ✓
+              </span>
+            )}
+          </button>
+
           {/* TAB 1: Users */}
           <button
             onClick={() => setActiveTab('users')}
@@ -902,7 +1235,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
             <span>إدارة الإعلانات والخدمات ({allListings.length})</span>
           </button>
 
-          {/* TAB 3: SUBSCRIPTIONS & CODES (Placed in top priority row, fully visible and accessible!) */}
+          {/* TAB 3: SUBSCRIPTIONS & CODES */}
           <button
             onClick={() => setActiveTab('subscriptions')}
             className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl shadow-xs ${
@@ -1269,6 +1602,20 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
               >
                 النقل ({transports.length})
               </button>
+
+              {/* Pending Edits Filter Button */}
+              <button
+                onClick={() => setListingEditFilter(prev => prev === 'pending_only' ? 'all' : 'pending_only')}
+                className={`px-3 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${
+                  listingEditFilter === 'pending_only'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs ring-2 ring-amber-300'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100 font-bold border border-amber-200'
+                }`}
+                title="تصفية الإعلانات التي قام أصحابها بتعديلها وبانتظار موافقة الإدارة"
+              >
+                <Clock className="w-3.5 h-3.5 text-amber-700" />
+                <span>تعديلات بانتظار الاعتماد ({pendingEditsCount})</span>
+              </button>
             </div>
 
             {/* Search */}
@@ -1326,6 +1673,12 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                             متاح / نشط
                           </span>
                         )}
+                        {item.isPendingEditApproval && (
+                          <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-amber-400 text-slate-950 border border-amber-300 flex items-center gap-1 animate-pulse">
+                            <Clock className="w-2.5 h-2.5" />
+                            تعديل بانتظار الاعتماد
+                          </span>
+                        )}
                         <span className="text-[10px] text-slate-400 font-mono">{new Date(item.createdAt).toLocaleDateString('ar-SA')}</span>
                       </div>
 
@@ -1343,6 +1696,125 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                       )}
                     </div>
                   </div>
+
+                  {/* Pending Edit Approval Banner & Actions */}
+                  {item.isPendingEditApproval && (
+                    <div className="w-full bg-amber-50/90 border border-amber-300 p-3 sm:p-3.5 rounded-2xl shadow-xs space-y-2.5 text-xs text-right dir-rtl">
+                      {/* Header with status badge */}
+                      <div className="flex items-center justify-between gap-2 border-b border-amber-200/80 pb-2">
+                        <div className="flex items-center gap-2 font-bold text-amber-950">
+                          <Clock className="w-4 h-4 text-amber-600 shrink-0 animate-pulse" />
+                          <span className="text-xs sm:text-sm font-black">قام المستخدم بطلب تعديل وهو:</span>
+                        </div>
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold bg-amber-200/80 text-amber-900 border border-amber-300 shrink-0">
+                          <span className="w-1.5 h-1.5 rounded-full bg-amber-600 animate-ping"></span>
+                          تحت المراجعة
+                        </span>
+                      </div>
+
+                      {/* Proposed Changes formatted neatly in responsive cards */}
+                      {item.pendingEditData && (
+                        <div className="bg-white/90 rounded-xl p-2.5 border border-amber-200/90 text-slate-800 space-y-2 shadow-2xs">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[11px]">
+                            {item.pendingEditData.name && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">الاسم:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.name}</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.title && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">العنوان:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.title}</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.price !== undefined && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">السعر الجديد:</span>
+                                <span className="font-black text-emerald-700">{Number(item.pendingEditData.price).toLocaleString()} ريال</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.phone && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">رقم الهاتف:</span>
+                                <span className="font-mono font-bold text-slate-800" dir="ltr">{item.pendingEditData.phone}</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.breed && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">السلالة:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.breed}</span>
+                              </div>
+                            )}
+                            {(item.pendingEditData.age !== undefined || item.pendingEditData.ageMonths !== undefined) && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">العمر:</span>
+                                <span className="font-semibold text-slate-900 truncate">
+                                  {formatHorseAge(item.pendingEditData.age, item.pendingEditData.ageMonths, item.pendingEditData.ageYears)}
+                                </span>
+                              </div>
+                            )}
+                            {item.pendingEditData.color && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">اللون:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.color}</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.height && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">الارتفاع:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.height}</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.location && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">الموقع:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.location}</span>
+                              </div>
+                            )}
+                            {item.pendingEditData.city && (
+                              <div className="bg-amber-50/60 px-2 py-1.5 rounded-lg border border-amber-100 flex items-center justify-between gap-2">
+                                <span className="text-amber-900 font-bold shrink-0">المدينة:</span>
+                                <span className="font-semibold text-slate-900 truncate">{item.pendingEditData.city}</span>
+                              </div>
+                            )}
+                          </div>
+                          {item.pendingEditData.description && (
+                            <div className="bg-amber-50/60 px-2.5 py-1.5 rounded-lg border border-amber-100 text-[11px] leading-relaxed">
+                              <span className="text-amber-900 font-bold block mb-0.5">الوصف الجديد:</span>
+                              <p className="text-slate-800 break-words whitespace-pre-line">{item.pendingEditData.description}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Footer notice: "والإعلان في انتظار تحت المراجعة" */}
+                      <div className="flex items-center gap-1.5 text-[11px] text-amber-900 font-medium bg-amber-100/70 px-2.5 py-1.5 rounded-lg border border-amber-200/70">
+                        <AlertCircle className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                        <span>والإعلان في انتظار تحت المراجعة</span>
+                      </div>
+
+                      {/* Actions row: full width, responsive grid on mobile and desktop */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-amber-200/80">
+                        <button
+                          type="button"
+                          onClick={() => handleApproveListingEdit(item, item.listingType)}
+                          className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-extrabold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer"
+                        >
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>اعتماد ونشر التعديل ✓</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRejectListingEdit(item, item.listingType)}
+                          className="w-full py-2 px-3 bg-red-50 hover:bg-red-100 active:scale-[0.99] text-red-700 font-bold border border-red-200 rounded-xl text-xs flex items-center justify-center gap-1.5 transition cursor-pointer"
+                        >
+                          <X className="w-4 h-4" />
+                          <span>رفض التعديل</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Action Controls */}
                   <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-slate-200/60">
@@ -2808,6 +3280,447 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
 
         </div>
       )}
+
+      {/* TAB: VERIFICATION & AD DOCUMENTATION HUB (قسم التوثيق واعتماد الإعلانات) */}
+      {activeTab === 'verification' && (
+        <div className="bg-white rounded-b-2xl p-4 sm:p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-5">
+          
+          {/* Header Banner */}
+          <div className="bg-gradient-to-r from-amber-900 via-amber-800 to-[#3A2618] text-white p-5 sm:p-6 rounded-2xl shadow-md border border-amber-700/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3 sm:gap-4">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-amber-300 text-slate-950 flex items-center justify-center font-black shadow-md shrink-0">
+                <ShieldCheck className="w-7 h-7 text-amber-950" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base sm:text-lg font-black tracking-wide">
+                    قسم التوثيق واعتماد الإعلانات والصلاحيات
+                  </h2>
+                  <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-md shadow-2xs">
+                    خاص بالأدمن فقط 🛡️
+                  </span>
+                </div>
+                <p className="text-xs text-amber-100/90 mt-1 max-w-2xl leading-relaxed">
+                  هنا يمكن لمدير المنصة توثيق أي إعلان في أي قسم (خيول، إسطبلات، إيواء، نقل) ومنحه شارة التوثيق الرسمية، بالإضافة لمنح صلاحية الـ 12 ساعة للمعلنين لتعديل أو حذف أو تمييز إعلاناتهم كمباعة بعد مراسلتهم عبر الواتساب.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-start md:self-auto">
+              <span className="bg-white/10 border border-white/20 text-amber-100 text-xs px-3 py-2 rounded-xl font-bold flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-amber-300" />
+                <span>الموثق: {verifiedListingsCount} من {allListings.length}</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Quick Metrics Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            
+            <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl">
+              <span className="text-[11px] font-bold text-slate-500 block">إجمالي إعلانات المنصة</span>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-2xl font-black text-navy font-mono">{allListings.length}</span>
+                <span className="text-[10px] bg-navy/10 text-navy font-bold px-2 py-0.5 rounded-md">جميع الأقسام</span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50/80 border border-amber-300/80 rounded-2xl">
+              <span className="text-[11px] font-bold text-amber-900 block">الإعلانات الموثقة رسمياً</span>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-2xl font-black text-amber-950 font-mono">{verifiedListingsCount}</span>
+                <span className="text-[10px] bg-amber-500 text-white font-black px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  {allListings.length > 0 ? Math.round((verifiedListingsCount / allListings.length) * 100) : 0}%
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-amber-50/50 border border-amber-200/80 rounded-2xl">
+              <span className="text-[11px] font-bold text-amber-800 block">بانتظار التوثيق</span>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-2xl font-black text-amber-900 font-mono">{unverifiedListingsCount}</span>
+                {unverifiedListingsCount > 0 ? (
+                  <span className="text-[10px] bg-amber-200 text-amber-900 font-bold px-2 py-0.5 rounded-md">
+                    غير موثقة
+                  </span>
+                ) : (
+                  <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md">
+                    مكتمل ✓
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-emerald-50/70 border border-emerald-200/80 rounded-2xl">
+              <span className="text-[11px] font-bold text-emerald-900 block">صلاحية تعديل (12 ساعة) نشطة</span>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-2xl font-black text-emerald-950 font-mono">{activePermissionsCount}</span>
+                <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  متاحة الآن
+                </span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Filters & Search Control Bar */}
+          <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
+            
+            {/* Row 1: Category Selection Tabs */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-1 flex-wrap text-xs font-bold">
+                <button
+                  onClick={() => setVerificationCategory('all')}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    verificationCategory === 'all' ? 'bg-navy text-white shadow-2xs' : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  الكل ({allListings.length})
+                </button>
+                <button
+                  onClick={() => setVerificationCategory('horses')}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    verificationCategory === 'horses' ? 'bg-navy text-white shadow-2xs' : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  الخيول ({horses.length})
+                </button>
+                <button
+                  onClick={() => setVerificationCategory('stables')}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    verificationCategory === 'stables' ? 'bg-navy text-white shadow-2xs' : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  الإسطبلات ({stables.length})
+                </button>
+                <button
+                  onClick={() => setVerificationCategory('shelters')}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    verificationCategory === 'shelters' ? 'bg-navy text-white shadow-2xs' : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  الإيواء ({shelters.length})
+                </button>
+                <button
+                  onClick={() => setVerificationCategory('transports')}
+                  className={`px-3 py-1.5 rounded-xl transition cursor-pointer ${
+                    verificationCategory === 'transports' ? 'bg-navy text-white shadow-2xs' : 'bg-white text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  النقل ({transports.length})
+                </button>
+              </div>
+
+              {/* Search Box */}
+              <div className="relative w-full sm:w-72">
+                <Search className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={verificationSearchQuery}
+                  onChange={(e) => setVerificationSearchQuery(e.target.value)}
+                  placeholder="ابحث بالعنوان، المعلن، الجوال، الكود..."
+                  className="w-full text-xs pl-3 pr-9 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
+                />
+              </div>
+            </div>
+
+            {/* Row 2: Status & Permission Filters */}
+            <div className="flex items-center justify-between gap-3 flex-wrap pt-2 border-t border-slate-200/60 text-xs">
+              
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-slate-500 text-[11px]">حالة التوثيق:</span>
+                <button
+                  onClick={() => setVerificationStatusFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    verificationStatusFilter === 'all' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  الكل
+                </button>
+                <button
+                  onClick={() => setVerificationStatusFilter('verified')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center gap-1 ${
+                    verificationStatusFilter === 'verified' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>موثق فقط ({verifiedListingsCount})</span>
+                </button>
+                <button
+                  onClick={() => setVerificationStatusFilter('unverified')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center gap-1 ${
+                    verificationStatusFilter === 'unverified' ? 'bg-amber-600 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  <span>بانتظار التوثيق ({unverifiedListingsCount})</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="font-bold text-slate-500 text-[11px]">صلاحية التعديل (12 ساعة):</span>
+                <button
+                  onClick={() => setVerificationPermissionFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    verificationPermissionFilter === 'all' ? 'bg-navy text-white' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  الكل
+                </button>
+                <button
+                  onClick={() => setVerificationPermissionFilter('active')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer flex items-center gap-1 ${
+                    verificationPermissionFilter === 'active' ? 'bg-emerald-700 text-white' : 'bg-white text-emerald-800 border border-emerald-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>مفعلة حالياً ({activePermissionsCount})</span>
+                </button>
+                <button
+                  onClick={() => setVerificationPermissionFilter('inactive')}
+                  className={`px-2.5 py-1 rounded-lg font-bold transition cursor-pointer ${
+                    verificationPermissionFilter === 'inactive' ? 'bg-slate-700 text-white' : 'bg-white text-slate-600 border border-slate-200'
+                  }`}
+                >
+                  غير مفعلة
+                </button>
+              </div>
+
+            </div>
+
+          </div>
+
+          {/* Verification Listings Table / Cards */}
+          <div className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-2xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-right text-xs">
+                <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-extrabold">
+                  <tr>
+                    <th className="p-3.5">الإعلان والصورة</th>
+                    <th className="p-3.5">القسم والتصنيف</th>
+                    <th className="p-3.5">صاحب الإعلان والتواصل</th>
+                    <th className="p-3.5 text-center">حالة التوثيق 🛡️</th>
+                    <th className="p-3.5 text-center">صلاحية التعديل (12 ساعة) ⏱️</th>
+                    <th className="p-3.5 text-center">الإجراءات والتحكم</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredVerificationListings.map((item) => {
+                    const verified = isAdVerified(item);
+                    const permRemaining = getEditPermissionRemaining(item.editPermissionExpiresAt);
+                    const categoryTitle = getAdCategoryTitle(item.listingType);
+                    const adTitle = getAdTitle(item);
+                    const imageSrc = (item.images && item.images.length > 0) ? item.images[0] : (item.listingType === 'transport' ? defaultTransportImg : '/logo.jpg');
+                    const cleanPhone = (item.phone || '').replace(/[^0-9]/g, '');
+                    const waLink = cleanPhone ? `https://wa.me/${cleanPhone.startsWith('0') ? '966' + cleanPhone.slice(1) : cleanPhone}` : null;
+
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition">
+                        
+                        {/* Ad info & Thumbnail */}
+                        <td className="p-3.5">
+                          <div className="flex items-center gap-3">
+                            <img
+                              src={imageSrc}
+                              alt={adTitle}
+                              className="w-12 h-12 rounded-xl object-cover border border-slate-200 shrink-0 shadow-2xs"
+                            />
+                            <div className="min-w-0">
+                              <span className="font-extrabold text-slate-900 block truncate max-w-[220px]" title={adTitle}>
+                                {adTitle}
+                              </span>
+                              <div className="flex items-center gap-2 mt-0.5 text-[10px] text-slate-500">
+                                <span className="font-mono text-navy font-bold">#{item.id.slice(0, 8)}</span>
+                                {item.price ? (
+                                  <span className="text-emerald-700 font-bold font-mono">{Number(item.price).toLocaleString('ar-SA')} ريال</span>
+                                ) : (
+                                  <span>حسب الاتفاق</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Category */}
+                        <td className="p-3.5">
+                          <span className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                            item.listingType === 'horse' ? 'bg-amber-100 text-amber-900 border border-amber-300' :
+                            item.listingType === 'stable' ? 'bg-blue-100 text-blue-900 border border-blue-300' :
+                            item.listingType === 'shelter' ? 'bg-purple-100 text-purple-900 border border-purple-300' :
+                            'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                          }`}>
+                            {categoryTitle}
+                          </span>
+                          <span className="block text-[10px] text-slate-400 mt-1">
+                            {new Date(item.createdAt).toLocaleDateString('ar-SA')}
+                          </span>
+                        </td>
+
+                        {/* Advertiser info */}
+                        <td className="p-3.5">
+                          <div>
+                            <span className="font-bold text-slate-800 block">{item.userName || 'المعلن'}</span>
+                            {item.phone && (
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <span className="text-[11px] font-mono text-slate-600">{item.phone}</span>
+                                {waLink && (
+                                  <a
+                                    href={waLink}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="p-1 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded text-[9.5px] font-bold flex items-center gap-0.5 transition"
+                                    title="مراسلة المعلن على الواتساب"
+                                  >
+                                    <MessageSquare className="w-2.5 h-2.5" />
+                                    <span>واتس</span>
+                                  </a>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Verification Status Badge & One-Click Toggle */}
+                        <td className="p-3.5 text-center">
+                          {verified ? (
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="inline-flex items-center gap-1 bg-gradient-to-r from-amber-500 to-amber-600 text-white px-2.5 py-1 rounded-full text-[10.5px] font-black shadow-2xs">
+                                <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                                <span>موثق رسمياً</span>
+                              </span>
+                              <button
+                                onClick={() => handleToggleVerifyListing(item, item.listingType)}
+                                className="text-[10px] text-red-600 hover:underline font-semibold cursor-pointer"
+                                title="إلغاء اعتماد وتوثيق هذا الإعلان"
+                              >
+                                إلغاء التوثيق
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="inline-flex items-center gap-1 bg-slate-100 text-slate-600 border border-slate-200 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
+                                غير موثق ⏳
+                              </span>
+                              <button
+                                onClick={() => handleToggleVerifyListing(item, item.listingType)}
+                                className="bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-[11px] px-3 py-1 rounded-lg shadow-xs flex items-center gap-1 transition cursor-pointer"
+                                title="توثيق الإعلان رسمياً ومنحه شارة التوثيق"
+                              >
+                                <ShieldCheck className="w-3.5 h-3.5 text-white" />
+                                <span>توثيق الإعلان 🛡️</span>
+                              </button>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* 12-Hour Permission Status & Quick Actions */}
+                        <td className="p-3.5 text-center">
+                          {permRemaining.active ? (
+                            <div className="space-y-1">
+                              <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-900 border border-emerald-300 px-2.5 py-1 rounded-full text-[10px] font-black">
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                <span>مفعلة (متبقي {permRemaining.text})</span>
+                              </span>
+                              <div className="flex items-center justify-center gap-1 mt-1">
+                                <button
+                                  onClick={() => handleGrantEditPermission(item, item.listingType, 12)}
+                                  className="text-[9.5px] bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-1.5 py-0.5 rounded transition cursor-pointer"
+                                  title="إضافة 12 ساعة جديدة"
+                                >
+                                  تمديد +12س
+                                </button>
+                                <button
+                                  onClick={() => handleRevokeEditPermission(item, item.listingType)}
+                                  className="text-[9.5px] bg-red-50 hover:bg-red-100 text-red-700 font-bold px-1.5 py-0.5 rounded transition cursor-pointer"
+                                  title="إنهاء الصلاحية فوراً"
+                                >
+                                  إنهاء
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center gap-1.5">
+                              <span className="text-[10px] text-slate-400 font-medium">غير مفعلة</span>
+                              <button
+                                onClick={() => handleGrantEditPermission(item, item.listingType, 12)}
+                                className="bg-navy hover:bg-navy-dark text-white font-bold text-[10px] px-2.5 py-1 rounded-lg transition cursor-pointer shadow-2xs flex items-center gap-1"
+                                title="منح المعلن صلاحية التعديل والحذف لمدة 12 ساعة بناءً على طلبه"
+                              >
+                                <Clock className="w-3 h-3 text-gold" />
+                                <span>منح 12 ساعة ⏱️</span>
+                              </button>
+                            </div>
+                          )}
+                        </td>
+
+                        {/* Preview and Edit Controls */}
+                        <td className="p-3.5">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => setPreviewAdModal({ item, type: item.listingType })}
+                              className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition cursor-pointer"
+                              title="معاينة تفاصيل الإعلان والشهادات"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingListing({ type: item.listingType, item })}
+                              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition cursor-pointer"
+                              title="تعديل بيانات الإعلان كمدير"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteTarget({ type: item.listingType, id: item.id, name: adTitle })}
+                              className="p-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg transition cursor-pointer"
+                              title="حذف الإعلان نهائياً"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+
+                      </tr>
+                    );
+                  })}
+
+                  {filteredVerificationListings.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-slate-400 font-bold">
+                        لا توجد إعلانات مطابقة لشروط التصفية والبحث في قسم التوثيق.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {/* TAB: BANK RECEIPTS (صفحة الحسابات المرفوعة من المستخدمين) */}
+      {activeTab === 'bank_receipts' && (
+        <AdminBankReceiptsSection onNotification={(msg, type) => showNotify(type || 'success', msg)} />
+      )}
+
+      {/* --- PREVIEW AD DETAIL MODAL FOR ADMIN --- */}
+      {previewAdModal && (
+        <DetailModal
+          isOpen={true}
+          onClose={() => setPreviewAdModal(null)}
+          item={previewAdModal.item}
+          type={previewAdModal.type}
+          currentUser={currentUser}
+          onRefresh={loadData}
+          onEdit={(it) => {
+            setPreviewAdModal(null);
+            setEditingListing({ type: previewAdModal.type, item: it });
+          }}
+        />
+      )}
+
       {editingUser && (
         <EditUserAdminModal
           user={editingUser}
@@ -3008,10 +3921,16 @@ function EditListingAdminModal({ listingInfo, onClose, onSave }: { listingInfo: 
   const [userName, setUserName] = useState(item.userName || '');
   const [phone, setPhone] = useState(item.phone || '');
   const [price, setPrice] = useState(item.price ? String(item.price) : '');
+  const [ageYears, setAgeYears] = useState<number>(item.ageYears !== undefined ? item.ageYears : (item.age ? Math.floor(item.age) : 1));
+  const [ageMonths, setAgeMonths] = useState<number>(item.ageMonths || 0);
   const [description, setDescription] = useState(item.description || item.healthStatus || '');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const effectiveAge = ageYears > 0 
+      ? (ageMonths > 0 ? ageYears + parseFloat((ageMonths / 12).toFixed(2)) : ageYears)
+      : (ageMonths > 0 ? parseFloat((ageMonths / 12).toFixed(2)) : 0);
+
     const updated = {
       ...item,
       name: type === 'horse' || type === 'stable' ? title : item.name,
@@ -3019,6 +3938,9 @@ function EditListingAdminModal({ listingInfo, onClose, onSave }: { listingInfo: 
       userName,
       phone,
       price: price ? Number(price) : item.price,
+      age: type === 'horse' ? effectiveAge : item.age,
+      ageYears: type === 'horse' ? ageYears : item.ageYears,
+      ageMonths: type === 'horse' ? ageMonths : item.ageMonths,
       description: item.description !== undefined ? description : item.description,
       healthStatus: item.healthStatus !== undefined ? description : item.healthStatus,
       updatedAt: new Date().toISOString()
@@ -3050,6 +3972,43 @@ function EditListingAdminModal({ listingInfo, onClose, onSave }: { listingInfo: 
               <input type="tel" value={phone} onChange={e => setPhone(e.target.value)} className="w-full p-2.5 border rounded-xl" />
             </div>
           </div>
+
+          {type === 'horse' && (
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-navy">عمر الخيل (بالسنوات والشهور)</span>
+                <span className="text-[10px] font-bold text-navy bg-white px-2 py-0.5 rounded border border-slate-200">
+                  {formatHorseAge(ageYears, ageMonths, ageYears)}
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">السنوات</label>
+                  <select
+                    value={ageYears}
+                    onChange={e => setAgeYears(parseInt(e.target.value) || 0)}
+                    className="w-full text-xs p-2.5 border rounded-xl bg-white font-bold"
+                  >
+                    {Array.from({ length: 36 }, (_, i) => (
+                      <option key={i} value={i}>{i === 0 ? '0 سنة' : i === 1 ? '1 سنة' : i === 2 ? '2 سنتان' : `${i} سنوات`}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">الشهور</label>
+                  <select
+                    value={ageMonths}
+                    onChange={e => setAgeMonths(parseInt(e.target.value) || 0)}
+                    className="w-full text-xs p-2.5 border rounded-xl bg-white font-bold"
+                  >
+                    {Array.from({ length: 12 }, (_, i) => (
+                      <option key={i} value={i}>{i === 0 ? '0 شهر' : i === 1 ? '1 شهر' : i === 2 ? 'شهران' : `${i} أشهر`}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
 
           {'price' in item && (
             <div>
