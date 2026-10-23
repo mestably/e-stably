@@ -22,7 +22,6 @@ import {
   Cloud,
   ShieldAlert,
   Crown,
-  Edit,
   Clock,
   Layers
 } from 'lucide-react';
@@ -422,15 +421,6 @@ export default function App() {
                 <span className="hidden sm:inline text-[10px]">الاشتراكات</span>
               </button>
 
-              {/* Edit profile icon */}
-              <button
-                onClick={() => setIsProfileOpen(true)}
-                className="p-1.5 bg-navy/5 hover:bg-navy/10 text-navy rounded-lg transition cursor-pointer shrink-0 text-xs flex items-center gap-1 font-bold"
-                title="تعديل الملف الشخصي"
-              >
-                <Edit className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline text-[10px]">تعديل</span>
-              </button>
 
               {/* Admin Button if user is Admin */}
               {isAdmin && (
@@ -848,8 +838,18 @@ export default function App() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="بحث عن إعلان في ملتقى الخيول العربية..."
-                className="w-full text-xs pl-4 pr-10 py-2 border border-slate-200/60 rounded-xl focus:outline-none focus:border-navy bg-navy-light/40"
+                className="w-full text-xs pl-12 pr-10 py-2 border border-slate-200/60 rounded-xl focus:outline-none focus:border-navy bg-navy-light/40"
               />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute left-2.5 top-1.5 text-slate-400 hover:text-navy text-[11px] font-bold px-2 py-0.5 rounded-lg bg-slate-200/80 active:bg-slate-300 transition"
+                  title="مسح البحث"
+                >
+                  مسح
+                </button>
+              )}
             </div>
           )}
 

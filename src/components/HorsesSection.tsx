@@ -629,35 +629,54 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     }
   };
 
-  // Check if current user is authorized to view ended/sold items (only admin or the ad owner)
-  const canViewEnded = (userId: string) => {
+  // Check if current user is authorized to manage item
+  const canManageItem = (userId: string) => {
     if (!currentUser) return false;
     return currentUser.role === 'admin' || currentUser.id === userId;
   };
 
-  // Filter based on Type Tab, Authorization, and Global Search Query
+  // Filter based on Type Tab, and Global Search Query (visible on all devices including mobile guests)
+  const trimmedQuery = (searchQuery || '').trim().toLowerCase();
+
   const filteredHorses = horses.filter((horse) => {
-    // Hide sold items unless viewer is the admin or the owner of this ad
-    if (horse.isSold && !canViewEnded(horse.userId)) {
-      return false;
+    const matchesSearch = !trimmedQuery ||
+      (horse.name && horse.name.toLowerCase().includes(trimmedQuery)) ||
+      (horse.color && horse.color.toLowerCase().includes(trimmedQuery)) ||
+      (horse.healthStatus && horse.healthStatus.toLowerCase().includes(trimmedQuery)) ||
+      (horse.stableName && horse.stableName.toLowerCase().includes(trimmedQuery)) ||
+      (horse.userName && horse.userName.toLowerCase().includes(trimmedQuery)) ||
+      (horse.phone && horse.phone.includes(trimmedQuery)) ||
+      (horse.sireName && horse.sireName.toLowerCase().includes(trimmedQuery)) ||
+      (horse.damName && horse.damName.toLowerCase().includes(trimmedQuery)) ||
+      (horse.breed && (
+        (horse.breed === 'arabian' && (trimmedQuery.includes('عربي') || trimmedQuery.includes('أصيل'))) ||
+        (horse.breed === 'shabi' && trimmedQuery.includes('شعبي')) ||
+        (horse.breed === 'sisi' && trimmedQuery.includes('سيسي'))
+      ));
+
+    if (!matchesSearch) return false;
+
+    // If a specific search query is entered, show matching horses across all categories
+    if (trimmedQuery) return true;
+
+    // Filter by Tab
+    if (filterType === 'all') {
+      return true; // All ads (active and sold with clear badge) visible to everyone on mobile and desktop
+    }
+    if (filterType === 'sale') {
+      return horse.adType === 'sale' && !horse.isSold;
+    }
+    if (filterType === 'rent') {
+      return horse.adType === 'rent';
+    }
+    if (filterType === 'sold') {
+      return !!horse.isSold;
     }
 
-    const matchesTab = 
-      filterType === 'all' || 
-      (filterType === 'sale' && horse.adType === 'sale' && !horse.isSold) ||
-      (filterType === 'rent' && horse.adType === 'rent') ||
-      (filterType === 'sold' && horse.isSold && canViewEnded(horse.userId));
-
-    const matchesSearch = 
-      horse.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      horse.color.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      horse.healthStatus.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (horse.stableName && horse.stableName.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    return matchesTab && matchesSearch;
+    return true;
   });
 
-  const visibleSoldHorsesCount = horses.filter(h => h.isSold && canViewEnded(h.userId)).length;
+  const soldHorsesCount = horses.filter(h => h.isSold).length;
 
   return (
     <div className="space-y-6">
@@ -673,7 +692,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               filterType === 'all' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
             }`}
           >
-            الكل
+            الكل ({horses.length})
           </button>
           <button
             onClick={() => setFilterType('sale')}
@@ -681,7 +700,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               filterType === 'sale' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
             }`}
           >
-            خيول للبيع
+            خيول للبيع ({horses.filter(h => h.adType === 'sale' && !h.isSold).length})
           </button>
           <button
             onClick={() => setFilterType('rent')}
@@ -689,9 +708,9 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               filterType === 'rent' ? 'bg-white text-navy shadow-xs' : 'text-slate-500 hover:text-navy'
             }`}
           >
-            خيول للإيجار
+            خيول للإيجار ({horses.filter(h => h.adType === 'rent').length})
           </button>
-          {(currentUser?.role === 'admin' || visibleSoldHorsesCount > 0) && (
+          {soldHorsesCount > 0 && (
             <button
               onClick={() => setFilterType('sold')}
               className={`flex-1 sm:flex-initial py-1.5 px-3.5 rounded-lg font-bold text-xs transition flex items-center justify-center gap-1.5 ${
@@ -700,11 +719,9 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
             >
               <Tag className="w-3.5 h-3.5" />
               <span>تم البيع</span>
-              {visibleSoldHorsesCount > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${filterType === 'sold' ? 'bg-white/30 text-white' : 'bg-red-100 text-red-700'}`}>
-                  {visibleSoldHorsesCount}
-                </span>
-              )}
+              <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${filterType === 'sold' ? 'bg-white/30 text-white' : 'bg-red-100 text-red-700'}`}>
+                {soldHorsesCount}
+              </span>
             </button>
           )}
         </div>

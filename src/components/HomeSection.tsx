@@ -116,15 +116,12 @@ function buildSlidesFromData(
   stables: Stable[],
   shelters: Shelter[],
   transports: Transport[],
-  currentUser?: User | null
+  _currentUser?: User | null
 ): AdSlide[] {
   const realSlides: AdSlide[] = [];
 
-  // 1. Map Horses into slides (exclude sold unless admin or author)
+  // 1. Map Horses into slides
   horses.forEach((horse) => {
-    if (horse.isSold && !canViewEnded(horse.userId, currentUser)) {
-      return;
-    }
     const breedLabel = horse.breed === 'arabian' ? 'خيل عربي أصيل' : horse.breed === 'shabi' ? 'خيل شعبي' : 'سيسي';
     const priceLabel = horse.adType === 'sale'
       ? (horse.price && horse.price > 0 ? `${horse.price.toLocaleString('ar-SA')} ريال` : 'السعر حسب الاتفاق')
@@ -136,9 +133,9 @@ function buildSlidesFromData(
       id: `horse_${horse.id}`,
       title: `${horse.name} (${breedLabel})`,
       subtitle: `${healthOrDetails} • ${horse.stableName || 'إعلان مستخدم'}`,
-      tag: horse.adType === 'sale' ? (horse.isSold ? 'تم البيع' : 'خيل للبيع') : 'خيل للإيجار',
-      badgeColor: horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white',
-      price: priceLabel,
+      tag: horse.isSold ? 'تم البيع' : (horse.adType === 'sale' ? 'خيل للبيع' : 'خيل للإيجار'),
+      badgeColor: horse.isSold ? 'bg-red-600 text-white' : (horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white'),
+      price: horse.isSold ? 'تم البيع' : priceLabel,
       image: mainImage,
       actionTab: 'horses',
       itemType: 'horse',
@@ -147,18 +144,15 @@ function buildSlidesFromData(
     });
   });
 
-  // 2. Map Stables into slides (exclude completed/ended unless admin or author)
+  // 2. Map Stables into slides
   stables.forEach((stable) => {
-    if (stable.isEnded && !canViewEnded(stable.userId, currentUser)) {
-      return;
-    }
     const mainImage = (stable.images && stable.images.length > 0 && stable.images[0]) || 'https://images.unsplash.com/photo-1598974357801-cbca100e65d3?auto=format&fit=crop&q=80&w=1200';
     realSlides.push({
       id: `stable_${stable.id}`,
       title: stable.name,
       subtitle: stable.description || 'مربط وإسطبل متكامل لتربية وتدريب الخيول العربية',
       tag: stable.isEnded ? 'مكتمل / منتهي' : (stable.verified === 'verified' ? 'إسطبل موثق' : 'إسطبل ومربط'),
-      badgeColor: 'bg-navy text-gold border border-gold/40',
+      badgeColor: stable.isEnded ? 'bg-red-600 text-white' : 'bg-navy text-gold border border-gold/40',
       price: stable.horseCount ? `${stable.horseCount} خيل متوفر` : 'مرابط وخيول',
       image: mainImage,
       actionTab: 'stables',
@@ -168,18 +162,15 @@ function buildSlidesFromData(
     });
   });
 
-  // 3. Map Shelters into slides (exclude ended/occupied unless admin or author)
+  // 3. Map Shelters into slides
   shelters.forEach((shelter) => {
-    if (shelter.isEnded && !canViewEnded(shelter.userId, currentUser)) {
-      return;
-    }
     const mainImage = (shelter.images && shelter.images.length > 0 && shelter.images[0]) || 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=1200';
     realSlides.push({
       id: `shelter_${shelter.id}`,
       title: shelter.title,
       subtitle: shelter.description || 'خدمات إيواء وبوكسات مهواة مع رعاية بيطرية وغذائية كاملة',
       tag: shelter.isEnded ? 'مكتمل / منتهي' : (shelter.type === 'monthly' ? 'إيواء شهري' : 'إيواء يومي'),
-      badgeColor: 'bg-indigo-600 text-white',
+      badgeColor: shelter.isEnded ? 'bg-red-600 text-white' : 'bg-indigo-600 text-white',
       price: 'إيواء ورعاية متكاملة',
       image: mainImage,
       actionTab: 'shelter',
@@ -189,11 +180,8 @@ function buildSlidesFromData(
     });
   });
 
-  // 4. Map Transports into slides (exclude ended unless admin or author)
+  // 4. Map Transports into slides
   transports.forEach((transport) => {
-    if (transport.isEnded && !canViewEnded(transport.userId, currentUser)) {
-      return;
-    }
     const hasCustomImages = transport.images && Array.isArray(transport.images) && transport.images.length > 0 && !!transport.images[0];
     const mainImage = hasCustomImages ? transport.images![0] : defaultTransportImg;
     const priceLabel = transport.price ? `${transport.price.toLocaleString('ar-SA')} ريال` : 'عند الاتفاق';

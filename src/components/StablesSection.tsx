@@ -344,31 +344,23 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     }
   };
 
-  // Check if current user is authorized to view ended/completed items (only admin or the ad owner)
-  const canViewEnded = (userId: string) => {
-    if (!currentUser) return false;
-    return currentUser.role === 'admin' || currentUser.id === userId;
-  };
-
-  // Filter stables based on global search query and status filter
+  // Filter stables based on global search query and status filter (visible to all users on mobile & desktop)
+  const trimmedQuery = (searchQuery || '').trim().toLowerCase();
   const filteredStables = stables.filter((stable) => {
-    // Hide ended/completed stables unless viewer is admin or the stable owner
-    if (stable.isEnded && !canViewEnded(stable.userId)) {
-      return false;
-    }
-
-    const matchesSearch = 
-      stable.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      stable.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      stable.phone.includes(searchQuery);
+    const matchesSearch = !trimmedQuery ||
+      stable.name.toLowerCase().includes(trimmedQuery) ||
+      (stable.description && stable.description.toLowerCase().includes(trimmedQuery)) ||
+      (stable.phone && stable.phone.includes(trimmedQuery)) ||
+      (stable.userName && stable.userName.toLowerCase().includes(trimmedQuery));
     if (!matchesSearch) return false;
+    if (trimmedQuery) return true;
     if (statusFilter === 'active') return !stable.isEnded;
-    if (statusFilter === 'ended') return !!stable.isEnded && canViewEnded(stable.userId);
+    if (statusFilter === 'ended') return !!stable.isEnded;
     return true;
   });
 
-  const visibleStables = stables.filter((s) => !s.isEnded || canViewEnded(s.userId));
-  const visibleEndedCount = stables.filter((s) => !!s.isEnded && canViewEnded(s.userId)).length;
+  const visibleStables = stables;
+  const visibleEndedCount = stables.filter((s) => !!s.isEnded).length;
 
   // Highlight Stats: Outstanding Stables
   const verifiedCount = stables.filter((s) => s.verified === 'verified').length;
@@ -436,7 +428,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
           >
             المتاحة ({stables.filter(s => !s.isEnded).length})
           </button>
-          {(currentUser?.role === 'admin' || visibleEndedCount > 0) && (
+          {visibleEndedCount > 0 && (
             <button
               onClick={() => setStatusFilter('ended')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${

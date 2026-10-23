@@ -420,30 +420,24 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     }
   };
 
-  // Check if current user is authorized to view ended/completed trips (only admin or the ad owner)
-  const canViewEnded = (userId: string) => {
-    if (!currentUser) return false;
-    return currentUser.role === 'admin' || currentUser.id === userId;
-  };
-
+  // Filter transports based on search and statusFilter (accessible to all on mobile & desktop)
+  const trimmedQuery = (searchQuery || '').trim().toLowerCase();
   const filteredTransports = transports.filter((trans) => {
-    // Hide ended/completed trips unless viewer is admin or the ad owner
-    if (trans.isEnded && !canViewEnded(trans.userId)) {
-      return false;
-    }
-
-    const matchesSearch = 
-      trans.vehicleType.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trans.pickupAddress.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      trans.deliveryAddress.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesSearch = !trimmedQuery ||
+      trans.vehicleType.toLowerCase().includes(trimmedQuery) ||
+      (trans.pickupAddress && trans.pickupAddress.toLowerCase().includes(trimmedQuery)) ||
+      (trans.deliveryAddress && trans.deliveryAddress.toLowerCase().includes(trimmedQuery)) ||
+      (trans.phone && trans.phone.includes(trimmedQuery)) ||
+      (trans.userName && trans.userName.toLowerCase().includes(trimmedQuery));
     if (!matchesSearch) return false;
+    if (trimmedQuery) return true;
     if (statusFilter === 'active') return !trans.isEnded;
-    if (statusFilter === 'ended') return !!trans.isEnded && canViewEnded(trans.userId);
+    if (statusFilter === 'ended') return !!trans.isEnded;
     return true;
   });
 
-  const visibleTransports = transports.filter((t) => !t.isEnded || canViewEnded(t.userId));
-  const visibleEndedTransportsCount = transports.filter((t) => !!t.isEnded && canViewEnded(t.userId)).length;
+  const visibleTransports = transports;
+  const visibleEndedTransportsCount = transports.filter((t) => !!t.isEnded).length;
 
   // Simulated Coordinates Picker for cities in Saudi Arabia
   const handleCitySelect = (city: string, type: 'pickup' | 'delivery') => {
@@ -511,7 +505,7 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
           >
             المتاحة ({transports.filter(t => !t.isEnded).length})
           </button>
-          {(currentUser?.role === 'admin' || visibleEndedTransportsCount > 0) && (
+          {visibleEndedTransportsCount > 0 && (
             <button
               onClick={() => setStatusFilter('ended')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${

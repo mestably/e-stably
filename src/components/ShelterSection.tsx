@@ -416,32 +416,24 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     }
   };
 
-  // Check if current user is authorized to view ended/occupied items (only admin or the ad owner)
-  const canViewEnded = (userId: string) => {
-    if (!currentUser) return false;
-    return currentUser.role === 'admin' || currentUser.id === userId;
-  };
-
-  // Filter based on Search and statusFilter
+  // Filter based on Search and statusFilter (accessible to all on mobile & desktop)
+  const trimmedQuery = (searchQuery || '').trim().toLowerCase();
   const filteredShelters = shelters.filter((shelter) => {
-    // Hide ended/occupied shelters unless viewer is admin or the shelter owner
-    if (shelter.isEnded && !canViewEnded(shelter.userId)) {
-      return false;
-    }
-
-    const matchesSearch = 
-      shelter.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      shelter.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (shelter.stableName && shelter.stableName.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      shelter.phone.includes(searchQuery);
+    const matchesSearch = !trimmedQuery ||
+      shelter.title.toLowerCase().includes(trimmedQuery) ||
+      shelter.description.toLowerCase().includes(trimmedQuery) ||
+      (shelter.stableName && shelter.stableName.toLowerCase().includes(trimmedQuery)) ||
+      shelter.phone.includes(trimmedQuery) ||
+      (shelter.userName && shelter.userName.toLowerCase().includes(trimmedQuery));
     if (!matchesSearch) return false;
+    if (trimmedQuery) return true;
     if (statusFilter === 'active') return !shelter.isEnded;
-    if (statusFilter === 'ended') return !!shelter.isEnded && canViewEnded(shelter.userId);
+    if (statusFilter === 'ended') return !!shelter.isEnded;
     return true;
   });
 
-  const visibleShelters = shelters.filter((s) => !s.isEnded || canViewEnded(s.userId));
-  const visibleEndedSheltersCount = shelters.filter((s) => !!s.isEnded && canViewEnded(s.userId)).length;
+  const visibleShelters = shelters;
+  const visibleEndedSheltersCount = shelters.filter((s) => !!s.isEnded).length;
 
   return (
     <div className="space-y-6">
@@ -512,7 +504,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
           >
             المتاحة ({shelters.filter(s => !s.isEnded).length})
           </button>
-          {(currentUser?.role === 'admin' || visibleEndedSheltersCount > 0) && (
+          {visibleEndedSheltersCount > 0 && (
             <button
               onClick={() => setStatusFilter('ended')}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
