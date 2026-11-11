@@ -15,7 +15,8 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 function normalizePhone(rawPhone?: string): string {
   if (!rawPhone) return '';
@@ -232,7 +233,7 @@ async function sendAutomatedWhatsAppMessage(phone: string, message: string): Pro
 // API Endpoint handler functions
 async function handleSendOtp(req: express.Request, res: express.Response) {
   try {
-    const { email, phone, method = 'email' } = req.body || req.query || {};
+    const { email, phone, method = 'email', type = 'activation' } = req.body || req.query || {};
     if (!email && !phone) {
       return res.status(400).json({ success: false, error: 'البريد الإلكتروني أو رقم الهاتف مطلوب' });
     }
@@ -246,6 +247,7 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
     }
     const cleanPhone = normalizePhone(phone);
     const isWhatsApp = method === 'whatsapp' || (!cleanEmail && Boolean(cleanPhone));
+    const isReset = type === 'password_reset';
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes expiry
@@ -261,7 +263,9 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
     const otpToken = generateOtpToken(tokenTarget, code, expiresAt);
 
     if (isWhatsApp && cleanPhone) {
-      const whatsappMsg = `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز تفعيل حسابك (OTP) هو: *${code}*\n\nالرمز صالح لمدة 10 دقائق لتأكيد رقم هاتفك وتفعيل اشتراكك في المنصة.`;
+      const whatsappMsg = isReset
+        ? `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز استعادة كلمة المرور هو: *${code}*\n\nالرمز صالح لمدة 10 دقائق لتعيين كلمة مرور جديدة لحسابك.`
+        : `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز تفعيل حسابك (OTP) هو: *${code}*\n\nالرمز صالح لمدة 10 دقائق لتأكيد رقم هاتفك وتفعيل اشتراكك في المنصة.`;
       const encodedMsg = encodeURIComponent(whatsappMsg);
       const whatsappUrl = `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMsg}`;
       const whatsappWebUrl = `https://web.whatsapp.com/send?phone=${cleanPhone}&text=${encodedMsg}`;
@@ -269,11 +273,12 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
       // Attempt automated backend sending if provider configured
       const autoResult = await sendAutomatedWhatsAppMessage(cleanPhone, whatsappMsg);
 
-      console.log(`[WhatsApp OTP] Code ${code} prepared for phone: ${cleanPhone}. Automated sent: ${autoResult.sent}`);
+      console.log(`[WhatsApp OTP] Code ${code} prepared for phone: ${cleanPhone} (type: ${type}). Automated sent: ${autoResult.sent}`);
 
       return res.json({
         success: true,
         method: 'whatsapp',
+        type,
         email: cleanEmail,
         phone: cleanPhone,
         code,
@@ -290,6 +295,25 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
 
     let sentViaRealApi = false;
     let apiDeliveryMethod = '';
+
+    const emailSubject = isReset
+      ? 'رمز استعادة كلمة المرور في منصة إستابلي للخيول العربية'
+      : 'رمز تفعيل حسابك في منصة إستابلي للخيول العربية';
+
+    const emailHtml = `
+      <div dir="rtl" style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8fafc; border-radius: 12px; max-width: 500px; margin: 0 auto; border: 1px solid #e2e8f0;">
+        <h2 style="color: #0f172a; margin-top: 0;">${isReset ? 'استعادة كلمة المرور 🔐' : 'أهلاً بك في منصة إستابلي 🐎'}</h2>
+        <p style="color: #475569; font-size: 15px; line-height: 1.6;">
+          ${isReset ? 'تلقينا طلباً لاستعادة وتعيين كلمة المرور لحسابك. رمز التحقق هو:' : 'رمز تفعيل حسابك المكون من 6 أرقام هو:'}
+        </p>
+        <div style="background-color: #0f172a; color: #fbbf24; font-size: 32px; font-weight: bold; padding: 18px; text-align: center; border-radius: 12px; letter-spacing: 6px; margin: 24px 0;">
+          ${code}
+        </div>
+        <p style="color: #64748b; font-size: 13px;">هذا الرمز صالح لمدة 10 دقائق فقط. إذا لم تطلب استعادة كلمة المرور، يمكنك تجاهل هذه الرسالة بأمان.</p>
+        <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
+        <p style="color: #94a3b8; font-size: 11px; text-align: center;">منصة إستابلي للخيول العربية الأصيلة © 2026</p>
+      </div>
+    `;
 
     // 1. Brevo Email Configuration (REST API v3 & SMTP Relay)
     const defaultBrevoApiKey = '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';
@@ -314,19 +338,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
           body: JSON.stringify({
             sender: { name: 'منصة إستابلي للخيول', email: brevoSenderEmail },
             to: [{ email: cleanEmail, name: cleanEmail }],
-            subject: 'رمز تفعيل حسابك في منصة إستابلي للخيول العربية',
-            htmlContent: `
-              <div dir="rtl" style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8fafc; border-radius: 12px; max-width: 500px; margin: 0 auto; border: 1px solid #e2e8f0;">
-                <h2 style="color: #0f172a; margin-top: 0;">أهلاً بك في منصة إستابلي 🐎</h2>
-                <p style="color: #475569; font-size: 15px; line-height: 1.6;">رمز تفعيل حسابك المكون من 6 أرقام هو:</p>
-                <div style="background-color: #0f172a; color: #fbbf24; font-size: 32px; font-weight: bold; padding: 18px; text-align: center; border-radius: 12px; letter-spacing: 6px; margin: 24px 0;">
-                  ${code}
-                </div>
-                <p style="color: #64748b; font-size: 13px;">هذا الرمز صالح لمدة 10 دقائق فقط. لا تشارك هذا الرمز مع أي شخص آخر.</p>
-                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-                <p style="color: #94a3b8; font-size: 11px; text-align: center;">منصة إستابلي للخيول العربية الأصيلة © 2026</p>
-              </div>
-            `
+            subject: emailSubject,
+            htmlContent: emailHtml
           }),
           signal: controller.signal
         });
@@ -334,7 +347,7 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         if (brevoRes.ok) {
           sentViaRealApi = true;
           apiDeliveryMethod = 'Brevo REST API';
-          console.log(`[Brevo API Success] Email sent to ${cleanEmail}`);
+          console.log(`[Brevo API Success] Email sent to ${cleanEmail} (type: ${type})`);
         } else {
           const errText = await brevoRes.text().catch(() => '');
           console.error(`[Brevo API Debug] Status ${brevoRes.status}: ${errText}`);
@@ -363,19 +376,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         await transporter.sendMail({
           from: `"منصة إستابلي للخيول" <${brevoSenderEmail}>`,
           to: cleanEmail,
-          subject: 'رمز تفعيل حسابك في منصة إستابلي للخيول العربية',
-          html: `
-            <div dir="rtl" style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8fafc; border-radius: 12px; max-width: 500px; margin: 0 auto; border: 1px solid #e2e8f0;">
-              <h2 style="color: #0f172a; margin-top: 0;">أهلاً بك في منصة إستابلي 🐎</h2>
-              <p style="color: #475569; font-size: 15px; line-height: 1.6;">رمز تفعيل حسابك المكون من 6 أرقام هو:</p>
-              <div style="background-color: #0f172a; color: #fbbf24; font-size: 32px; font-weight: bold; padding: 18px; text-align: center; border-radius: 12px; letter-spacing: 6px; margin: 24px 0;">
-                ${code}
-              </div>
-              <p style="color: #64748b; font-size: 13px;">هذا الرمز صالح لمدة 10 دقائق فقط. لا تشارك هذا الرمز مع أي شخص آخر.</p>
-              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-              <p style="color: #94a3b8; font-size: 11px; text-align: center;">منصة إستابلي للخيول العربية الأصيلة © 2026</p>
-            </div>
-          `
+          subject: emailSubject,
+          html: emailHtml
         });
         sentViaRealApi = true;
         apiDeliveryMethod = 'Brevo SMTP Relay';
@@ -399,19 +401,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
           body: JSON.stringify({
             from: process.env.SMTP_FROM || 'Estably <onboarding@resend.dev>',
             to: [cleanEmail],
-            subject: 'كود تفعيل حسابك في منصة إستابلي للخيول العربية',
-            html: `
-              <div dir="rtl" style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8fafc; border-radius: 12px; max-w: 500px; margin: 0 auto; border: 1px solid #e2e8f0;">
-                <h2 style="color: #0f172a; margin-top: 0;">أهلاً بك في منصة إستابلي 🐎</h2>
-                <p style="color: #475569; font-size: 15px; line-height: 1.6;">رمز تفعيل حسابك المكون من 6 أرقام هو:</p>
-                <div style="background-color: #0f172a; color: #fbbf24; font-size: 32px; font-weight: bold; padding: 18px; text-align: center; border-radius: 12px; letter-spacing: 6px; margin: 24px 0;">
-                  ${code}
-                </div>
-                <p style="color: #64748b; font-size: 13px;">هذا الرمز صالح لمدة 10 دقائق فقط. لا تشارك هذا الرمز مع أي شخص آخر.</p>
-                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-                <p style="color: #94a3b8; font-size: 11px; text-align: center;">منصة إستابلي للخيول العربية الأصيلة © 2026</p>
-              </div>
-            `
+            subject: emailSubject,
+            html: emailHtml
           }),
           signal: controller.signal
         });
@@ -446,19 +437,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         await transporter.sendMail({
           from: process.env.SMTP_FROM || '"Estably" <noreply@estably.com>',
           to: cleanEmail,
-          subject: 'كود تفعيل حسابك في منصة إستابلي للخيول العربية',
-          html: `
-            <div dir="rtl" style="font-family: Arial, sans-serif; padding: 24px; background-color: #f8fafc; border-radius: 12px; max-w: 500px; margin: 0 auto; border: 1px solid #e2e8f0;">
-              <h2 style="color: #0f172a; margin-top: 0;">أهلاً بك في منصة إستابلي 🐎</h2>
-              <p style="color: #475569; font-size: 15px; line-height: 1.6;">رمز تفعيل حسابك المكون من 6 أرقام هو:</p>
-              <div style="background-color: #0f172a; color: #fbbf24; font-size: 32px; font-weight: bold; padding: 18px; text-align: center; border-radius: 12px; letter-spacing: 6px; margin: 24px 0;">
-                ${code}
-              </div>
-              <p style="color: #64748b; font-size: 13px;">هذا الرمز صالح لمدة 10 دقائق فقط. لا تشارك هذا الرمز مع أي شخص آخر.</p>
-              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;" />
-              <p style="color: #94a3b8; font-size: 11px; text-align: center;">منصة إستابلي للخيول العربية الأصيلة © 2026</p>
-            </div>
-          `
+          subject: emailSubject,
+          html: emailHtml
         });
         sentViaRealApi = true;
         apiDeliveryMethod = 'SMTP Transport';
@@ -544,6 +524,101 @@ function handleVerifyOtp(req: express.Request, res: express.Response) {
   }
 }
 
+// --- BANK RECEIPTS BACKEND PERSISTENCE & API ---
+const BANK_RECEIPTS_FILE = path.resolve(process.cwd(), 'data', 'bank_receipts.json');
+
+function ensureDataDir() {
+  const dir = path.dirname(BANK_RECEIPTS_FILE);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function readStoredReceipts(): any[] {
+  try {
+    ensureDataDir();
+    if (fs.existsSync(BANK_RECEIPTS_FILE)) {
+      const content = fs.readFileSync(BANK_RECEIPTS_FILE, 'utf-8');
+      return content ? JSON.parse(content) : [];
+    }
+  } catch (err) {
+    console.warn('Failed to read bank_receipts.json:', err);
+  }
+  return [];
+}
+
+function writeStoredReceipts(receipts: any[]) {
+  try {
+    ensureDataDir();
+    fs.writeFileSync(BANK_RECEIPTS_FILE, JSON.stringify(receipts, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Failed to write bank_receipts.json:', err);
+  }
+}
+
+app.get(['/api/bank-receipts', '/bank-receipts'], (req, res) => {
+  try {
+    const list = readStoredReceipts();
+    return res.json({ success: true, receipts: list });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to read receipts' });
+  }
+});
+
+app.post(['/api/bank-receipts', '/bank-receipts'], (req, res) => {
+  try {
+    const receipt = req.body;
+    if (!receipt || !receipt.id) {
+      return res.status(400).json({ success: false, error: 'Receipt data with id is required' });
+    }
+    const current = readStoredReceipts();
+    const idx = current.findIndex((r: any) => r.id === receipt.id);
+    if (idx > -1) {
+      current[idx] = { ...current[idx], ...receipt, updatedAt: new Date().toISOString() };
+    } else {
+      current.unshift(receipt);
+    }
+    writeStoredReceipts(current);
+    return res.json({ success: true, receipt });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to save receipt' });
+  }
+});
+
+app.delete(['/api/bank-receipts/:id', '/bank-receipts/:id'], (req, res) => {
+  try {
+    const id = req.params.id;
+    const current = readStoredReceipts();
+    const filtered = current.filter((r: any) => r.id !== id);
+    writeStoredReceipts(filtered);
+    return res.json({ success: true, id });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to delete receipt' });
+  }
+});
+
+app.put(['/api/bank-receipts/:id/status', '/bank-receipts/:id/status'], (req, res) => {
+  try {
+    const id = req.params.id;
+    const { status, adminNotes } = req.body || {};
+    const current = readStoredReceipts();
+    const idx = current.findIndex((r: any) => r.id === id);
+    if (idx > -1) {
+      current[idx] = {
+        ...current[idx],
+        status: status || current[idx].status,
+        adminNotes: adminNotes !== undefined ? adminNotes : current[idx].adminNotes,
+        reviewedAt: new Date().toISOString()
+      };
+      writeStoredReceipts(current);
+      return res.json({ success: true, receipt: current[idx] });
+    }
+    return res.status(404).json({ success: false, error: 'Receipt not found' });
+  } catch (e: any) {
+    return res.status(500).json({ success: false, error: e?.message || 'Failed to update receipt status' });
+  }
+});
+
 // Attach endpoints to Express app with wildcard/route fallback
 app.post(['/api/send-otp', '/send-otp'], handleSendOtp);
 app.post(['/api/verify-otp', '/verify-otp'], handleVerifyOtp);
@@ -582,10 +657,20 @@ async function startServer() {
     app.use(vite.middlewares);
   } else if (!process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
+    const indexPath = path.join(distPath, 'index.html');
+    if (fs.existsSync(indexPath)) {
+      app.use(express.static(distPath));
+      app.get('*', (req, res) => {
+        res.sendFile(indexPath);
+      });
+    } else {
+      const { createServer: createViteServer } = await import('vite');
+      const vite = await createViteServer({
+        server: { middlewareMode: true },
+        appType: 'spa',
+      });
+      app.use(vite.middlewares);
+    }
   }
 
   app.listen(PORT, '0.0.0.0', () => {

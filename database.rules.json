@@ -4,7 +4,13 @@
     ".write": false,
     "site_settings": {
       ".read": true,
-      ".write": true
+      ".write": true,
+      ".validate": "newData.hasChildren(['maintenanceMode']) || newData.hasChildren(['termsText']) || newData.hasChildren(['updatedAt'])"
+    },
+    "banner": {
+      ".read": true,
+      ".write": true,
+      ".validate": "newData.hasChildren(['isActive']) || newData.hasChildren(['title']) || newData.hasChildren(['updatedAt'])"
     },
     "horses": {
       ".read": true,
@@ -36,18 +42,30 @@
       ".write": true,
       ".indexOn": ["createdAt", "receiverId", "senderId"]
     },
-    "banner": {
-      ".read": true,
-      ".write": true
-    },
     "deleted_records": {
       ".read": true,
-      ".write": true
+      ".write": true,
+      ".indexOn": ["deletedAt", "node"]
+    },
+    "deleted_ads_archive": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["userId", "deletedAt"]
     },
     "subscription_codes": {
       ".read": true,
       ".write": true,
       ".indexOn": ["code", "isUsed", "userId"]
+    },
+    "bank_receipts": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["createdAt", "userId", "status", "bankName"]
+    },
+    "ad_notifications": {
+      ".read": true,
+      ".write": true,
+      ".indexOn": ["recipientUserId", "createdAt", "isRead"]
     }
   }
 }

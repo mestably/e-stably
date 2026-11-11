@@ -146,16 +146,21 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
     // Status filter
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     // Bank filter
-    if (bankFilter !== 'all' && !r.bankName.includes(bankFilter)) return false;
+    if (bankFilter !== 'all' && !(r.bankName || '').includes(bankFilter)) return false;
     // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
-      const matchName = r.userName?.toLowerCase().includes(q);
-      const matchPhone = r.userPhone?.toLowerCase().includes(q);
-      const matchPurpose = r.purpose?.toLowerCase().includes(q);
-      const matchNotes = r.notes?.toLowerCase().includes(q);
-      const matchId = r.id?.toLowerCase().includes(q);
-      if (!matchName && !matchPhone && !matchPurpose && !matchNotes && !matchId) return false;
+      const matchName = (r.userName || '').toLowerCase().includes(q);
+      const matchPhone = (r.userPhone || '').includes(q);
+      const matchPurpose = (r.purpose || '').toLowerCase().includes(q);
+      const matchNotes = (r.notes || '').toLowerCase().includes(q);
+      const matchBank = (r.bankName || '').toLowerCase().includes(q);
+      const matchAccount = (r.accountNumber || '').includes(q);
+      const matchEmail = (r.userEmail || '').toLowerCase().includes(q);
+      const matchId = (r.id || '').toLowerCase().includes(q);
+      if (!matchName && !matchPhone && !matchPurpose && !matchNotes && !matchBank && !matchAccount && !matchEmail && !matchId) {
+        return false;
+      }
     }
     return true;
   });
@@ -359,6 +364,11 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
                               {receipt.userPhone && (
                                 <span className="font-mono dir-ltr font-bold text-slate-700">
                                   {receipt.userPhone}
+                                </span>
+                              )}
+                              {receipt.nationalId && (
+                                <span className="bg-emerald-50 text-emerald-900 border border-emerald-200 px-2 py-0.5 rounded-md font-mono text-[11px] font-bold">
+                                  الهوية: {receipt.nationalId}
                                 </span>
                               )}
                               {receipt.userEmail && (
@@ -639,6 +649,12 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
                 <span className="text-slate-500 font-bold">المستخدم:</span>
                 <span className="font-black text-slate-900">{reviewModalReceipt.userName}</span>
               </div>
+              {reviewModalReceipt.nationalId && (
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500 font-bold">رقم الهوية / الإقامة:</span>
+                  <span className="font-black text-emerald-900 font-mono dir-ltr">{reviewModalReceipt.nationalId}</span>
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="text-slate-500 font-bold">الغرض من التحويل:</span>
                 <span className="font-black text-emerald-800">{reviewModalReceipt.purpose}</span>

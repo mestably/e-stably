@@ -19,6 +19,7 @@ import AdPermissionNotice from './AdPermissionNotice';
 import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
+import RatingStars, { getItemRating } from './RatingStars';
 
 interface StablesSectionProps {
   currentUser: User | null;
@@ -34,6 +35,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [selectedStable, setSelectedStable] = useState<Stable | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTotalAds, setUserTotalAds] = useState(0);
+  const [user24hAdsCount, setUser24hAdsCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
   const { adminWhatsApp } = useAdminContact();
   const [permissionModalStable, setPermissionModalStable] = useState<{ stable: Stable; action: 'edit' | 'sold' | 'delete' } | null>(null);
@@ -50,6 +52,9 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     if (currentUser?.id) {
       SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
         setUserTotalAds(cnt);
+      });
+      SubscriptionService.getUserLast24HoursAdsCount(currentUser.id).then((res) => {
+        setUser24hAdsCount(res.count);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -172,9 +177,10 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+      const postCheck = await SubscriptionService.canUserPostAd(currentUser);
+      if (!postCheck.allowed) {
         if (!subscriptionCode.trim()) {
-          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          setError(postCheck.reason || 'عذراً! تتيح باقة 0 ريال المجانية نشر إعلان واحد فقط كل 24 ساعة، وقد قمت بنشر إعلانك لليوم. لنشر إعلان إضافي الآن، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.');
           return;
         }
         const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
@@ -217,7 +223,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'],
       verified: existing ? existing.verified : 'pending',
       horseCount,
-      rating: existing?.rating || 5,
+      rating: existing?.rating ?? 0,
       reviews: existing?.reviews || [],
       isEnded: existing?.isEnded || false,
       endedAt: existing?.endedAt,
@@ -298,7 +304,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'],
       verified: editingItemId ? verified : (currentUser.role === 'admin' ? 'verified' : 'pending'),
       horseCount,
-      rating: existing?.rating || 5,
+      rating: existing?.rating ?? 0,
       reviews: existing?.reviews || [],
       isEnded: existing?.isEnded || false,
       endedAt: existing?.endedAt,
@@ -310,7 +316,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
 
       // Consume subscription code if used for additional ad
       const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
-      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+      if (!editingItemId && !isUnlimited && subscriptionCode.trim()) {
         try {
           await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, stableData.id, 'stable');
         } catch (e) {
@@ -346,18 +352,24 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
 
   // Filter stables based on global search query and status filter (visible to all users on mobile & desktop)
   const trimmedQuery = (searchQuery || '').trim().toLowerCase();
-  const filteredStables = stables.filter((stable) => {
-    const matchesSearch = !trimmedQuery ||
-      stable.name.toLowerCase().includes(trimmedQuery) ||
-      (stable.description && stable.description.toLowerCase().includes(trimmedQuery)) ||
-      (stable.phone && stable.phone.includes(trimmedQuery)) ||
-      (stable.userName && stable.userName.toLowerCase().includes(trimmedQuery));
-    if (!matchesSearch) return false;
-    if (trimmedQuery) return true;
-    if (statusFilter === 'active') return !stable.isEnded;
-    if (statusFilter === 'ended') return !!stable.isEnded;
-    return true;
-  });
+  const filteredStables = stables
+    .filter((stable) => {
+      const matchesSearch = !trimmedQuery ||
+        stable.name.toLowerCase().includes(trimmedQuery) ||
+        (stable.description && stable.description.toLowerCase().includes(trimmedQuery)) ||
+        (stable.phone && stable.phone.includes(trimmedQuery)) ||
+        (stable.userName && stable.userName.toLowerCase().includes(trimmedQuery));
+      if (!matchesSearch) return false;
+      if (trimmedQuery) return true;
+      if (statusFilter === 'active') return !stable.isEnded;
+      if (statusFilter === 'ended') return !!stable.isEnded;
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
 
   const visibleStables = stables;
   const visibleEndedCount = stables.filter((s) => !!s.isEnded).length;
@@ -365,7 +377,10 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   // Highlight Stats: Outstanding Stables
   const verifiedCount = stables.filter((s) => s.verified === 'verified').length;
   const totalHorses = stables.reduce((sum, s) => sum + s.horseCount, 0);
-  const bestRatedStable = stables.reduce((best, s) => (s.rating > (best?.rating || 0) ? s : best), stables[0] as Stable | undefined);
+  const ratedStables = stables.filter((s) => getItemRating(s).reviewsCount > 0);
+  const bestRatedStable = ratedStables.length > 0
+    ? ratedStables.reduce((best, s) => (getItemRating(s).rating > getItemRating(best).rating ? s : best), ratedStables[0])
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -393,13 +408,13 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
         </div>
 
         <div className="bg-gradient-to-br from-white to-slate-50 p-4 rounded-2xl border border-slate-100 flex items-center gap-3 col-span-2 md:col-span-1">
-          <div className="p-3 bg-gold-light text-gold-dark rounded-xl">
-            <Star className="w-5 h-5 fill-current" />
+          <div className={`p-3 rounded-xl ${bestRatedStable ? 'bg-gold-light text-gold-dark' : 'bg-slate-100 text-slate-400'}`}>
+            <Star className={`w-5 h-5 ${bestRatedStable ? 'fill-current' : 'stroke-[1.5] fill-none'}`} />
           </div>
           <div>
             <span className="text-[10px] text-slate-400 block font-medium">الأعلى تقييماً</span>
             <span className="text-xs font-bold text-slate-800 truncate block max-w-[150px]">
-              {bestRatedStable ? bestRatedStable.name : 'لا يوجد'}
+              {bestRatedStable ? `${bestRatedStable.name} (${getItemRating(bestRatedStable).rating.toFixed(1)} ⭐)` : 'لا توجد تقييمات بعد'}
             </span>
           </div>
         </div>
@@ -475,6 +490,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                   setValidatedCodeObj={setValidatedCodeObj}
                   adType="إسطبل"
                   totalAdsCount={userTotalAds}
+                  adsLast24hCount={user24hAdsCount}
                   onOpenSubscriptions={onOpenSubscriptions}
                   onOpenAuth={onOpenAuth}
                 />
@@ -617,9 +633,18 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                 <div>
                   <div className="flex justify-between items-start gap-1">
                     <h4 className="font-bold text-navy group-hover:text-gold transition text-xs sm:text-sm leading-tight line-clamp-1">{stable.name}</h4>
-                    <div className="flex items-center gap-0.5 text-amber-500 shrink-0 text-[8px] sm:text-[10px]">
-                      <Star className="w-3 h-3 sm:w-3.5 sm:h-3.5 fill-current" />
-                      <span className="font-bold text-slate-700">{stable.rating || 5}</span>
+                    <div className="shrink-0">
+                      {(() => {
+                        const ratingData = getItemRating(stable);
+                        return (
+                          <RatingStars
+                            rating={ratingData.rating}
+                            reviewsCount={ratingData.reviewsCount}
+                            variant="compact"
+                            size="xs"
+                          />
+                        );
+                      })()}
                     </div>
                   </div>
                   <p className="text-[9px] sm:text-[10px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">{stable.description}</p>

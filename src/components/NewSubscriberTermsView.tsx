@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { ShieldCheck, BookOpen, Scale, Check, AlertCircle, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, BookOpen, Check, AlertCircle, ArrowLeft } from 'lucide-react';
 import { PLATFORM_TERMS_LIST } from '../data/termsData';
 
 interface NewSubscriberTermsViewProps {
@@ -36,30 +36,12 @@ export default function NewSubscriberTermsView({
 
   return (
     <div className="space-y-4 text-right" dir="rtl">
-      
-      {/* Prominent Header at the very top as requested */}
-      <div className="bg-gradient-to-r from-navy via-navy-light to-navy text-white p-4 rounded-2xl shadow-md border border-navy/40 space-y-1.5">
-        <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-xl bg-gold/20 text-gold flex items-center justify-center shrink-0 border border-gold/30">
-            <Scale className="w-4 h-4 text-gold" />
-          </div>
-          <div>
-            <h3 className="font-black text-xs sm:text-sm text-gold leading-tight">
-              قائمة الشروط والأحكام يجب قراءتها جيداً قبل الاشتراك
-            </h3>
-            <p className="text-[11px] text-slate-200 mt-0.5 leading-relaxed">
-              خطوة إلزامية لجميع المشتركين الجدد لضمان الأمانة والالتزام بالضوابط الشرعية والقانونية
-            </p>
-          </div>
+      {isForGoogle && googleUserName && (
+        <div className="bg-amber-500/10 border border-amber-500/30 text-navy p-3 rounded-xl text-xs flex items-center gap-2 font-bold">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0 animate-ping"></span>
+          <span>مرحباً بك ({googleUserName})، يرجى الموافقة على الشروط لإتمام تسجيلك السريع عبر Google:</span>
         </div>
-
-        {isForGoogle && googleUserName && (
-          <div className="mt-2 pt-2 border-t border-white/10 text-[11px] text-amber-200 flex items-center gap-1.5 font-bold">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0 animate-ping"></span>
-            <span>مرحباً بك ({googleUserName})، يرجى الموافقة على الشروط لإتمام تسجيلك السريع عبر Google:</span>
-          </div>
-        )}
-      </div>
+      )}
 
       {/* Islamic Sacred Guidance Box */}
       <div className="space-y-2 bg-amber-50/70 p-3.5 rounded-2xl border border-gold/30 text-xs">

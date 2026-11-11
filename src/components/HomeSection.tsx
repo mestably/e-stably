@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useCallback, TouchEvent, MouseEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, TouchEvent, MouseEvent } from 'react';
 import { 
   Award, 
   Home as HomeIcon, 
@@ -13,21 +13,26 @@ import {
   ChevronLeft, 
   ChevronRight, 
   ArrowLeft, 
-  CheckCircle2, 
-  Users, 
-  Clock,
   Shuffle,
   Eye,
-  Tag
+  Tag,
+  Search,
+  X
 } from 'lucide-react';
 import { Horse, Stable, Shelter, Transport, User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import DetailModal from './DetailModal';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
+import { isHorseEndedOrSold } from '../lib/horseUtils';
+import { normalizeArabic } from './GlobalSearchBar';
+import RatingStars from './RatingStars';
 
 interface HomeSectionProps {
   onSelectTab: (tab: 'horses' | 'stables' | 'shelter' | 'transport' | 'user-dashboard' | 'subscriptions' | string) => void;
   currentUser?: User | null;
+  searchQuery?: string;
+  onClearSearch?: () => void;
+  onSelectAd?: (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => void;
 }
 
 interface AdSlide {
@@ -133,9 +138,9 @@ function buildSlidesFromData(
       id: `horse_${horse.id}`,
       title: `${horse.name} (${breedLabel})`,
       subtitle: `${healthOrDetails} • ${horse.stableName || 'إعلان مستخدم'}`,
-      tag: horse.isSold ? 'تم البيع' : (horse.adType === 'sale' ? 'خيل للبيع' : 'خيل للإيجار'),
-      badgeColor: horse.isSold ? 'bg-red-600 text-white' : (horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white'),
-      price: horse.isSold ? 'تم البيع' : priceLabel,
+      tag: isHorseEndedOrSold(horse) ? (horse.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع') : (horse.adType === 'sale' ? 'خيل للبيع' : 'خيل للإيجار'),
+      badgeColor: isHorseEndedOrSold(horse) ? 'bg-red-600 text-white' : (horse.adType === 'sale' ? 'bg-gold text-navy font-bold shadow-sm' : 'bg-emerald-600 text-white'),
+      price: isHorseEndedOrSold(horse) ? (horse.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع') : priceLabel,
       image: mainImage,
       actionTab: 'horses',
       itemType: 'horse',
@@ -203,8 +208,32 @@ function buildSlidesFromData(
   return realSlides;
 }
 
-export default function HomeSection({ onSelectTab, currentUser = null }: HomeSectionProps) {
+export default function HomeSection({ 
+  onSelectTab, 
+  currentUser = null,
+  searchQuery = '',
+  onClearSearch,
+  onSelectAd,
+}: HomeSectionProps) {
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [rawPool, setRawPool] = useState<{
+    horses: Horse[];
+    stables: Stable[];
+    shelters: Shelter[];
+    transports: Transport[];
+  }>(() => {
+    try {
+      return {
+        horses: FirebaseService.getLocalHorses(),
+        stables: FirebaseService.getLocalStables(),
+        shelters: FirebaseService.getLocalShelters(),
+        transports: FirebaseService.getLocalTransports(),
+      };
+    } catch {
+      return { horses: [], stables: [], shelters: [], transports: [] };
+    }
+  });
+
   const [slides, setSlides] = useState<AdSlide[]>(() => {
     try {
       const horses = FirebaseService.getLocalHorses();
@@ -247,6 +276,13 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
         FirebaseService.getShelters(),
         FirebaseService.getTransports()
       ]);
+
+      setRawPool({
+        horses,
+        stables,
+        shelters,
+        transports,
+      });
 
       setStats({
         horsesCount: horses.length,
@@ -346,16 +382,363 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
     setTouchStartX(null);
   };
 
+  // Search State & Memoized Calculation
+  const [selectedSearchCategory, setSelectedSearchCategory] = useState<'all' | 'horse' | 'stable' | 'shelter' | 'transport'>('all');
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery || !searchQuery.trim()) return [];
+    const term = normalizeArabic(searchQuery);
+
+    const results: Array<{
+      id: string;
+      title: string;
+      subtitle: string;
+      type: 'horse' | 'stable' | 'shelter' | 'transport';
+      typeLabel: string;
+      categoryColor: string;
+      price?: string;
+      location?: string;
+      image: string;
+      item: Horse | Stable | Shelter | Transport;
+      isEnded?: boolean;
+      isSold?: boolean;
+    }> = [];
+
+    // Horses
+    rawPool.horses.forEach((h) => {
+      const match =
+        normalizeArabic(h.name).includes(term) ||
+        normalizeArabic(h.breed || '').includes(term) ||
+        normalizeArabic(h.description || '').includes(term) ||
+        normalizeArabic(h.city || '').includes(term) ||
+        normalizeArabic(h.fatherName || '').includes(term) ||
+        normalizeArabic(h.motherName || '').includes(term) ||
+        normalizeArabic(h.sellerName || '').includes(term) ||
+        (h.type === 'rent' ? 'ايجار خيل للايجار' : 'بيع خيل للبيع').includes(term);
+
+      if (match) {
+        const isSold = !!h.isSold;
+        const isEnded = !!(h.isEnded || (h.type === 'rent' && isHorseEndedOrSold(h)));
+        results.push({
+          id: h.id,
+          title: h.name,
+          subtitle: `${h.breed || 'خيل'} - ${h.city || ''} ${h.age ? `• العمر: ${h.age}` : ''}`,
+          type: 'horse',
+          typeLabel: h.type === 'rent' ? 'خيل للإيجار' : 'خيل للبيع',
+          categoryColor: h.type === 'rent' ? 'bg-amber-100 text-amber-800 border-amber-300' : 'bg-gold/20 text-navy border-gold/40',
+          price: h.price ? `${h.price.toLocaleString()} ريال` : undefined,
+          location: h.city,
+          image: h.images?.[0] || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=600',
+          item: h,
+          isEnded,
+          isSold,
+        });
+      }
+    });
+
+    // Stables
+    rawPool.stables.forEach((s) => {
+      const match =
+        normalizeArabic(s.name).includes(term) ||
+        normalizeArabic(s.location || '').includes(term) ||
+        normalizeArabic(s.city || '').includes(term) ||
+        normalizeArabic(s.description || '').includes(term) ||
+        normalizeArabic(s.ownerName || '').includes(term) ||
+        'اسطبل اسطبلات استضافه تدريب'.includes(term);
+
+      if (match) {
+        results.push({
+          id: s.id,
+          title: s.name,
+          subtitle: `${s.city || s.location || 'إسطبل'} ${s.services?.length ? `• ${s.services.slice(0, 2).join(', ')}` : ''}`,
+          type: 'stable',
+          typeLabel: 'إسطبل',
+          categoryColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+          price: s.monthlyPrice ? `${s.monthlyPrice.toLocaleString()} ريال/شهر` : undefined,
+          location: s.city || s.location,
+          image: s.images?.[0] || 'https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=600',
+          item: s,
+        });
+      }
+    });
+
+    // Shelters
+    rawPool.shelters.forEach((sh) => {
+      const match =
+        normalizeArabic(sh.name).includes(term) ||
+        normalizeArabic(sh.city || '').includes(term) ||
+        normalizeArabic(sh.address || '').includes(term) ||
+        normalizeArabic(sh.description || '').includes(term) ||
+        normalizeArabic(sh.providerName || '').includes(term) ||
+        'ايواء رعايه عنايه فندقه'.includes(term);
+
+      if (match) {
+        results.push({
+          id: sh.id,
+          title: sh.name,
+          subtitle: `${sh.city || ''} ${sh.capacity ? `• الطاقة: ${sh.capacity} خيل` : ''}`,
+          type: 'shelter',
+          typeLabel: 'إيواء ورعاية',
+          categoryColor: 'bg-blue-100 text-blue-800 border-blue-300',
+          price: sh.pricePerMonth ? `${sh.pricePerMonth.toLocaleString()} ريال/شهر` : undefined,
+          location: sh.city || sh.address,
+          image: sh.images?.[0] || 'https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=600',
+          item: sh,
+        });
+      }
+    });
+
+    // Transports
+    rawPool.transports.forEach((t) => {
+      const match =
+        normalizeArabic(t.title || '').includes(term) ||
+        normalizeArabic(t.fromCity || '').includes(term) ||
+        normalizeArabic(t.toCity || '').includes(term) ||
+        normalizeArabic(t.description || '').includes(term) ||
+        normalizeArabic(t.driverName || '').includes(term) ||
+        normalizeArabic(t.vehicleType || '').includes(term) ||
+        'نقل مقطوره شحن دنه سطحه تريلا'.includes(term);
+
+      if (match) {
+        results.push({
+          id: t.id,
+          title: t.title || `نقل من ${t.fromCity} إلى ${t.toCity}`,
+          subtitle: `من ${t.fromCity} ➔ ${t.toCity} ${t.vehicleType ? `• ${t.vehicleType}` : ''}`,
+          type: 'transport',
+          typeLabel: 'نقل خيول',
+          categoryColor: 'bg-purple-100 text-purple-800 border-purple-300',
+          price: t.cost ? `${t.cost.toLocaleString()} ريال` : undefined,
+          location: `${t.fromCity} ➔ ${t.toCity}`,
+          image: t.images?.[0] || defaultTransportImg,
+          item: t,
+        });
+      }
+    });
+
+    return results;
+  }, [searchQuery, rawPool, currentUser]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = { all: searchResults.length, horse: 0, stable: 0, shelter: 0, transport: 0 };
+    searchResults.forEach((r) => {
+      counts[r.type] = (counts[r.type] || 0) + 1;
+    });
+    return counts;
+  }, [searchResults]);
+
+  const filteredResults = useMemo(() => {
+    if (selectedSearchCategory === 'all') return searchResults;
+    return searchResults.filter((r) => r.type === selectedSearchCategory);
+  }, [searchResults, selectedSearchCategory]);
+
   const handleSlideAction = (slide: AdSlide) => {
     if (slide.rawItem) {
-      setSelectedItemForModal({
-        item: slide.rawItem,
-        type: slide.itemType,
-      });
+      if (onSelectAd) {
+        onSelectAd(slide.rawItem, slide.itemType);
+      } else {
+        setSelectedItemForModal({
+          item: slide.rawItem,
+          type: slide.itemType,
+        });
+      }
     } else {
       onSelectTab(slide.actionTab);
     }
   };
+
+  if (searchQuery && searchQuery.trim().length > 0) {
+    return (
+      <div className="space-y-6 pb-12 animate-fade-in" id="search_results_container">
+        {/* Header bar */}
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="p-2 bg-navy/5 text-navy rounded-xl">
+                <Search className="w-5 h-5 text-navy" />
+              </span>
+              <h2 className="text-lg sm:text-xl font-bold text-navy">
+                نتائج البحث الشامل في جميع الأقسام
+              </h2>
+            </div>
+            <p className="text-xs sm:text-sm text-slate-500 mt-1">
+              البحث عن: <span className="font-bold text-navy underline decoration-gold">{searchQuery}</span>
+              {' • '}
+              <span>تم العثور على <strong className="text-gold font-bold">{searchResults.length}</strong> إعلان</span>
+            </p>
+          </div>
+
+          {onClearSearch && (
+            <button
+              onClick={onClearSearch}
+              className="inline-flex items-center gap-1.5 self-start md:self-auto px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition active:scale-95 cursor-pointer"
+            >
+              <X className="w-4 h-4 text-slate-500" />
+              مسح البحث والعودة للرئيسية
+            </button>
+          )}
+        </div>
+
+        {/* Category Filter Chips */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <button
+            onClick={() => setSelectedSearchCategory('all')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              selectedSearchCategory === 'all'
+                ? 'bg-navy text-gold shadow-xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            الكل ({categoryCounts.all})
+          </button>
+          <button
+            onClick={() => setSelectedSearchCategory('horse')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              selectedSearchCategory === 'horse'
+                ? 'bg-navy text-gold shadow-xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            🐎 الخيول ({categoryCounts.horse})
+          </button>
+          <button
+            onClick={() => setSelectedSearchCategory('stable')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              selectedSearchCategory === 'stable'
+                ? 'bg-navy text-gold shadow-xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            🏛️ الإسطبلات ({categoryCounts.stable})
+          </button>
+          <button
+            onClick={() => setSelectedSearchCategory('shelter')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              selectedSearchCategory === 'shelter'
+                ? 'bg-navy text-gold shadow-xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            🛡️ الإيواء ({categoryCounts.shelter})
+          </button>
+          <button
+            onClick={() => setSelectedSearchCategory('transport')}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition shrink-0 cursor-pointer ${
+              selectedSearchCategory === 'transport'
+                ? 'bg-navy text-gold shadow-xs'
+                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+            }`}
+          >
+            🚛 النقل ({categoryCounts.transport})
+          </button>
+        </div>
+
+        {/* Results Grid or Empty State */}
+        {filteredResults.length === 0 ? (
+          <div className="bg-white rounded-3xl p-10 sm:p-14 text-center border border-slate-200/80 shadow-xs max-w-xl mx-auto">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+              <Search className="w-8 h-8" />
+            </div>
+            <h3 className="text-base sm:text-lg font-bold text-slate-800 mb-1">
+              لم نجد أي إعلانات تطابق بحثك
+            </h3>
+            <p className="text-xs sm:text-sm text-slate-500 mb-6">
+              جرّب البحث باسم المدينة، أو نوع السلالة، أو كلمة بحث عامة.
+            </p>
+            {onClearSearch && (
+              <button
+                onClick={onClearSearch}
+                className="px-5 py-2.5 bg-navy text-white hover:bg-navy/90 rounded-xl font-bold text-xs transition cursor-pointer"
+              >
+                عرض جميع الإعلانات بالرئيسية
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+            {filteredResults.map((item) => (
+              <div
+                key={`${item.type}-${item.id}`}
+                onClick={() => {
+                  if (onSelectAd) {
+                    onSelectAd(item.item, item.type);
+                  } else {
+                    setSelectedItemForModal({ item: item.item, type: item.type });
+                  }
+                }}
+                className="bg-white rounded-2xl border border-slate-200/80 hover:border-gold/60 shadow-xs hover:shadow-lg transition-all duration-300 overflow-hidden cursor-pointer flex flex-col justify-between group"
+              >
+                <div>
+                  <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
+                    <img
+                      src={item.image}
+                      alt={item.title}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                    />
+                    <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 flex-wrap">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border backdrop-blur-xs ${item.categoryColor}`}>
+                        {item.typeLabel}
+                      </span>
+                      {item.isSold && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-600 text-white">
+                          تم البيع
+                        </span>
+                      )}
+                      {item.isEnded && !item.isSold && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white">
+                          منتهي
+                        </span>
+                      )}
+                    </div>
+
+                    {item.price && (
+                      <div className="absolute bottom-2.5 left-2.5 bg-slate-900/85 backdrop-blur-xs text-gold font-bold text-xs px-2.5 py-1 rounded-lg">
+                        {item.price}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-4 space-y-2">
+                    <h4 className="font-bold text-navy text-sm group-hover:text-gold transition-colors line-clamp-1">
+                      {item.title}
+                    </h4>
+                    <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                      {item.subtitle}
+                    </p>
+                    <div className="pt-1">
+                      <RatingStars targetId={item.id} targetType={item.type} size="sm" showCount={true} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 pt-0">
+                  <button
+                    type="button"
+                    className="w-full py-2 bg-navy-light/60 hover:bg-navy hover:text-white text-navy font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    عرض تفاصيل الإعلان
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Modal for viewing details directly when clicking */}
+        {selectedItemForModal && (
+          <DetailModal
+            isOpen={true}
+            onClose={() => setSelectedItemForModal(null)}
+            item={selectedItemForModal.item}
+            type={selectedItemForModal.type}
+            currentUser={currentUser}
+            onRefresh={loadRealAds}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-8 pb-12 animate-fade-in" id="home_section_root">
@@ -639,43 +1022,6 @@ export default function HomeSection({ onSelectTab, currentUser = null }: HomeSec
             </div>
           </div>
 
-        </div>
-      </div>
-
-      {/* 4. Statistics and Trust Banner */}
-      <div className="bg-navy rounded-3xl p-6 text-white text-right relative overflow-hidden shadow-lg border border-gold/20" id="trust_banner">
-        {/* Subtle decorative background vector circles */}
-        <div className="absolute -top-12 -left-12 w-48 h-48 rounded-full bg-gold/5 blur-2xl" />
-        <div className="absolute -bottom-12 -right-12 w-48 h-48 rounded-full bg-white/5 blur-2xl" />
-        
-        <div className="relative z-10 grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-          <div className="md:col-span-2 space-y-2">
-            <div className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-gold fill-current" />
-              <h4 className="font-extrabold text-sm sm:text-base text-gold">لماذا تختار ملتقى الخيول العربية؟</h4>
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed max-w-xl">
-              نوفر واجهة آمنة ومبسطة للتواصل المباشر عبر واتساب بين البائع والمشتري، جميع الإعلانات والخدمات تخضع للتوثيق والمراجعة ومكافحة الاحتيال لضمان تجربة آمنة تماماً ومريحة وموثوقة.
-            </p>
-          </div>
-          
-          <div className="flex items-center justify-around md:justify-end gap-6 border-t md:border-t-0 md:border-r border-slate-200/20 pt-4 md:pt-0 md:pr-6">
-            <div className="text-center space-y-1">
-              <Users className="w-5 h-5 text-gold mx-auto" />
-              <span className="block font-black text-sm sm:text-base">+١,٥٠٠</span>
-              <span className="block text-[9px] text-slate-400">عضو نشط</span>
-            </div>
-            <div className="text-center space-y-1">
-              <CheckCircle2 className="w-5 h-5 text-gold mx-auto" />
-              <span className="block font-black text-sm sm:text-base">١٠٠٪</span>
-              <span className="block text-[9px] text-slate-400">آمن وموثق</span>
-            </div>
-            <div className="text-center space-y-1">
-              <Clock className="w-5 h-5 text-gold mx-auto" />
-              <span className="block font-black text-sm sm:text-base">٢٤/٧</span>
-              <span className="block text-[9px] text-slate-400">دعم متواصل</span>
-            </div>
-          </div>
         </div>
       </div>
 

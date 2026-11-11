@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
-import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse, Sparkles } from 'lucide-react';
+import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse, Sparkles, Clock } from 'lucide-react';
 import { Horse, Stable, User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
@@ -19,7 +19,8 @@ import AdPermissionNotice from './AdPermissionNotice';
 import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
-import { formatHorseAge } from '../lib/horseUtils';
+import { formatHorseAge, isHorseRentExpired, isHorseEndedOrSold } from '../lib/horseUtils';
+import RatingStars, { getItemRating } from './RatingStars';
 
 const SALE_HEALTH_CONDITIONS = [
   'سليم خالي من العيوب',
@@ -70,6 +71,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [selectedHorse, setSelectedHorse] = useState<Horse | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTotalAds, setUserTotalAds] = useState(0);
+  const [user24hAdsCount, setUser24hAdsCount] = useState(0);
   const { adminWhatsApp } = useAdminContact();
   const [permissionModalHorse, setPermissionModalHorse] = useState<{ horse: Horse; action: 'edit' | 'sold' | 'delete' } | null>(null);
 
@@ -78,11 +80,14 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [isCodeValid, setIsCodeValid] = useState(false);
   const [validatedCodeObj, setValidatedCodeObj] = useState<any>(null);
 
-  // Fetch user total ads count when modal opens or user changes
+  // Fetch user ads count when modal opens or user changes
   useEffect(() => {
     if (currentUser?.id) {
       SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
         setUserTotalAds(cnt);
+      });
+      SubscriptionService.getUserLast24HoursAdsCount(currentUser.id).then((res) => {
+        setUser24hAdsCount(res.count);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -142,7 +147,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   useEffect(() => {
     fetchData();
 
-    // Listen to global sync event from App startup
+    // Listen to global sync event from App startup or other components
     const handleSync = (e: any) => {
       if (e?.detail?.horses) {
         setHorses(e.detail.horses);
@@ -152,9 +157,25 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       }
     };
 
+    // Re-fetch automatically when user switches back to the tab/app
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchData();
+      }
+    };
+
     window.addEventListener('horses_forum_sync_complete', handleSync);
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', fetchData);
+
+    // Background poll every 30s to keep cross-browser updates in sync
+    const interval = setInterval(fetchData, 30000);
+
     return () => {
       window.removeEventListener('horses_forum_sync_complete', handleSync);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', fetchData);
+      clearInterval(interval);
     };
   }, []);
 
@@ -229,7 +250,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setRentStart(horse.rentStart || '');
     setRentEnd(horse.rentEnd || '');
     setAdType(horse.adType);
-    setIsSold(!!horse.isSold);
+    setIsSold(isHorseEndedOrSold(horse));
     setError('');
     setSuccess('');
     setIsAddOpen(true);
@@ -301,11 +322,17 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       onOpenAuth();
       return;
     }
-    const newStatus = !horse.isSold;
+    const isRent = horse.adType === 'rent';
+    const isCurrentlyEndedOrSold = isHorseEndedOrSold(horse);
+    const newStatus = !isCurrentlyEndedOrSold;
+    const now = new Date().toISOString();
     const updatedHorse: Horse = {
       ...horse,
       isSold: newStatus,
-      soldAt: newStatus ? new Date().toISOString() : undefined,
+      soldAt: newStatus ? now : undefined,
+      isEnded: isRent ? newStatus : (horse.isEnded || false),
+      endedAt: isRent && newStatus ? now : undefined,
+      rentEnd: (!newStatus && isRent && isHorseRentExpired(horse)) ? undefined : horse.rentEnd,
     };
     // Optimistic update in state
     setHorses((prev) => prev.map((h) => (h.id === horse.id ? updatedHorse : h)));
@@ -314,7 +341,11 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     }
     try {
       await FirebaseService.saveHorse(updatedHorse);
-      setSuccess(newStatus ? `تم تمييز "${horse.name}" كـ "تم البيع" بنجاح! 🏷️` : `تم إعادة عرض "${horse.name}" كـ "متاح للبيع"!`);
+      if (isRent) {
+        setSuccess(newStatus ? `تم تمييز إعلان "${horse.name}" كـ "الاعلان منتهي"! ⏳` : `تم إعادة تفعيل إعلان "${horse.name}" وجعله متاحاً!`);
+      } else {
+        setSuccess(newStatus ? `تم تمييز "${horse.name}" كـ "تم البيع" بنجاح! 🏷️` : `تم إعادة عرض "${horse.name}" كـ "متاح للبيع"!`);
+      }
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       console.error('Failed to toggle sold status:', err);
@@ -382,9 +413,10 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+      const postCheck = await SubscriptionService.canUserPostAd(currentUser);
+      if (!postCheck.allowed) {
         if (!subscriptionCode.trim()) {
-          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          setError(postCheck.reason || 'عذراً! تتيح باقة 0 ريال المجانية نشر إعلان واحد فقط كل 24 ساعة، وقد قمت بنشر إعلانك لليوم. لنشر إعلان إضافي الآن، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.');
           return;
         }
         const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
@@ -481,6 +513,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       rentEnd: adType === 'rent' && rentEnd ? rentEnd : undefined,
       isSold: isSold,
       soldAt: isSold ? (existingHorse?.soldAt || new Date().toISOString()) : undefined,
+      isEnded: isRent ? isSold : (existingHorse?.isEnded || false),
+      endedAt: isRent && isSold ? (existingHorse?.endedAt || new Date().toISOString()) : undefined,
       createdAt: existingHorse?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -575,6 +609,8 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       rentEnd: adType === 'rent' && rentEnd ? rentEnd : undefined,
       isSold: editingItemId ? isSold : false,
       soldAt: (editingItemId && isSold) ? (horses.find(h => h.id === editingItemId)?.soldAt || new Date().toISOString()) : undefined,
+      isEnded: editingItemId ? (isRent ? isSold : (horses.find(h => h.id === editingItemId)?.isEnded || false)) : false,
+      endedAt: (editingItemId && isRent && isSold) ? (horses.find(h => h.id === editingItemId)?.endedAt || new Date().toISOString()) : undefined,
       createdAt: editingItemId ? (horses.find(h => h.id === editingItemId)?.createdAt || new Date().toISOString()) : new Date().toISOString()
     };
 
@@ -583,7 +619,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
 
       // Consume subscription code if used for additional ad
       const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
-      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+      if (!editingItemId && !isUnlimited && subscriptionCode.trim()) {
         try {
           await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, horseData.id, 'horse');
         } catch (e) {
@@ -638,45 +674,51 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   // Filter based on Type Tab, and Global Search Query (visible on all devices including mobile guests)
   const trimmedQuery = (searchQuery || '').trim().toLowerCase();
 
-  const filteredHorses = horses.filter((horse) => {
-    const matchesSearch = !trimmedQuery ||
-      (horse.name && horse.name.toLowerCase().includes(trimmedQuery)) ||
-      (horse.color && horse.color.toLowerCase().includes(trimmedQuery)) ||
-      (horse.healthStatus && horse.healthStatus.toLowerCase().includes(trimmedQuery)) ||
-      (horse.stableName && horse.stableName.toLowerCase().includes(trimmedQuery)) ||
-      (horse.userName && horse.userName.toLowerCase().includes(trimmedQuery)) ||
-      (horse.phone && horse.phone.includes(trimmedQuery)) ||
-      (horse.sireName && horse.sireName.toLowerCase().includes(trimmedQuery)) ||
-      (horse.damName && horse.damName.toLowerCase().includes(trimmedQuery)) ||
-      (horse.breed && (
-        (horse.breed === 'arabian' && (trimmedQuery.includes('عربي') || trimmedQuery.includes('أصيل'))) ||
-        (horse.breed === 'shabi' && trimmedQuery.includes('شعبي')) ||
-        (horse.breed === 'sisi' && trimmedQuery.includes('سيسي'))
-      ));
+  const filteredHorses = horses
+    .filter((horse) => {
+      const matchesSearch = !trimmedQuery ||
+        (horse.name && horse.name.toLowerCase().includes(trimmedQuery)) ||
+        (horse.color && horse.color.toLowerCase().includes(trimmedQuery)) ||
+        (horse.healthStatus && horse.healthStatus.toLowerCase().includes(trimmedQuery)) ||
+        (horse.stableName && horse.stableName.toLowerCase().includes(trimmedQuery)) ||
+        (horse.userName && horse.userName.toLowerCase().includes(trimmedQuery)) ||
+        (horse.phone && horse.phone.includes(trimmedQuery)) ||
+        (horse.sireName && horse.sireName.toLowerCase().includes(trimmedQuery)) ||
+        (horse.damName && horse.damName.toLowerCase().includes(trimmedQuery)) ||
+        (horse.breed && (
+          (horse.breed === 'arabian' && (trimmedQuery.includes('عربي') || trimmedQuery.includes('أصيل'))) ||
+          (horse.breed === 'shabi' && trimmedQuery.includes('شعبي')) ||
+          (horse.breed === 'sisi' && trimmedQuery.includes('سيسي'))
+        ));
 
-    if (!matchesSearch) return false;
+      if (!matchesSearch) return false;
 
-    // If a specific search query is entered, show matching horses across all categories
-    if (trimmedQuery) return true;
+      // If a specific search query is entered, show matching horses across all categories
+      if (trimmedQuery) return true;
 
-    // Filter by Tab
-    if (filterType === 'all') {
-      return true; // All ads (active and sold with clear badge) visible to everyone on mobile and desktop
-    }
-    if (filterType === 'sale') {
-      return horse.adType === 'sale' && !horse.isSold;
-    }
-    if (filterType === 'rent') {
-      return horse.adType === 'rent';
-    }
-    if (filterType === 'sold') {
-      return !!horse.isSold;
-    }
+      // Filter by Tab
+      if (filterType === 'all') {
+        return true; // All ads (active and sold with clear badge) visible to everyone on mobile and desktop
+      }
+      if (filterType === 'sale') {
+        return horse.adType === 'sale' && !horse.isSold;
+      }
+      if (filterType === 'rent') {
+        return horse.adType === 'rent';
+      }
+      if (filterType === 'sold') {
+        return isHorseEndedOrSold(horse);
+      }
 
-    return true;
-  });
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
 
-  const soldHorsesCount = horses.filter(h => h.isSold).length;
+  const soldHorsesCount = horses.filter(h => isHorseEndedOrSold(h)).length;
 
   return (
     <div className="space-y-6">
@@ -718,7 +760,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               }`}
             >
               <Tag className="w-3.5 h-3.5" />
-              <span>تم البيع</span>
+              <span>تم البيع / منتهي</span>
               <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${filterType === 'sold' ? 'bg-white/30 text-white' : 'bg-red-100 text-red-700'}`}>
                 {soldHorsesCount}
               </span>
@@ -779,6 +821,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                   setValidatedCodeObj={setValidatedCodeObj}
                   adType="خيل"
                   totalAdsCount={userTotalAds}
+                  adsLast24hCount={user24hAdsCount}
                   onOpenSubscriptions={onOpenSubscriptions}
                   onOpenAuth={onOpenAuth}
                 />
@@ -1187,19 +1230,21 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                       type="text"
                       value={height}
                       onChange={(e) => setHeight(e.target.value)}
-                      placeholder="مثال: 152 سم أو 7 بلكات"
+                      placeholder="مثال: 152 سم، مهر، مهرة، لا أعلم، أو 7 بلكات"
                       className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy"
                     />
                     {/* Height quick selection pills */}
                     <div className="flex flex-wrap gap-1 mt-1.5">
-                      {['148 سم', '150 سم', '152 سم', '155 سم', '158 سم', '7 بلكات', '7.5 بلكات', '8 بلكات'].map((hTag) => (
+                      {['مهر', 'مهرة', 'لا أعلم', '148 سم', '150 سم', '152 سم', '155 سم', '158 سم', '7 بلكات', '7.5 بلكات', '8 بلكات'].map((hTag) => (
                         <button
                           key={hTag}
                           type="button"
                           onClick={() => setHeight(hTag)}
-                          className={`text-[9px] px-2 py-0.5 rounded-full border transition cursor-pointer ${
+                          className={`text-[9.5px] px-2.5 py-0.5 rounded-full border transition cursor-pointer ${
                             height === hTag
                               ? 'bg-navy text-white border-navy font-bold shadow-xs'
+                              : ['مهر', 'مهرة', 'لا أعلم'].includes(hTag)
+                              ? 'bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100 font-bold'
                               : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
                           }`}
                         >
@@ -1368,7 +1413,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               key={horse.id}
               onClick={() => setSelectedHorse(horse)}
               className={`bg-white rounded-xl sm:rounded-2xl overflow-hidden border transition-all duration-300 flex flex-col cursor-pointer group relative ${
-                horse.isSold
+                isHorseEndedOrSold(horse)
                   ? 'border-red-200/80 shadow-xs hover:shadow-md'
                   : 'border-slate-100 hover:shadow-xl shadow-xs'
               }`}
@@ -1380,24 +1425,33 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                   referrerPolicy="no-referrer"
                   alt={horse.name}
                   className={`w-full h-full object-cover group-hover:scale-105 transition duration-500 ${
-                    horse.isSold ? 'grayscale-30 brightness-90' : ''
+                    isHorseEndedOrSold(horse) ? 'grayscale-30 brightness-90' : ''
                   }`}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent"></div>
                 
-                {/* Rating Badge Top Left */}
-                <div className="absolute top-2 left-2 sm:top-3 sm:left-3 bg-black/60 backdrop-blur-xs text-amber-400 text-[8px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-extrabold flex items-center gap-0.5 sm:gap-1 shadow-md border border-amber-400/30">
-                  <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-current text-amber-400" />
-                  <span>{horse.rating || 5}</span>
-                  <span className="text-slate-300 text-[8px] sm:text-[9px] hidden sm:inline">({horse.reviews?.length || 0})</span>
+                {/* Rating Badge Top Left - Defaults to empty stars */}
+                <div className="absolute top-2 left-2 sm:top-3 sm:left-3 z-10">
+                  {(() => {
+                    const ratingData = getItemRating(horse);
+                    return (
+                      <RatingStars
+                        rating={ratingData.rating}
+                        reviewsCount={ratingData.reviewsCount}
+                        variant="badge"
+                        size="xs"
+                      />
+                    );
+                  })()}
                 </div>
 
                 {/* Sold Badge or Sale / Rent Badge */}
                 <div className="absolute top-2 right-2 sm:top-3 sm:right-3 flex flex-col items-end gap-0.5 sm:gap-1">
                   <AdVerifiedBadge item={horse} variant="compact" />
-                  {horse.isSold ? (
+                  {isHorseEndedOrSold(horse) ? (
                     <span className="bg-red-600 text-white text-[8px] sm:text-[10px] px-1.5 sm:px-2.5 py-0.5 rounded-full font-black shadow-lg flex items-center gap-1 border border-white/30 animate-pulse">
-                      <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" /> تم البيع
+                      <CheckCircle2 className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-white" />
+                      {horse.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع'}
                     </span>
                   ) : (
                     <span className={`text-[8px] sm:text-[9px] px-1.5 sm:px-2.5 py-0.5 rounded-full font-bold shadow-md text-white ${
@@ -1454,9 +1508,9 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                 <div>
                   <div className="flex items-center justify-between gap-1">
                     <h4 className="font-bold text-navy group-hover:text-gold transition text-xs sm:text-sm leading-tight line-clamp-1">{horse.name}</h4>
-                    {horse.isSold && (
+                    {isHorseEndedOrSold(horse) && (
                       <span className="text-[8px] sm:text-[9px] bg-red-50 text-red-700 font-bold px-1.5 py-0.5 rounded border border-red-200 shrink-0">
-                        مُباع
+                        {horse.adType === 'rent' ? 'منتهي' : 'مُباع'}
                       </span>
                     )}
                   </div>
@@ -1511,7 +1565,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                     <AdPermissionNotice ad={horse} category="horse" currentUser={currentUser} compact />
 
                     <div className="grid grid-cols-3 gap-1">
-                      {/* Toggle Sold Status Button */}
+                      {/* Toggle Sold / Ended Status Button */}
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -1521,22 +1575,34 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                           }
                           handleToggleSoldStatus(horse, e);
                         }}
-                        className={`py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer border active:scale-95 ${
-                          horse.isSold
+                        className={`py-1.5 px-0.5 sm:px-1 rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer border active:scale-95 ${
+                          isHorseEndedOrSold(horse)
                             ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                            : horse.adType === 'rent'
+                            ? 'text-rose-700 bg-rose-50 hover:bg-rose-100 border-rose-200'
                             : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
                         }`}
-                        title={horse.isSold ? 'إلغاء وسم تم البيع وإعادة العرض' : 'وضع علامة تم البيع (يتطلب موافقة 12 ساعة)'}
+                        title={
+                          horse.adType === 'rent'
+                            ? (isHorseEndedOrSold(horse) ? 'إلغاء وسم منتهي وإعادة الإعلان كمتاح' : 'تمييز إعلان الإيجار كـ "الاعلان منتهي"')
+                            : (isHorseEndedOrSold(horse) ? 'إلغاء وسم تم البيع وإعادة العرض' : 'وضع علامة تم البيع (يتطلب موافقة 12 ساعة)')
+                        }
                       >
-                        {horse.isSold ? (
+                        {isHorseEndedOrSold(horse) ? (
                           <>
                             <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-600 shrink-0" />
-                            <span className="truncate">متاح</span>
+                            <span className="text-[7.5px] sm:text-[9px] font-bold truncate">{horse.adType === 'rent' ? 'إعادة تفعيل' : 'متاح'}</span>
                           </>
                         ) : (
                           <>
-                            <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600 shrink-0" />
-                            <span className="truncate">تم البيع</span>
+                            {horse.adType === 'rent' ? (
+                              <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-rose-600 shrink-0" />
+                            ) : (
+                              <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600 shrink-0" />
+                            )}
+                            <span className="text-[6.8px] sm:text-[8.5px] font-black tracking-tighter leading-tight whitespace-nowrap truncate">
+                              {horse.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع'}
+                            </span>
                           </>
                         )}
                       </button>

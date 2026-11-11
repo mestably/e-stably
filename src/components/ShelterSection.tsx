@@ -19,6 +19,7 @@ import AdPermissionNotice from './AdPermissionNotice';
 import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
+import RatingStars, { getItemRating } from './RatingStars';
 
 interface ShelterSectionProps {
   currentUser: User | null;
@@ -35,6 +36,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const [selectedShelter, setSelectedShelter] = useState<Shelter | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTotalAds, setUserTotalAds] = useState(0);
+  const [user24hAdsCount, setUser24hAdsCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
   const { adminWhatsApp } = useAdminContact();
   const [permissionModalShelter, setPermissionModalShelter] = useState<{ shelter: Shelter; action: 'edit' | 'sold' | 'delete' } | null>(null);
@@ -51,6 +53,9 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     if (currentUser?.id) {
       SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
         setUserTotalAds(cnt);
+      });
+      SubscriptionService.getUserLast24HoursAdsCount(currentUser.id).then((res) => {
+        setUser24hAdsCount(res.count);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -219,9 +224,10 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+      const postCheck = await SubscriptionService.canUserPostAd(currentUser);
+      if (!postCheck.allowed) {
         if (!subscriptionCode.trim()) {
-          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          setError(postCheck.reason || 'عذراً! تتيح باقة 0 ريال المجانية نشر إعلان واحد فقط كل 24 ساعة، وقد قمت بنشر إعلانك لليوم. لنشر إعلان إضافي الآن، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.');
           return;
         }
         const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
@@ -274,7 +280,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       veterinary,
       phone: phone.trim(),
       images: images.length > 0 ? images : (linkedStable?.images?.length ? linkedStable.images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800']),
-      rating: existing?.rating || 5,
+      rating: existing?.rating ?? 0,
       reviews: existing?.reviews || [],
       isEnded: existing?.isEnded || false,
       endedAt: existing?.endedAt,
@@ -366,7 +372,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       veterinary,
       phone: phone.trim(),
       images: images.length > 0 ? images : (linkedStable?.images?.length ? linkedStable.images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800']),
-      rating: existing?.rating || 5,
+      rating: existing?.rating ?? 0,
       reviews: existing?.reviews || [],
       isEnded: existing?.isEnded || false,
       endedAt: existing?.endedAt,
@@ -378,7 +384,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
       // Consume subscription code if used for additional ad
       const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
-      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+      if (!editingItemId && !isUnlimited && subscriptionCode.trim()) {
         try {
           await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, shelterData.id, 'shelter');
         } catch (e) {
@@ -418,19 +424,25 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
   // Filter based on Search and statusFilter (accessible to all on mobile & desktop)
   const trimmedQuery = (searchQuery || '').trim().toLowerCase();
-  const filteredShelters = shelters.filter((shelter) => {
-    const matchesSearch = !trimmedQuery ||
-      shelter.title.toLowerCase().includes(trimmedQuery) ||
-      shelter.description.toLowerCase().includes(trimmedQuery) ||
-      (shelter.stableName && shelter.stableName.toLowerCase().includes(trimmedQuery)) ||
-      shelter.phone.includes(trimmedQuery) ||
-      (shelter.userName && shelter.userName.toLowerCase().includes(trimmedQuery));
-    if (!matchesSearch) return false;
-    if (trimmedQuery) return true;
-    if (statusFilter === 'active') return !shelter.isEnded;
-    if (statusFilter === 'ended') return !!shelter.isEnded;
-    return true;
-  });
+  const filteredShelters = shelters
+    .filter((shelter) => {
+      const matchesSearch = !trimmedQuery ||
+        shelter.title.toLowerCase().includes(trimmedQuery) ||
+        shelter.description.toLowerCase().includes(trimmedQuery) ||
+        (shelter.stableName && shelter.stableName.toLowerCase().includes(trimmedQuery)) ||
+        shelter.phone.includes(trimmedQuery) ||
+        (shelter.userName && shelter.userName.toLowerCase().includes(trimmedQuery));
+      if (!matchesSearch) return false;
+      if (trimmedQuery) return true;
+      if (statusFilter === 'active') return !shelter.isEnded;
+      if (statusFilter === 'ended') return !!shelter.isEnded;
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
 
   const visibleShelters = shelters;
   const visibleEndedSheltersCount = shelters.filter((s) => !!s.isEnded).length;
@@ -554,6 +566,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                   setValidatedCodeObj={setValidatedCodeObj}
                   adType="إيواء"
                   totalAdsCount={userTotalAds}
+                  adsLast24hCount={user24hAdsCount}
                   onOpenSubscriptions={onOpenSubscriptions}
                   onOpenAuth={onOpenAuth}
                 />
@@ -848,9 +861,18 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                   </span>
                 )}
 
-                <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 flex gap-1 items-center bg-black/60 backdrop-blur-xs px-1.5 sm:px-2 py-0.5 rounded-full text-white text-[8px] sm:text-[9px]">
-                  <Star className="w-2.5 h-2.5 sm:w-3.5 sm:h-3.5 text-amber-500 fill-current" />
-                  <span className="font-bold">{shelter.rating || 5}</span>
+                <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 z-10">
+                  {(() => {
+                    const ratingData = getItemRating(shelter);
+                    return (
+                      <RatingStars
+                        rating={ratingData.rating}
+                        reviewsCount={ratingData.reviewsCount}
+                        variant="badge"
+                        size="xs"
+                      />
+                    );
+                  })()}
                 </div>
               </div>
 

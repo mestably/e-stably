@@ -40,6 +40,7 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
   const [selectedTransport, setSelectedTransport] = useState<Transport | null>(null);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
   const [userTotalAds, setUserTotalAds] = useState(0);
+  const [user24hAdsCount, setUser24hAdsCount] = useState(0);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'ended'>('all');
   const { adminWhatsApp } = useAdminContact();
   const [permissionModalTransport, setPermissionModalTransport] = useState<{ transport: Transport; action: 'edit' | 'sold' | 'delete' } | null>(null);
@@ -56,6 +57,9 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     if (currentUser?.id) {
       SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
         setUserTotalAds(cnt);
+      });
+      SubscriptionService.getUserLast24HoursAdsCount(currentUser.id).then((res) => {
+        setUser24hAdsCount(res.count);
       });
     }
   }, [currentUser?.id, isAddOpen]);
@@ -229,9 +233,10 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
 
     if (!editingItemId && !isUnlimited) {
-      if (userTotalAds >= FREE_USER_ADS_LIMIT) {
+      const postCheck = await SubscriptionService.canUserPostAd(currentUser);
+      if (!postCheck.allowed) {
         if (!subscriptionCode.trim()) {
-          setError(`عذراً! لقد استنفدت الإعلان المجاني المتاح لحسابك (إعلان واحد فقط للمستخدم المجاني). لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.`);
+          setError(postCheck.reason || 'عذراً! تتيح باقة 0 ريال المجانية نشر إعلان واحد فقط كل 24 ساعة، وقد قمت بنشر إعلانك لليوم. لنشر إعلان إضافي الآن، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك.');
           return;
         }
         const val = await SubscriptionService.validateCodeOnly(subscriptionCode);
@@ -382,7 +387,7 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
 
       // Consume subscription code if used for additional ad
       const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
-      if (!editingItemId && !isUnlimited && userTotalAds >= FREE_USER_ADS_LIMIT && subscriptionCode.trim()) {
+      if (!editingItemId && !isUnlimited && subscriptionCode.trim()) {
         try {
           await SubscriptionService.redeemCodeForAd(subscriptionCode, currentUser.id, transportData.id, 'transport');
         } catch (e) {
@@ -422,19 +427,25 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
 
   // Filter transports based on search and statusFilter (accessible to all on mobile & desktop)
   const trimmedQuery = (searchQuery || '').trim().toLowerCase();
-  const filteredTransports = transports.filter((trans) => {
-    const matchesSearch = !trimmedQuery ||
-      trans.vehicleType.toLowerCase().includes(trimmedQuery) ||
-      (trans.pickupAddress && trans.pickupAddress.toLowerCase().includes(trimmedQuery)) ||
-      (trans.deliveryAddress && trans.deliveryAddress.toLowerCase().includes(trimmedQuery)) ||
-      (trans.phone && trans.phone.includes(trimmedQuery)) ||
-      (trans.userName && trans.userName.toLowerCase().includes(trimmedQuery));
-    if (!matchesSearch) return false;
-    if (trimmedQuery) return true;
-    if (statusFilter === 'active') return !trans.isEnded;
-    if (statusFilter === 'ended') return !!trans.isEnded;
-    return true;
-  });
+  const filteredTransports = transports
+    .filter((trans) => {
+      const matchesSearch = !trimmedQuery ||
+        trans.vehicleType.toLowerCase().includes(trimmedQuery) ||
+        (trans.pickupAddress && trans.pickupAddress.toLowerCase().includes(trimmedQuery)) ||
+        (trans.deliveryAddress && trans.deliveryAddress.toLowerCase().includes(trimmedQuery)) ||
+        (trans.phone && trans.phone.includes(trimmedQuery)) ||
+        (trans.userName && trans.userName.toLowerCase().includes(trimmedQuery));
+      if (!matchesSearch) return false;
+      if (trimmedQuery) return true;
+      if (statusFilter === 'active') return !trans.isEnded;
+      if (statusFilter === 'ended') return !!trans.isEnded;
+      return true;
+    })
+    .sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeB - timeA;
+    });
 
   const visibleTransports = transports;
   const visibleEndedTransportsCount = transports.filter((t) => !!t.isEnded).length;
@@ -552,6 +563,7 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
                   setValidatedCodeObj={setValidatedCodeObj}
                   adType="نقل"
                   totalAdsCount={userTotalAds}
+                  adsLast24hCount={user24hAdsCount}
                   onOpenSubscriptions={onOpenSubscriptions}
                   onOpenAuth={onOpenAuth}
                 />

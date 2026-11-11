@@ -63,7 +63,7 @@ import { isAdVerified, getEditPermissionRemaining, getAdCategoryTitle, getAdTitl
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 import { realWhiteHorseClipartUrl, realHorseIconUrl } from './ArabianHorseClipartHelper';
 import { ArabianHorseWhiteOnBlueIcon } from './ArabianHorseWhiteOnBlueIcon';
-import { formatHorseAge } from '../lib/horseUtils';
+import { formatHorseAge, isHorseEndedOrSold, isHorseRentExpired } from '../lib/horseUtils';
 import { getVipRemainingTime } from '../lib/countdownHelper';
 
 interface AdminControlSectionProps {
@@ -643,14 +643,21 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
   const handleToggleListingStatus = async (item: any, type: 'horse' | 'stable' | 'shelter' | 'transport') => {
     try {
       if (type === 'horse') {
+        const isRent = item.adType === 'rent';
+        const isCurrentlyEndedOrSold = isHorseEndedOrSold(item);
+        const newStatus = !isCurrentlyEndedOrSold;
+        const now = new Date().toISOString();
         const updated: Horse = {
           ...item,
-          isSold: !item.isSold,
-          soldAt: !item.isSold ? new Date().toISOString() : undefined,
+          isSold: newStatus,
+          soldAt: newStatus ? now : undefined,
+          isEnded: isRent ? newStatus : (item.isEnded || false),
+          endedAt: isRent && newStatus ? now : undefined,
+          rentEnd: (!newStatus && isRent && isHorseRentExpired(item)) ? undefined : item.rentEnd,
         };
         await FirebaseService.saveHorse(updated);
         setHorses(horses.map(h => h.id === updated.id ? updated : h));
-        showNotify('success', `تم ${updated.isSold ? 'تمييز الخيل كمباع' : 'إعادة تنشيط إعلان الخيل'}.`);
+        showNotify('success', `تم ${updated.isSold ? (isRent ? 'تمييز إعلان الخيل كـ "الاعلان منتهي"' : 'تمييز الخيل كمباع') : 'إعادة تنشيط إعلان الخيل'}.`);
       } else if (type === 'stable') {
         const updated: Stable = {
           ...item,
@@ -849,11 +856,14 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
 
   // Filtered lists
   const filteredUsers = users.filter(u => {
-    const matchesSearch = 
-      u.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.phone.includes(searchQuery) ||
-      u.nickname.toLowerCase().includes(searchQuery.toLowerCase());
+    const q = searchQuery.toLowerCase().trim();
+    const matchesSearch = !q ? true : (
+      (u.name || '').toLowerCase().includes(q) ||
+      (u.email || '').toLowerCase().includes(q) ||
+      (u.phone || '').includes(q) ||
+      (u.nickname || '').toLowerCase().includes(q) ||
+      (u.id || '').toLowerCase().includes(q)
+    );
 
     const matchesStatus = 
       statusFilter === 'all' ? true :
@@ -952,6 +962,30 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
           <span>تحديث البيانات</span>
         </button>
       </div>
+
+      {/* Prominent Alert Ribbon for Pending Bank Receipts */}
+      {pendingReceiptsCount > 0 && (
+        <div 
+          onClick={() => setActiveTab('bank_receipts')}
+          className="bg-gradient-to-r from-emerald-600 via-teal-700 to-emerald-600 text-white p-3.5 sm:p-4 rounded-2xl shadow-lg border border-emerald-300 flex items-center justify-between gap-3 cursor-pointer hover:shadow-xl hover:brightness-105 transition active:scale-[0.99] animate-pulse"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+              <Landmark className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <div className="text-xs sm:text-sm font-black flex items-center gap-2">
+                <span>تنبيه الحسابات البنكية: يوجد {pendingReceiptsCount} إيصال سداد بنكي جديد مرفوع بانتظار الاعتماد والمراجعة</span>
+                <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping"></span>
+              </div>
+              <p className="text-[11px] text-emerald-100 mt-0.5">انقر هنا للانتقال فوراً لجدول فحص الحسابات المرفوعة واعتمادها</p>
+            </div>
+          </div>
+          <button className="bg-white text-emerald-950 text-xs font-black px-4 py-2 rounded-xl shadow-xs shrink-0 hover:bg-emerald-50 transition cursor-pointer">
+            فحص الحسابات ←
+          </button>
+        </div>
+      )}
 
       {/* Prominent Alert Ribbon for Pending Subscription Codes */}
       {pendingCodesCount > 0 && (
@@ -1663,10 +1697,10 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                         }`}>
                           {item.listingType === 'horse' ? 'خيل' : item.listingType === 'stable' ? 'إسطبل' : item.listingType === 'shelter' ? 'إيواء' : 'نقل'}
                         </span>
-                        {(item.listingType === 'horse' ? item.isSold : item.isEnded) ? (
+                        {(item.listingType === 'horse' ? isHorseEndedOrSold(item) : item.isEnded) ? (
                           <span className="text-[9px] font-black px-2 py-0.5 rounded-md bg-red-100 text-red-700 flex items-center gap-0.5">
                             <CheckCircle2 className="w-2.5 h-2.5" />
-                            {item.listingType === 'horse' ? 'مباع' : item.listingType === 'transport' ? 'منجز' : 'منتهي'}
+                            {item.listingType === 'horse' ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'مباع') : item.listingType === 'transport' ? 'منجز' : 'منتهي'}
                           </span>
                         ) : (
                           <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700">
@@ -1821,13 +1855,13 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                     <button
                       onClick={() => handleToggleListingStatus(item, item.listingType)}
                       className={`px-3 py-1.5 rounded-xl font-bold text-xs flex items-center gap-1 cursor-pointer transition shadow-xs ${
-                        (item.listingType === 'horse' ? item.isSold : item.isEnded)
+                        (item.listingType === 'horse' ? isHorseEndedOrSold(item) : item.isEnded)
                           ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-700'
                           : 'bg-amber-50 hover:bg-amber-100 text-amber-700'
                       }`}
-                      title={(item.listingType === 'horse' ? item.isSold : item.isEnded) ? 'إعادة تنشيط الإعلان' : 'تمييز كـ منتهي / مباع'}
+                      title={(item.listingType === 'horse' ? isHorseEndedOrSold(item) : item.isEnded) ? 'إعادة تنشيط الإعلان' : 'تمييز كـ منتهي / مباع'}
                     >
-                      {(item.listingType === 'horse' ? item.isSold : item.isEnded) ? (
+                      {(item.listingType === 'horse' ? isHorseEndedOrSold(item) : item.isEnded) ? (
                         <>
                           <RotateCcw className="w-3.5 h-3.5" />
                           <span>إعادة تنشيط</span>
@@ -1835,7 +1869,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                       ) : (
                         <>
                           <Tag className="w-3.5 h-3.5" />
-                          <span>{item.listingType === 'horse' ? 'تمييز كمباع' : item.listingType === 'transport' ? 'تمييز كمنجز' : 'تمييز كمنتهي'}</span>
+                          <span>{item.listingType === 'horse' ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'تمييز كمباع') : item.listingType === 'transport' ? 'تمييز كمنجز' : 'تمييز كمنتهي'}</span>
                         </>
                       )}
                     </button>
@@ -3766,6 +3800,7 @@ function EditUserAdminModal({ user, onClose, onSave }: { user: User; onClose: ()
   const [name, setName] = useState(user.name);
   const [email, setEmail] = useState(user.email);
   const [phone, setPhone] = useState(user.phone);
+  const [nationalId, setNationalId] = useState(user.nationalId || '');
   const [nickname, setNickname] = useState(user.nickname);
   const [role, setRole] = useState<'admin' | 'user'>(user.role);
   const [isSuspended, setIsSuspended] = useState(user.isSuspended || false);
@@ -3778,6 +3813,7 @@ function EditUserAdminModal({ user, onClose, onSave }: { user: User; onClose: ()
       name,
       email,
       phone,
+      nationalId: nationalId.trim() || undefined,
       nickname,
       role,
       isSuspended,
@@ -3811,6 +3847,17 @@ function EditUserAdminModal({ user, onClose, onSave }: { user: User; onClose: ()
             <div>
               <label className="block font-bold mb-1">الاسم المستعار</label>
               <input type="text" value={nickname} onChange={e => setNickname(e.target.value)} required className="w-full p-2.5 border rounded-xl" />
+            </div>
+            <div className="col-span-2">
+              <label className="block font-bold mb-1">رقم الهوية الوطنية أو الإقامة</label>
+              <input 
+                type="text" 
+                value={nationalId} 
+                onChange={e => setNationalId(e.target.value.replace(/[^\d]/g, ''))} 
+                placeholder="رقم الهوية / الإقامة للمستخدم (10XXXXXXXX)" 
+                className="w-full p-2.5 border rounded-xl font-mono" 
+                dir="ltr"
+              />
             </div>
           </div>
 

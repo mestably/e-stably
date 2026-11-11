@@ -15,7 +15,8 @@ import AdPermissionNotice from './AdPermissionNotice';
 import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission, generateWhatsAppEditRequestUrl } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
-import { formatHorseAge } from '../lib/horseUtils';
+import { formatHorseAge, isHorseEndedOrSold, isHorseRentExpired } from '../lib/horseUtils';
+import RatingStars, { getItemRating } from './RatingStars';
 
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
@@ -27,11 +28,23 @@ interface DetailModalProps {
   currentUser: User | null;
   onRefresh: () => void;
   onEdit?: (item: any) => void;
+  focusReviews?: boolean;
+  highlightReviewId?: string;
 }
 
 const DEFAULT_TRANSPORT_IMG = defaultTransportImg;
 
-export default function DetailModal({ item, type, isOpen, onClose, currentUser, onRefresh, onEdit }: DetailModalProps) {
+export default function DetailModal({
+  item,
+  type,
+  isOpen,
+  onClose,
+  currentUser,
+  onRefresh,
+  onEdit,
+  focusReviews,
+  highlightReviewId
+}: DetailModalProps) {
   const defaultFallback = type === 'transport'
     ? DEFAULT_TRANSPORT_IMG
     : 'https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800';
@@ -83,6 +96,22 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
       } catch (e) {}
     };
   }, [isOpen, item?.id, type]);
+
+  // Compute genuine rating from real reviews (defaults to 0 / empty stars)
+  const itemRatingData = getItemRating(item);
+
+  // Auto-scroll to reviews section if focusReviews is requested (e.g. from notification click)
+  useEffect(() => {
+    if (isOpen && focusReviews) {
+      const scrollTimer = setTimeout(() => {
+        const revEl = document.getElementById('reviews-section');
+        if (revEl) {
+          revEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }, 400);
+      return () => clearTimeout(scrollTimer);
+    }
+  }, [isOpen, focusReviews, item?.id]);
 
   if (!isOpen || !item) return null;
 
@@ -147,16 +176,29 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
     }
     try {
       if (type === 'horse') {
-        const newStatus = !item.isSold;
+        const isRent = item.adType === 'rent';
+        const isCurrentlyEndedOrSold = isHorseEndedOrSold(item);
+        const newStatus = !isCurrentlyEndedOrSold;
+        const now = new Date().toISOString();
         const updatedHorse: Horse = {
           ...item,
           isSold: newStatus,
-          soldAt: newStatus ? new Date().toISOString() : undefined,
+          soldAt: newStatus ? now : undefined,
+          isEnded: isRent ? newStatus : (item.isEnded || false),
+          endedAt: isRent && newStatus ? now : undefined,
+          rentEnd: (!newStatus && isRent && isHorseRentExpired(item)) ? undefined : item.rentEnd,
         };
         await FirebaseService.saveHorse(updatedHorse);
         item.isSold = newStatus;
         item.soldAt = updatedHorse.soldAt;
-        setSuccess(newStatus ? 'تم تحديد الجواد كـ "تم البيع" بنجاح!' : 'تم إعادة تعيين الجواد كـ "متاح" بنجاح!');
+        item.isEnded = updatedHorse.isEnded;
+        item.endedAt = updatedHorse.endedAt;
+        item.rentEnd = updatedHorse.rentEnd;
+        if (isRent) {
+          setSuccess(newStatus ? 'تم تمييز إعلان الإيجار كـ "الاعلان منتهي" بنجاح!' : 'تم إعادة تعيين إعلان الإيجار كـ "متاح" بنجاح!');
+        } else {
+          setSuccess(newStatus ? 'تم تحديد الجواد كـ "تم البيع" بنجاح!' : 'تم إعادة تعيين الجواد كـ "متاح" بنجاح!');
+        }
       } else if (type === 'stable') {
         const newStatus = !item.isEnded;
         const updatedStable: Stable = {
@@ -245,7 +287,28 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
         await FirebaseService.saveHorse(updatedItem);
       }
 
-      setSuccess('تم إضافة تقييمك بنجاح!');
+      // Create red message notification for the owner of the ad
+      try {
+        const recipientUserId = item.userId || currentUser.id;
+        const adTitle = item.name || item.title || (type === 'horse' ? 'إعلان خيل' : type === 'stable' ? 'إعلان إسطبل' : 'إعلان إيواء');
+        await FirebaseService.createAdNotification({
+          id: 'notif_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7),
+          recipientUserId,
+          adId: item.id,
+          adType: type,
+          adTitle,
+          commenterName: currentUser.name,
+          commenterId: currentUser.id,
+          commentText: comment.trim(),
+          rating,
+          createdAt: new Date().toISOString(),
+          read: false
+        });
+      } catch (notifErr) {
+        console.warn('Failed to send notification for comment:', notifErr);
+      }
+
+      setSuccess('تم إضافة تقييمك وتعليقك بنجاح!');
       setComment('');
       onRefresh();
       item.reviews = updatedReviews;
@@ -263,8 +326,8 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
     if (!deleteReviewId) return;
     try {
       const updatedReviews = (item.reviews || []).filter((r: Review) => r.id !== deleteReviewId);
-      const totalRating = updatedReviews.length > 0 ? updatedReviews.reduce((sum: number, r: Review) => sum + r.rating, 0) : 5;
-      const avgRating = updatedReviews.length > 0 ? Math.round((totalRating / updatedReviews.length) * 10) / 10 : 5;
+      const totalRating = updatedReviews.length > 0 ? updatedReviews.reduce((sum: number, r: Review) => sum + r.rating, 0) : 0;
+      const avgRating = updatedReviews.length > 0 ? Math.round((totalRating / updatedReviews.length) * 10) / 10 : 0;
 
       const updatedItem = {
         ...item,
@@ -348,7 +411,10 @@ export default function DetailModal({ item, type, isOpen, onClose, currentUser, 
           : '';
       const purposeAr = item.adType === 'sale' ? 'للبيع' : 'للإيجار';
       const priceText = item.price ? `${item.price.toLocaleString('ar-SA')} ريال` : 'على السوم';
-      const statusText = item.isSold ? '⚠️ تم البيع (مُباع)' : '✅ متاح حالياً';
+      const isEndedOrSold = type === 'horse' ? isHorseEndedOrSold(item) : !!item.isEnded;
+      const statusText = isEndedOrSold
+        ? (item.adType === 'rent' ? '⏳ الاعلان منتهي' : '⚠️ تم البيع (مُباع)')
+        : '✅ متاح حالياً';
 
       const lines: string[] = [
         `🐴 *إعلان خيل على منصة إستابلي للخيول العربية*`,
@@ -606,14 +672,18 @@ ${shareUrl}`;
           <AdVerifiedBadge item={item} variant="banner" />
 
           {/* Status Banner when marked as ended / sold / booked */}
-          {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) && (
+          {((type === 'horse' && isHorseEndedOrSold(item)) || (type !== 'horse' && item.isEnded)) && (
             <div className="bg-gradient-to-r from-red-600 to-rose-700 text-white p-3.5 rounded-xl flex items-center justify-between shadow-md border border-red-500/30 animate-in fade-in duration-300">
               <div className="flex items-center gap-2.5">
-                <span className="bg-white/20 p-2 rounded-lg text-lg">🏷️</span>
+                <span className="bg-white/20 p-2 rounded-lg text-lg">
+                  {type === 'horse' && item.adType === 'rent' ? '⏳' : '🏷️'}
+                </span>
                 <div>
                   <span className="font-black text-xs sm:text-sm block">
                     {type === 'horse'
-                      ? 'تم بيع هذا الجواد بنجاح (مُباع)'
+                      ? item.adType === 'rent'
+                        ? 'الاعلان منتهي (انتهت فترة تأجير الخيل)'
+                        : 'تم بيع هذا الجواد بنجاح (مُباع)'
                       : type === 'stable'
                       ? 'تم إغلاق استقبال الخيول مؤقتاً (مكتمل الاستيعاب)'
                       : type === 'shelter'
@@ -622,7 +692,9 @@ ${shareUrl}`;
                   </span>
                   <span className="text-[10px] text-white/80">
                     {type === 'horse'
-                      ? 'هذا الإعلان معلم كـ "تم البيع" وأصبح غير متاح للشراء حالياً'
+                      ? item.adType === 'rent'
+                        ? 'هذا الإعلان معلم كـ "الاعلان منتهي" وغير متاح للتأجير حالياً'
+                        : 'هذا الإعلان معلم كـ "تم البيع" وأصبح غير متاح للشراء حالياً'
                       : type === 'stable'
                       ? 'هذا الإسطبل معلم كـ "مكتمل الاستيعاب" وغير متاح لاستقبال خيول جديدة حالياً'
                       : type === 'shelter'
@@ -632,7 +704,15 @@ ${shareUrl}`;
                 </div>
               </div>
               <span className="bg-white text-red-700 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-xs shrink-0">
-                {type === 'horse' ? 'تم البيع ✓' : type === 'stable' ? 'مكتمل ✓' : type === 'shelter' ? 'محجوز بالكامل ✓' : 'تم النقل ✓'}
+                {type === 'horse'
+                  ? item.adType === 'rent'
+                    ? 'الاعلان منتهي ✓'
+                    : 'تم البيع ✓'
+                  : type === 'stable'
+                  ? 'مكتمل ✓'
+                  : type === 'shelter'
+                  ? 'محجوز بالكامل ✓'
+                  : 'تم النقل ✓'}
               </span>
             </div>
           )}
@@ -678,10 +758,10 @@ ${shareUrl}`;
                     <Shield className="w-3.5 h-3.5" /> موثق
                   </span>
                 )}
-                {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) && (
+                {((type === 'horse' && isHorseEndedOrSold(item)) || (type !== 'horse' && item.isEnded)) && (
                   <span className="absolute top-3 left-3 bg-red-600/95 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black shadow-lg border border-white/20 backdrop-blur-xs">
                     <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                    {type === 'horse' ? 'تم البيع' : type === 'stable' ? 'مكتمل الاستيعاب' : type === 'shelter' ? 'محجوز بالكامل' : 'تم النقل'}
+                    {type === 'horse' ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع') : type === 'stable' ? 'مكتمل الاستيعاب' : type === 'shelter' ? 'محجوز بالكامل' : 'تم النقل'}
                   </span>
                 )}
 
@@ -738,13 +818,15 @@ ${shareUrl}`;
                 <button
                   onClick={handleToggleEndedStatus}
                   className={`p-2 rounded-xl transition text-xs flex items-center gap-1.5 cursor-pointer font-bold border ${
-                    (type === 'horse' ? item.isSold : item.isEnded)
+                    (type === 'horse' ? isHorseEndedOrSold(item) : item.isEnded)
                       ? 'border-emerald-200 bg-emerald-50 hover:bg-emerald-100 text-emerald-800'
                       : 'border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800'
                   }`}
                   title={
                     type === 'horse'
-                      ? item.isSold ? 'إلغاء وضع تم البيع وإعادة عرضه كمتاح' : 'وضع علامة تم البيع على الإعلان'
+                      ? item.adType === 'rent'
+                        ? (isHorseEndedOrSold(item) ? 'إلغاء وسم منتهي وإعادة عرضه كمتاح' : 'تمييز إعلان الإيجار كـ "الاعلان منتهي"')
+                        : (item.isSold ? 'إلغاء وضع تم البيع وإعادة عرضه كمتاح' : 'وضع علامة تم البيع على الإعلان')
                       : type === 'stable'
                       ? item.isEnded ? 'إعادة فتح الإسطبل واستقبال الخيول' : 'تمييز الإسطبل كـ مكتمل / غير متاح'
                       : type === 'shelter'
@@ -752,18 +834,22 @@ ${shareUrl}`;
                       : item.isEnded ? 'إعادة فتح الرحلة للحجز' : 'تمييز الرحلة كـ تم النقل / منتهية'
                   }
                 >
-                  {(type === 'horse' ? item.isSold : item.isEnded) ? (
+                  {(type === 'horse' ? isHorseEndedOrSold(item) : item.isEnded) ? (
                     <>
                       <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
                       <span>
-                        {type === 'horse' ? 'إعادة عرض (متاح)' : type === 'stable' ? 'إعادة فتح (متاح)' : type === 'shelter' ? 'إعادة إتاحة' : 'إعادة فتح الرحلة'}
+                        {type === 'horse' ? (item.adType === 'rent' ? 'إعادة تفعيل (متاح)' : 'إعادة عرض (متاح)') : type === 'stable' ? 'إعادة فتح (متاح)' : type === 'shelter' ? 'إعادة إتاحة' : 'إعادة فتح الرحلة'}
                       </span>
                     </>
                   ) : (
                     <>
-                      <Tag className="w-3.5 h-3.5 text-amber-600" />
+                      {type === 'horse' && item.adType === 'rent' ? (
+                        <Clock className="w-3.5 h-3.5 text-rose-600" />
+                      ) : (
+                        <Tag className="w-3.5 h-3.5 text-amber-600" />
+                      )}
                       <span>
-                        {type === 'horse' ? 'وضع علامة "تم البيع"' : type === 'stable' ? 'تمييز كـ "مكتمل"' : type === 'shelter' ? 'تمييز كـ "محجوز بالكامل"' : 'تمييز كـ "تم النقل"'}
+                        {type === 'horse' ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'وضع علامة "تم البيع"') : type === 'stable' ? 'تمييز كـ "مكتمل"' : type === 'shelter' ? 'تمييز كـ "محجوز بالكامل"' : 'تمييز كـ "تم النقل"'}
                       </span>
                     </>
                   )}
@@ -856,10 +942,13 @@ ${shareUrl}`;
                 </span>
               </div>
               <div className="space-y-1">
-                <span className="text-[10px] text-slate-400 block">التقييم العام</span>
-                <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
-                  <Star className="w-3.5 h-3.5 fill-current" /> {item.rating || 5} / 5
-                </div>
+                <span className="text-[10px] text-slate-400 block">التقييم الفعلي</span>
+                <RatingStars
+                  rating={itemRatingData.rating}
+                  reviewsCount={itemRatingData.reviewsCount}
+                  variant="full"
+                  size="sm"
+                />
               </div>
             </div>
           )}
@@ -954,10 +1043,13 @@ ${shareUrl}`;
                   </span>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] text-slate-400 block">التقييم العام</span>
-                  <div className="flex items-center gap-1 text-xs font-bold text-amber-500">
-                    <Star className="w-3.5 h-3.5 fill-current" /> {item.rating || 5} / 5
-                  </div>
+                  <span className="text-[10px] text-slate-400 block">التقييم الفعلي</span>
+                  <RatingStars
+                    rating={itemRatingData.rating}
+                    reviewsCount={itemRatingData.reviewsCount}
+                    variant="full"
+                    size="sm"
+                  />
                 </div>
                 {item.stableName && (
                   <div className="space-y-1">
@@ -1038,7 +1130,7 @@ ${shareUrl}`;
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-100">
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">نوع الإيواء</span>
                   <span className="text-xs font-bold text-navy-medium">
@@ -1048,6 +1140,15 @@ ${shareUrl}`;
                 <div className="space-y-1">
                   <span className="text-[10px] text-slate-400 block">رقم التواصل</span>
                   <span className="text-xs font-bold text-slate-800">{item.phone}</span>
+                </div>
+                <div className="space-y-1 col-span-2 sm:col-span-1">
+                  <span className="text-[10px] text-slate-400 block">التقييم الفعلي</span>
+                  <RatingStars
+                    rating={itemRatingData.rating}
+                    reviewsCount={itemRatingData.reviewsCount}
+                    variant="full"
+                    size="sm"
+                  />
                 </div>
               </div>
 
@@ -1132,10 +1233,22 @@ ${shareUrl}`;
 
           {/* Reviews Rating Panel for Stables, Shelter & Horses */}
           {(type === 'stable' || type === 'shelter' || type === 'horse') && (
-            <div className="space-y-4 border-t border-slate-100 pt-6">
-              <div className="flex justify-between items-center">
-                <h4 className="font-bold text-slate-800 text-sm">تقييمات وآراء المستخدمين</h4>
-                <div className="text-xs font-semibold text-slate-500">{(item.reviews || []).length} تعليقات</div>
+            <div id="reviews-section" className="space-y-4 border-t border-slate-100 pt-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-slate-50 p-3.5 rounded-2xl border border-slate-100">
+                <div>
+                  <h4 className="font-black text-slate-800 text-sm">تقييمات وآراء المستخدمين</h4>
+                  <p className="text-[10px] text-slate-500 mt-0.5">
+                    التقييم الفعلي من تجارب العملاء (الافتراضي نجوم فارغة)
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <RatingStars
+                    rating={itemRatingData.rating}
+                    reviewsCount={itemRatingData.reviewsCount}
+                    variant="full"
+                    size="sm"
+                  />
+                </div>
               </div>
 
               {/* Add Review form */}
@@ -1143,7 +1256,7 @@ ${shareUrl}`;
                 <form onSubmit={handleAddReview} className="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-semibold text-slate-600">تقييمك بالنجوم:</span>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1" dir="ltr">
                       {[1, 2, 3, 4, 5].map((star) => (
                         <button
                           key={star}
@@ -1151,7 +1264,7 @@ ${shareUrl}`;
                           onClick={() => setRating(star)}
                           className="p-0.5 text-amber-400 hover:scale-110 transition cursor-pointer"
                         >
-                          <Star className={`w-5 h-5 ${rating >= star ? 'fill-current' : 'text-slate-300'}`} />
+                          <Star className={`w-5 h-5 ${rating >= star ? 'fill-current' : 'text-slate-300 stroke-[1.5] fill-none'}`} />
                         </button>
                       ))}
                     </div>
@@ -1185,32 +1298,67 @@ ${shareUrl}`;
               {/* Reviews List */}
               <div className="space-y-3">
                 {item.reviews && item.reviews.length > 0 ? (
-                  item.reviews.map((rev: Review) => (
-                    <div key={rev.id} className="p-3 border border-slate-100 rounded-xl space-y-1 relative group">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-bold text-slate-800">{rev.userName}</span>
-                        <div className="flex items-center gap-0.5 text-amber-500">
-                          {Array.from({ length: rev.rating }).map((_, i) => (
-                            <Star key={i} className="w-3 h-3 fill-current" />
-                          ))}
+                  item.reviews.map((rev: Review) => {
+                    const isHighlighted = Boolean(
+                      highlightReviewId && (highlightReviewId === rev.id || highlightReviewId.includes(rev.id))
+                    );
+                    return (
+                      <div
+                        key={rev.id}
+                        id={`review-${rev.id}`}
+                        className={`p-3.5 border rounded-2xl space-y-1.5 relative group transition ${
+                          isHighlighted
+                            ? 'border-red-400 bg-red-50/70 ring-2 ring-red-400/50 shadow-md'
+                            : 'border-slate-100 bg-white hover:border-slate-200'
+                        }`}
+                      >
+                        <div className="flex justify-between items-center">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-slate-900">{rev.userName}</span>
+                            {isHighlighted && (
+                              <span className="text-[9px] bg-red-600 text-white font-bold px-1.5 py-0.2 rounded-full">
+                                التعليق المعني
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-0.5" dir="ltr">
+                            {[1, 2, 3, 4, 5].map((starIndex) => (
+                              <Star
+                                key={starIndex}
+                                className={`w-3.5 h-3.5 ${
+                                  starIndex <= rev.rating
+                                    ? 'fill-amber-400 text-amber-400'
+                                    : 'text-slate-300 stroke-[1.5] fill-none'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        <p className="text-xs text-slate-700 leading-relaxed font-sans">{rev.comment}</p>
+                        <div className="flex justify-between items-center text-[10px] text-slate-400 pt-1 border-t border-slate-50">
+                          <span>{new Date(rev.createdAt).toLocaleDateString('ar-SA')}</span>
+                          {(isAdmin || currentUser?.id === rev.userId) && (
+                            <button
+                              onClick={() => handleDeleteReview(rev.id)}
+                              className="text-red-500 hover:text-red-700 font-semibold flex items-center gap-0.5 cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" /> حذف
+                            </button>
+                          )}
                         </div>
                       </div>
-                      <p className="text-xs text-slate-600 leading-relaxed">{rev.comment}</p>
-                      <div className="flex justify-between items-center text-[10px] text-slate-400">
-                        <span>{new Date(rev.createdAt).toLocaleDateString('ar-SA')}</span>
-                        {(isAdmin || currentUser?.id === rev.userId) && (
-                          <button
-                            onClick={() => handleDeleteReview(rev.id)}
-                            className="text-red-500 hover:text-red-700 font-semibold flex items-center gap-0.5 cursor-pointer"
-                          >
-                            <Trash2 className="w-3 h-3" /> حذف
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))
+                    );
+                  })
                 ) : (
-                  <p className="text-center text-xs text-slate-400 py-4">لا توجد تقييمات حالياً، كن أول من يقيم!</p>
+                  <div className="text-center py-6 px-4 bg-slate-50/60 rounded-2xl border border-dashed border-slate-200">
+                    <div className="flex justify-center gap-1 mb-2" dir="ltr">
+                      {[1, 2, 3, 4, 5].map((s) => (
+                        <Star key={s} className="w-4 h-4 text-slate-300 stroke-[1.5] fill-none" />
+                      ))}
+                    </div>
+                    <p className="text-xs font-bold text-slate-700">لا توجد تقييمات حالياً (نجوم فارغة)</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">كن أول من يقيّم هذا الإعلان ويشارك تجربته مع الآخرين!</p>
+                  </div>
                 )}
               </div>
 
@@ -1245,22 +1393,26 @@ ${shareUrl}`;
                       : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200'
                   }`}
                   title={
-                    ((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded))
+                    ((type === 'horse' && isHorseEndedOrSold(item)) || (type !== 'horse' && item.isEnded))
                       ? 'إعادة التنشيط والإتاحة'
                       : 'تمييز الإعلان كـ منتهي / مكتمل / مباع'
                   }
                 >
-                  {((type === 'horse' && item.isSold) || (type !== 'horse' && item.isEnded)) ? (
+                  {((type === 'horse' && isHorseEndedOrSold(item)) || (type !== 'horse' && item.isEnded)) ? (
                     <>
                       <RotateCcw className="w-3.5 h-3.5" />
-                      <span>إعادة تنشيط</span>
+                      <span>{type === 'horse' && item.adType === 'rent' ? 'إعادة تفعيل' : 'إعادة تنشيط'}</span>
                     </>
                   ) : (
                     <>
-                      <Tag className="w-3.5 h-3.5" />
+                      {type === 'horse' && item.adType === 'rent' ? (
+                        <Clock className="w-3.5 h-3.5 text-rose-600" />
+                      ) : (
+                        <Tag className="w-3.5 h-3.5" />
+                      )}
                       <span>
                         {type === 'horse'
-                          ? 'تمييز كمباع'
+                          ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'تمييز كمباع')
                           : type === 'transport'
                           ? 'تمييز كمنجز'
                           : type === 'shelter'

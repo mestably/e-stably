@@ -27,6 +27,7 @@ interface SubscriptionCodeFieldProps {
   setValidatedCodeObj: (obj: SubscriptionCode | null) => void;
   adType?: string;
   totalAdsCount: number;
+  adsLast24hCount?: number;
   onOpenSubscriptions?: () => void;
   onOpenAuth?: () => void;
 }
@@ -41,6 +42,7 @@ export default function SubscriptionCodeField({
   setValidatedCodeObj,
   adType = 'إعلان جديد',
   totalAdsCount,
+  adsLast24hCount,
   onOpenSubscriptions,
   onOpenAuth
 }: SubscriptionCodeFieldProps) {
@@ -51,7 +53,7 @@ export default function SubscriptionCodeField({
   const [validationMessage, setValidationMessage] = useState<string>('');
 
   const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
-  const isFreeLimitReached = !isUnlimited && totalAdsCount >= FREE_USER_ADS_LIMIT;
+  const isFreeLimitReached = !isUnlimited && (adsLast24hCount !== undefined ? adsLast24hCount >= 1 : totalAdsCount >= FREE_USER_ADS_LIMIT);
 
   const handleValidateCode = async () => {
     if (!code.trim()) {
@@ -127,11 +129,11 @@ export default function SubscriptionCodeField({
               </span>
             ) : isFreeLimitReached ? (
               <span className="bg-red-100 text-red-800 text-[9px] font-black px-2 py-0.5 rounded-full border border-red-200">
-                استنفدت الإعلان المجاني (1/1)
+                استنفدت إعلان اليوم (إعلان كل 24 ساعة)
               </span>
             ) : (
               <span className="bg-emerald-50 text-emerald-700 text-[9px] font-bold px-2 py-0.5 rounded-full border border-emerald-200">
-                إعلانك الأول مجاني ({totalAdsCount}/1)
+                إعلانك المجاني لليوم متاح (1 كل 24 ساعة)
               </span>
             )}
           </div>
@@ -176,14 +178,14 @@ export default function SubscriptionCodeField({
                 </h4>
                 {isFreeLimitReached && (
                   <span className="bg-red-600 text-white text-[9px] font-black px-2 py-0.5 rounded-full">
-                    مطلوب كود إضافي
+                    مطلوب كود للنشر الإضافي
                   </span>
                 )}
               </div>
               <p className="text-[11px] text-amber-900 mt-1 leading-relaxed">
                 {isFreeLimitReached
-                  ? 'وفقاً لسياسة المنصة، يحق للمستخدم المجاني نشر إعلان واحد فقط. لنشر هذا الإعلان، يرجى إدخال كود اشتراك معتمد، أو طلب كود فوري عبر الواتساب، أو ترقية اشتراكك.'
-                  : 'يمكنك استخدام كود تفعيل مسبق أو ترقية حسابك للتمتع بإعلانات غير محدودة وتثبيت الإعلانات.'}
+                  ? 'وفقاً لسياسة باقة 0 ريال المجانية، يحق للمستخدم نشر إعلان مجاني واحد كل 24 ساعة. لقد قمت بنشر إعلانك لليوم. لنشر إعلان إضافي الآن، يرجى إدخال كود اشتراك معتمد، أو طلب كود فوري عبر الواتساب، أو ترقية اشتراكك للعضوية الذهبية.'
+                  : 'تمنحك باقة 0 ريال إعلاناً مجانياً واحداً كل 24 ساعة يتجدد تلقائياً. يمكنك أيضاً استخدام كود تفعيل مسبق أو الترقية للتمتع بنشر غير محدود وتثبيت الإعلانات.'}
               </p>
             </div>
           </div>

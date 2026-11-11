@@ -56,12 +56,25 @@ export default function SubscriptionsSection({
     currentUser?.updatedAt || currentUser?.createdAt,
     !!currentUser?.isGold
   );
+  const [ads24hCount, setAds24hCount] = useState<number>(0);
+  const [timeRemainingText, setTimeRemainingText] = useState<string>('');
 
   useEffect(() => {
     if (currentUser?.id) {
       setIsLoadingAds(true);
-      SubscriptionService.getUserTotalAdsCount(currentUser.id).then(cnt => {
-        setTotalAdsCount(cnt);
+      Promise.all([
+        SubscriptionService.getUserTotalAdsCount(currentUser.id),
+        SubscriptionService.getUserLast24HoursAdsCount(currentUser.id)
+      ]).then(([totalCnt, status24h]) => {
+        setTotalAdsCount(totalCnt);
+        setAds24hCount(status24h.count);
+        if (status24h.hoursRemaining > 0) {
+          setTimeRemainingText(`(متبقي حوالي ${status24h.hoursRemaining} ساعة و ${status24h.minutesRemaining} دقيقة)`);
+        } else if (status24h.minutesRemaining > 0) {
+          setTimeRemainingText(`(متبقي حوالي ${status24h.minutesRemaining} دقيقة)`);
+        } else {
+          setTimeRemainingText('');
+        }
         setIsLoadingAds(false);
       });
     }
@@ -83,7 +96,6 @@ export default function SubscriptionsSection({
   };
 
   const isUnlimited = currentUser?.role === 'admin' || !!currentUser?.isGold || !!currentUser?.isSubscribed;
-  const remainingFreeAds = Math.max(0, FREE_USER_ADS_LIMIT - totalAdsCount);
 
   const containerContent = (
     <div className="space-y-8 max-w-5xl mx-auto py-2 px-1">
@@ -149,7 +161,7 @@ export default function SubscriptionsSection({
                   </div>
                 ) : (
                   <span className="bg-slate-100 text-slate-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                    حساب مجاني
+                    حساب مجاني (إعلان كل 24 ساعة)
                   </span>
                 )}
               </div>
@@ -158,7 +170,11 @@ export default function SubscriptionsSection({
                   <strong className="text-emerald-700 font-extrabold">لديك صلاحية نشر غير محدودة للإعلانات 👑</strong>
                 ) : (
                   <span>
-                    إجمالي إعلاناتك المنشورة: <strong className="text-navy font-black">{totalAdsCount}</strong> من أصل <strong className="text-navy font-black">{FREE_USER_ADS_LIMIT}</strong> مسموح به مجاناً.
+                    رصيدك اليومي المجاني: {ads24hCount >= 1 ? (
+                      <strong className="text-amber-800 font-bold">تم نشر إعلانك لليوم {timeRemainingText}</strong>
+                    ) : (
+                      <strong className="text-emerald-700 font-bold">لديك 1 إعلان مجاني متاح الآن (إعلان كل 24 ساعة)</strong>
+                    )} • إجمالي إعلاناتك السابقة: <strong className="text-navy font-black">{totalAdsCount}</strong>
                   </span>
                 )}
               </p>
@@ -166,15 +182,15 @@ export default function SubscriptionsSection({
           </div>
 
           <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
-            {!isUnlimited && totalAdsCount >= FREE_USER_ADS_LIMIT ? (
-              <span className="bg-red-50 text-red-700 border border-red-200 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5">
-                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                استنفدت الإعلان المجاني (يلزم كود أو ترقية)
+            {!isUnlimited && ads24hCount >= 1 ? (
+              <span className="bg-amber-50 text-amber-950 border border-amber-300 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5">
+                <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+                استنفدت إعلان اليوم (يتجدد كل 24 ساعة)
               </span>
             ) : !isUnlimited ? (
               <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 text-xs font-bold px-3 py-1.5 rounded-xl flex items-center gap-1.5">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                متبقي لك {remainingFreeAds} إعلان مجاني
+                إعلانك المجاني لليوم متاح الآن ✓
               </span>
             ) : null}
           </div>
@@ -210,8 +226,8 @@ export default function SubscriptionsSection({
             </div>
 
             <div>
-              <h3 className="text-xl font-black text-slate-900">الباقة المجانية</h3>
-              <p className="text-xs text-slate-500 mt-1">مناسبة للأفراد والمبتدئين لتجربة خدمات المنصة</p>
+              <h3 className="text-xl font-black text-slate-900">باقة 0 ريال شهرياً</h3>
+              <p className="text-xs text-slate-500 mt-1">إعلان مجاني كل 24 ساعة لجميع مستخدمي المنصة</p>
             </div>
 
             <div className="py-2 border-y border-slate-100">
@@ -222,7 +238,11 @@ export default function SubscriptionsSection({
             <ul className="space-y-2.5 text-xs text-slate-600 font-medium">
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                <span><strong>إعلان واحد فقط مجاناً</strong> (خيل، إسطبل، إيواء، أو نقل)</span>
+                <span><strong>إعلان مجاني واحد كل 24 ساعة</strong> (خيل، إسطبل، إيواء، أو نقل)</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span><strong>تجدد تلقائي مجاني</strong> كل 24 ساعة لنشر إعلان جديد</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -234,7 +254,7 @@ export default function SubscriptionsSection({
               </li>
               <li className="flex items-center gap-2 text-slate-400">
                 <X className="w-4 h-4 text-slate-300 shrink-0" />
-                <span className="line-through">نشر إعلانات متعددة بدون كود</span>
+                <span className="line-through">نشر أكثر من إعلان واحد خلال نفس الـ 24 ساعة (يلزم كود)</span>
               </li>
               <li className="flex items-center gap-2 text-slate-400">
                 <X className="w-4 h-4 text-slate-300 shrink-0" />
@@ -245,7 +265,7 @@ export default function SubscriptionsSection({
 
           <div className="pt-6">
             <div className="w-full py-2.5 px-4 rounded-xl bg-slate-100 text-slate-700 text-center text-xs font-bold">
-              مفعلة تلقائياً لجميع الحسابات
+              مفعلة تلقائياً (إعلان مجاني كل 24 ساعة)
             </div>
           </div>
         </div>
@@ -257,30 +277,21 @@ export default function SubscriptionsSection({
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-blue-800 bg-blue-100 px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span>كود نشر إضافي</span>
-                <span className="bg-blue-600 text-white text-[11px] font-black px-2 py-0.5 rounded-md shadow-2xs">السعر 20 ريال</span>
-              </span>
-              <span className="text-xs font-black text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-lg border border-blue-200">
-                20 ريال / كود
-              </span>
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-xl font-black text-slate-900">كود النشر الإضافي</h3>
-                <span className="bg-blue-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-2xs">
-                  السعر: 20 ريال
-                </span>
+            <div className="space-y-2 pb-3 border-b border-blue-100 text-right">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-blue-600 inline-block shadow-2xs"></span>
+                  <span>كود النشر الإضافي</span>
+                </h3>
+                <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-3 py-1.5 rounded-xl shadow-xs font-black">
+                  <span className="text-[11px] font-medium opacity-90">السعر:</span>
+                  <span className="text-base sm:text-lg font-mono font-black">20</span>
+                  <span className="text-xs font-bold">ريال</span>
+                </div>
               </div>
-              <p className="text-xs text-slate-500 mt-1">كود مخصص لنشر إعلان إضافي دون التزام شهري</p>
-            </div>
-
-            <div className="py-2.5 border-y border-blue-100 flex items-baseline gap-1.5">
-              <span className="text-3xl font-black text-blue-900">20</span>
-              <span className="text-sm text-blue-700 font-extrabold">ريال</span>
-              <span className="text-xs text-slate-500 font-bold mr-1">/ كود لكل إعلان إضافي</span>
+              <p className="text-xs sm:text-sm text-slate-600 font-bold leading-relaxed">
+                كود مخصص لنشر إعلان واحد فقط دون التزام بالمدة
+              </p>
             </div>
 
             <ul className="space-y-2.5 text-xs text-slate-600 font-medium">
@@ -326,30 +337,21 @@ export default function SubscriptionsSection({
           </div>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-amber-900 bg-amber-100 px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span>العضوية الذهبية</span>
-                <span className="bg-amber-600 text-white text-[11px] font-black px-2 py-0.5 rounded-md shadow-2xs">100 ريال شهرياً</span>
-              </span>
-              <span className="text-xs font-black text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-300">
-                100 ريال شهرياً
-              </span>
-            </div>
-
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-xl font-black text-slate-900">العضوية الذهبية 👑</h3>
-                <span className="bg-amber-600 text-white text-xs font-black px-2.5 py-0.5 rounded-lg shadow-2xs">
-                  100 ريال شهرياً
-                </span>
+            <div className="space-y-2 pb-3 border-b border-amber-200/80 text-right">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="text-lg sm:text-xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  <Crown className="w-5 h-5 text-amber-500 fill-amber-400 shrink-0" />
+                  <span>العضوية الذهبية</span>
+                </h3>
+                <div className="inline-flex items-center gap-1.5 bg-gradient-to-r from-amber-500 via-amber-600 to-yellow-600 text-white px-3 py-1.5 rounded-xl shadow-xs font-black border border-amber-400/40">
+                  <span className="text-base sm:text-lg font-mono font-black">100</span>
+                  <span className="text-xs font-bold">ريال شهرياً</span>
+                </div>
               </div>
-              <p className="text-xs text-slate-500 mt-1">للمربين، الإسطبلات، والشركات ذات النشاط المستمر</p>
-            </div>
-
-            <div className="py-2.5 border-y border-amber-100 flex items-baseline gap-1.5">
-              <span className="text-3xl font-black text-amber-900">100</span>
-              <span className="text-sm text-amber-700 font-extrabold">ريال</span>
-              <span className="text-xs text-slate-500 font-bold mr-1">/ شهرياً (إعلانات بلا حدود)</span>
+              <p className="text-xs sm:text-sm text-amber-900 font-black flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-600 fill-amber-400 shrink-0" />
+                <span>(إعلانات بلا حدود)</span>
+              </p>
             </div>
 
             <ul className="space-y-2.5 text-xs text-slate-700 font-medium">

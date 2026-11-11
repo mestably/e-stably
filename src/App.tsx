@@ -43,6 +43,9 @@ import DetailModal from './components/DetailModal';
 import SubscriptionsSection from './components/SubscriptionsSection';
 import UserDashboardSection from './components/UserDashboardSection';
 import { HorsesScreensaver } from './components/HorsesScreensaver';
+import MandatoryNationalIdModal from './components/MandatoryNationalIdModal';
+import AdNotificationCenter from './components/AdNotificationCenter';
+import { GlobalSearchBar } from './components/GlobalSearchBar';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
 import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
@@ -67,14 +70,82 @@ export default function App() {
   const [todayAdsCount, setTodayAdsCount] = useState<number>(0);
   const [userTotalAds, setUserTotalAds] = useState<number>(0);
   const [isScreensaverOpen, setIsScreensaverOpen] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [isNationalIdModalOpen, setIsNationalIdModalOpen] = useState(false);
+
+  // Periodic check (every 3 minutes) for users missing nationalId
+  useEffect(() => {
+    const checkMissingNationalId = () => {
+      if (currentUser && (!currentUser.nationalId || currentUser.nationalId.trim().length < 8)) {
+        setIsNationalIdModalOpen(true);
+      } else {
+        setIsNationalIdModalOpen(false);
+      }
+    };
+
+    // Initial check after short delay when user is present
+    const initialTimer = setTimeout(() => {
+      checkMissingNationalId();
+    }, 1200);
+
+    // Repeat check every 3 minutes (180,000 ms)
+    const intervalTimer = setInterval(() => {
+      checkMissingNationalId();
+    }, 3 * 60 * 1000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+    };
+  }, [currentUser]);
 
   // Direct Shared Ad State
   const [sharedAdModal, setSharedAdModal] = useState<{
     item: any;
     type: 'horse' | 'stable' | 'shelter' | 'transport';
+    focusReviews?: boolean;
+    highlightReviewId?: string;
   } | null>(null);
   const [sharedAdNotFound, setSharedAdNotFound] = useState(false);
   const [isSharedAdLoading, setIsSharedAdLoading] = useState(false);
+
+  const handleOpenAdFromNotification = async (
+    adId: string,
+    adType: 'horse' | 'stable' | 'shelter' | 'transport',
+    notificationId?: string
+  ) => {
+    try {
+      setIsSharedAdLoading(true);
+      setSharedAdNotFound(false);
+
+      let result = await FirebaseService.getAdById(adId, adType);
+      if (!result) {
+        await new Promise((res) => setTimeout(res, 500));
+        result = await FirebaseService.getAdById(adId, adType);
+      }
+      setIsSharedAdLoading(false);
+
+      if (result && result.item) {
+        if (result.type === 'horse') setActiveTab('horses');
+        else if (result.type === 'stable') setActiveTab('stables');
+        else if (result.type === 'shelter') setActiveTab('shelter');
+        else if (result.type === 'transport') setActiveTab('transport');
+
+        setSharedAdModal({
+          item: result.item,
+          type: result.type,
+          focusReviews: true,
+          highlightReviewId: notificationId
+        });
+      } else {
+        setSharedAdNotFound(true);
+        setTimeout(() => setSharedAdNotFound(false), 5000);
+      }
+    } catch (err) {
+      console.warn('Error opening ad from notification:', err);
+      setIsSharedAdLoading(false);
+    }
+  };
 
   const refreshDailyAdsCount = useCallback(async () => {
     if (currentUser?.id) {
@@ -234,6 +305,67 @@ export default function App() {
       });
     };
   }, [siteSettings.screensaverEnabled, siteSettings.screensaverTimeoutSeconds, isScreensaverOpen]);
+ 
+  // Mobile virtual keyboard & focus detection to prevent bottom nav from floating to screen center
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        setIsKeyboardVisible(true);
+      }
+    };
+
+    const handleFocusOut = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        setTimeout(() => {
+          const activeEl = document.activeElement as HTMLElement | null;
+          if (
+            !activeEl ||
+            (activeEl.tagName !== 'INPUT' &&
+              activeEl.tagName !== 'TEXTAREA' &&
+              activeEl.tagName !== 'SELECT' &&
+              !activeEl.isContentEditable)
+          ) {
+            setIsKeyboardVisible(false);
+          }
+        }, 120);
+      }
+    };
+
+    const handleVisualViewportResize = () => {
+      if (window.visualViewport) {
+        const heightDifference = window.innerHeight - window.visualViewport.height;
+        setIsKeyboardVisible(heightDifference > 140);
+      }
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+    }
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleVisualViewportResize);
+      }
+    };
+  }, []);
 
   // Deep linking: Automatically open shared ad if 'ad' or 'id' query parameter is present in URL
   useEffect(() => {
@@ -336,20 +468,17 @@ export default function App() {
         </div>
 
         {/* Global Search Bar */}
-        <div className="hidden md:flex items-center relative w-80 max-w-xs">
-          <Search className="absolute right-3.5 top-3 w-4 h-4 text-navy" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="بحث عن إعلانات، خيول، إسطبلات..."
-            className="w-full text-xs pl-4 pr-10 py-2.5 border border-slate-200/60 rounded-xl focus:outline-none focus:border-navy bg-navy-light/40"
+        <div className="hidden md:block w-80 max-w-xs">
+          <GlobalSearchBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onSelectAd={(item, type) => {
+              setSharedAdModal({ item, type });
+            }}
+            onNavigateToSection={(section) => {
+              setActiveTab(section);
+            }}
           />
-          {searchQuery && (
-            <button onClick={() => setSearchQuery('')} className="absolute left-3 top-2.5 text-slate-400 hover:text-navy text-xs font-bold p-1">
-              مسح
-            </button>
-          )}
         </div>
 
         {/* Action Controls & Session manager */}
@@ -400,26 +529,21 @@ export default function App() {
                     </div>
                   ) : (
                     <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded border mt-0.5 block truncate ${
-                      userTotalAds >= FREE_USER_ADS_LIMIT 
-                        ? 'text-red-800 bg-red-100 border-red-300' 
+                      todayAdsCount >= 1 
+                        ? 'text-amber-800 bg-amber-100 border-amber-300' 
                         : 'text-emerald-800 bg-emerald-100/90 border-emerald-300'
-                    }`} title={`المستهلك من الإعلانات: ${userTotalAds} من ${FREE_USER_ADS_LIMIT} إعلان مسموح به مجاناً`}>
-                      مجاني: {userTotalAds}/{FREE_USER_ADS_LIMIT} إعلان
+                    }`} title={todayAdsCount >= 1 ? 'استنفدت إعلان اليوم (يتجدد مجاناً كل 24 ساعة)' : 'متاح إعلان مجاني واحد كل 24 ساعة'}>
+                      {todayAdsCount >= 1 ? 'استنفدت إعلان اليوم' : 'متاح اعلان مجانى واحد'}
                     </span>
                   )}
                 </div>
               </button>
 
-
-              {/* Subscriptions page shortcut */}
-              <button
-                onClick={() => setIsSubscriptionsModalOpen(true)}
-                className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300/80 rounded-lg transition cursor-pointer shrink-0 text-xs flex items-center gap-1 font-extrabold"
-                title="باقات الاشتراكات والترقية"
-              >
-                <Crown className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden sm:inline text-[10px]">الاشتراكات</span>
-              </button>
+              {/* Red Message Comment Notification Icon next to user profile */}
+              <AdNotificationCenter
+                currentUser={currentUser}
+                onOpenAd={handleOpenAdFromNotification}
+              />
 
 
               {/* Admin Button if user is Admin */}
@@ -446,14 +570,6 @@ export default function App() {
           ) : (
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setIsSubscriptionsModalOpen(true)}
-                className="bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-extrabold py-2 px-3 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs"
-              >
-                <Crown className="w-3.5 h-3.5 text-amber-600" />
-                <span className="hidden sm:inline">الاشتراكات</span>
-              </button>
-
-              <button
                 onClick={() => setIsAuthOpen(true)}
                 className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
               >
@@ -475,7 +591,7 @@ export default function App() {
       </header>
 
       {/* Main Content & Navigation Shell */}
-      <div className="flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row pb-16 md:pb-0">
+      <div className="flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row pb-24 md:pb-0">
         
         {/* Sidebar Navigation - Desktop */}
         <aside className="hidden md:block w-64 border-l border-slate-100 bg-white p-4 space-y-2 shrink-0">
@@ -683,25 +799,34 @@ export default function App() {
                         </div>
                       ) : (
                         <div className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border mt-1 inline-flex items-center gap-1 ${
-                          userTotalAds >= FREE_USER_ADS_LIMIT 
-                            ? 'bg-red-50 text-red-900 border-red-200' 
+                          todayAdsCount >= 1 
+                            ? 'bg-amber-50 text-amber-900 border-amber-200' 
                             : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                         }`}>
-                          <span>رصيد الإعلانات المجانية:</span>
+                          <span>رصيد الإعلانات:</span>
                           <span className="font-black px-1.5 py-0.5 rounded">
-                            {userTotalAds} من {FREE_USER_ADS_LIMIT} إعلان مستهلك
+                            {todayAdsCount >= 1 ? 'تم استهلاك إعلان اليوم (يتجدد كل 24 ساعة)' : 'متاح اعلان مجانى واحد (يتجدد كل 24 ساعة)'}
                           </span>
                         </div>
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
-                    className="flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>خروج</span>
-                  </button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <AdNotificationCenter
+                      currentUser={currentUser}
+                      onOpenAd={(adId, adType, notifId) => {
+                        setIsMobileMenuOpen(false);
+                        handleOpenAdFromNotification(adId, adType, notifId);
+                      }}
+                    />
+                    <button
+                      onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+                      className="flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>خروج</span>
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -830,26 +955,20 @@ export default function App() {
         <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
           
           {/* Mobile search bar */}
-          {activeTab !== 'home' && activeTab !== 'terms' && activeTab !== 'contact' && (
-            <div className="block md:hidden mb-4 relative">
-              <Search className="absolute right-3 top-2.5 w-4 h-4 text-navy" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="بحث عن إعلان في ملتقى الخيول العربية..."
-                className="w-full text-xs pl-12 pr-10 py-2 border border-slate-200/60 rounded-xl focus:outline-none focus:border-navy bg-navy-light/40"
+          {/* Mobile search bar */}
+          {activeTab !== 'terms' && activeTab !== 'contact' && activeTab !== 'backup' && activeTab !== 'admin' && (
+            <div className="block md:hidden mb-4">
+              <GlobalSearchBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onSelectAd={(item, type) => {
+                  setSharedAdModal({ item, type });
+                }}
+                onNavigateToSection={(section) => {
+                  setActiveTab(section);
+                }}
+                isMobileFullscreen={true}
               />
-              {searchQuery && (
-                <button
-                  type="button"
-                  onClick={() => setSearchQuery('')}
-                  className="absolute left-2.5 top-1.5 text-slate-400 hover:text-navy text-[11px] font-bold px-2 py-0.5 rounded-lg bg-slate-200/80 active:bg-slate-300 transition"
-                  title="مسح البحث"
-                >
-                  مسح
-                </button>
-              )}
             </div>
           )}
 
@@ -858,6 +977,11 @@ export default function App() {
             <HomeSection 
               onSelectTab={(tab) => setActiveTab(tab)} 
               currentUser={currentUser}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery('')}
+              onSelectAd={(item, type) => {
+                setSharedAdModal({ item, type });
+              }}
             />
           )}
 
@@ -945,12 +1069,27 @@ export default function App() {
 
       </div>
 
-      {/* Navigation - Bottom bar strictly for mobile experience */}
-      <footer className="md:hidden fixed bottom-0 left-0 right-0 bg-navy border-t border-navy-dark z-40 px-2 py-1 flex justify-around shadow-lg">
-        
+      {/* Navigation - Bottom bar strictly for mobile experience with rock-solid fixed anchoring */}
+      <footer
+        id="mobile-bottom-nav"
+        className={`md:hidden mobile-bottom-nav-fixed bg-navy border-t border-navy-dark px-2 pt-1.5 flex justify-around shadow-2xl ${
+          isKeyboardVisible || isAuthOpen || isProfileOpen || isSubscriptionsModalOpen || isMobileMenuOpen || Boolean(sharedAdModal)
+            ? 'is-hidden'
+            : ''
+        }`}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          width: '100%',
+          zIndex: 45,
+          touchAction: 'manipulation',
+        }}
+      >
         <button
           onClick={() => setActiveTab('home')}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'home' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'home' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <Compass className={`w-5 h-5 ${activeTab === 'home' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الرئيسية</span>
@@ -958,7 +1097,7 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('horses')}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'horses' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'horses' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <Award className={`w-5 h-5 ${activeTab === 'horses' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الخيول</span>
@@ -966,7 +1105,7 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('stables')}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'stables' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'stables' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <Home className={`w-5 h-5 ${activeTab === 'stables' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الإسطبلات</span>
@@ -974,7 +1113,7 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('shelter')}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'shelter' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'shelter' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <ShieldCheck className={`w-5 h-5 ${activeTab === 'shelter' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">الإيواء</span>
@@ -982,7 +1121,7 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('transport')}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'transport' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'transport' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <Truck className={`w-5 h-5 ${activeTab === 'transport' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">النقل</span>
@@ -996,7 +1135,7 @@ export default function App() {
               setIsAuthOpen(true);
             }
           }}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors relative ${activeTab === 'user-dashboard' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer relative ${activeTab === 'user-dashboard' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <Layers className={`w-5 h-5 ${activeTab === 'user-dashboard' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">إعلاناتي</span>
@@ -1009,7 +1148,7 @@ export default function App() {
 
         <button
           onClick={() => setActiveTab('contact')}
-          className={`flex flex-col items-center gap-1 p-2 transition-colors ${activeTab === 'contact' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'contact' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
         >
           <Mail className={`w-5 h-5 ${activeTab === 'contact' ? 'text-gold' : 'text-white/70'}`} />
           <span className="text-[9px]">تواصل</span>
@@ -1062,12 +1201,29 @@ export default function App() {
       {/* Announcement Banner Modal */}
       <BannerModal banner={banner} />
 
-      {/* Shared Ad Direct Modal (Opened from direct link or deep linking) */}
+      {/* Mandatory National ID Modal (Prompts every 3 minutes if user is missing national ID) */}
+      {currentUser && (
+        <MandatoryNationalIdModal
+          isOpen={isNationalIdModalOpen}
+          currentUser={currentUser}
+          onSuccess={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            setIsNationalIdModalOpen(false);
+          }}
+          onDismissTemporarily={() => {
+            setIsNationalIdModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* Shared Ad Direct Modal (Opened from direct link or deep linking or notification) */}
       {sharedAdModal && (
         <DetailModal
           item={sharedAdModal.item}
           type={sharedAdModal.type}
           isOpen={true}
+          focusReviews={sharedAdModal.focusReviews}
+          highlightReviewId={sharedAdModal.highlightReviewId}
           onClose={() => {
             setSharedAdModal(null);
             try {

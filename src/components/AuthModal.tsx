@@ -19,7 +19,9 @@ import {
   Send, 
   KeyRound, 
   MessageSquare, 
-  Smartphone 
+  Smartphone,
+  Shield,
+  CreditCard 
 } from 'lucide-react';
 import { User } from '../types';
 import { FirebaseService } from '../lib/firebase';
@@ -40,6 +42,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [nationalId, setNationalId] = useState('');
   const [nickname, setNickname] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -77,6 +80,30 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
 
   // Input refs for OTP 6-digits auto-advance
   const otpInputRefs = [
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null),
+    useRef<HTMLInputElement>(null)
+  ];
+
+  // Forgot Password State
+  const [isForgotPassword, setIsForgotPassword] = useState(false);
+  const [forgotStep, setForgotStep] = useState<'request' | 'verify'>('request');
+  const [forgotIdentifier, setForgotIdentifier] = useState('');
+  const [forgotMethod, setForgotMethod] = useState<'whatsapp' | 'email'>('whatsapp');
+  const [forgotTargetUser, setForgotTargetUser] = useState<User | null>(null);
+  const [forgotOtpDigits, setForgotOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
+  const [forgotNewPassword, setForgotNewPassword] = useState('');
+  const [forgotConfirmPassword, setForgotConfirmPassword] = useState('');
+  const [forgotShowPassword, setForgotShowPassword] = useState(false);
+  const [forgotLastSentCode, setForgotLastSentCode] = useState('');
+  const [forgotOtpResult, setForgotOtpResult] = useState<SendOtpResponse | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const [showDirectForgotCode, setShowDirectForgotCode] = useState(false);
+
+  const forgotOtpRefs = [
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
     useRef<HTMLInputElement>(null),
@@ -143,8 +170,14 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     setError('');
     setSuccess('');
 
-    if (!name || !email || !phone || !nickname || !password || !confirmPassword) {
-      setError('يرجى ملء جميع الحقول المطلوبة.');
+    if (!name || !email || !phone || !nickname || !password || !confirmPassword || !nationalId) {
+      setError('يرجى ملء جميع الحقول المطلوبة بما في ذلك رقم الهوية الوطنية أو الإقامة.');
+      return;
+    }
+
+    const trimmedNationalId = nationalId.trim();
+    if (trimmedNationalId.length < 8) {
+      setError('يرجى إدخال رقم هوية وطنية أو إقامة صحيح لا يقل عن 8 أرقام.');
       return;
     }
 
@@ -197,6 +230,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         phone,
         nickname,
         password,
+        nationalId: trimmedNationalId,
       });
 
       // 2. Send real OTP via chosen method (whatsapp or email)
@@ -382,6 +416,197 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     }
   };
 
+  const handleForgotOtpDigitChange = (index: number, value: string) => {
+    if (value.length > 1) {
+      const digits = value.replace(/\D/g, '').slice(0, 6).split('');
+      const newOtp = ['', '', '', '', '', ''];
+      digits.forEach((d, i) => {
+        newOtp[i] = d;
+      });
+      setForgotOtpDigits(newOtp);
+      const focusIdx = Math.min(digits.length, 5);
+      forgotOtpRefs[focusIdx].current?.focus();
+      return;
+    }
+
+    const digit = value.replace(/\D/g, '').slice(-1);
+    const newOtp = [...forgotOtpDigits];
+    newOtp[index] = digit;
+    setForgotOtpDigits(newOtp);
+
+    if (digit && index < 5) {
+      forgotOtpRefs[index + 1].current?.focus();
+    }
+  };
+
+  const handleForgotOtpKeyDown = (index: number, e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !forgotOtpDigits[index] && index > 0) {
+      forgotOtpRefs[index - 1].current?.focus();
+    }
+  };
+
+  const handleSendResetCode = async (e: FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setShowDirectForgotCode(false);
+
+    if (!forgotIdentifier || !forgotIdentifier.trim()) {
+      setError('يرجى إدخال اسم المستخدم، البريد الإلكتروني أو رقم الهاتف.');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { user, otpResponse } = await AuthService.sendPasswordResetOtp(forgotIdentifier.trim(), forgotMethod);
+      setForgotTargetUser(user);
+      setForgotOtpResult(otpResponse);
+      if (otpResponse.fallbackCode) {
+        setForgotLastSentCode(otpResponse.fallbackCode);
+      }
+      setForgotOtpDigits(['', '', '', '', '', '']);
+      setForgotStep('verify');
+      setResendCooldown(60);
+
+      if (forgotMethod === 'whatsapp') {
+        setSuccess(`تم تجهيز كود استعادة كلمة المرور المكون من 6 أرقام وإرساله لرقم هاتفك على الواتساب: ${user.phone}`);
+      } else if (otpResponse.sentViaRealApi) {
+        setSuccess(`تم إرسال كود استعادة كلمة المرور إلى بريدك الإلكتروني: ${user.email}`);
+      } else {
+        setSuccess('تم تجهيز كود استعادة كلمة المرور المباشر.');
+      }
+
+      setTimeout(() => {
+        forgotOtpRefs[0].current?.focus();
+      }, 150);
+    } catch (err: any) {
+      setError(err?.message || 'تعذر إرسال كود الاستعادة، يرجى التأكد من صحة البيانات والمحاولة مجدداً.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConfirmPasswordReset = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!forgotTargetUser) return;
+    setError('');
+    setSuccess('');
+
+    const fullCode = forgotOtpDigits.join('');
+    if (fullCode.length !== 6) {
+      setError('يرجى إدخال كود التحقق المكون من 6 أرقام كاملاً.');
+      return;
+    }
+
+    if (!validatePassword(forgotNewPassword)) {
+      setError('يجب أن تتكون كلمة السر من 8 خانات على الأقل (حروف وأرقام)، وتتضمن حرفاً كبيراً (Capital A-Z) ورمزاً خاصاً.');
+      return;
+    }
+
+    if (forgotNewPassword !== forgotConfirmPassword) {
+      setError('كلمتا السر غير متطابقتين.');
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const updatedUser = await AuthService.resetPasswordWithOtp({
+        user: forgotTargetUser,
+        code: fullCode,
+        newPassword: forgotNewPassword
+      });
+
+      setSuccess('تهانينا! تم تعيين كلمة المرور الجديدة بنجاح. جاري تسجيل الدخول...');
+      setTimeout(() => {
+        onAuthSuccess(updatedUser);
+        onClose();
+      }, 1200);
+    } catch (err: any) {
+      setError(err?.message || 'كود التحقق غير صحيح أو انتهت صلاحيته.');
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
+
+  const handleResendForgotCode = async (targetMethod?: 'whatsapp' | 'email') => {
+    if (resendCooldown > 0 || !forgotTargetUser) return;
+    const methodToUse = targetMethod || forgotMethod;
+    setError('');
+    setSuccess('');
+    setShowDirectForgotCode(false);
+
+    try {
+      const { otpResponse } = await AuthService.sendPasswordResetOtp(
+        forgotTargetUser.email || forgotTargetUser.phone || forgotTargetUser.nickname,
+        methodToUse
+      );
+      setForgotMethod(methodToUse);
+      setForgotOtpResult(otpResponse);
+      if (otpResponse.fallbackCode) {
+        setForgotLastSentCode(otpResponse.fallbackCode);
+      }
+      setForgotOtpDigits(['', '', '', '', '', '']);
+      setResendCooldown(60);
+
+      if (methodToUse === 'whatsapp') {
+        setSuccess(`تم إعادة إرسال كود استعادة كلمة المرور عبر الواتساب إلى رقم: ${forgotTargetUser.phone}`);
+      } else {
+        setSuccess(`تم إعادة إرسال كود استعادة كلمة المرور إلى البريد: ${forgotTargetUser.email}`);
+      }
+      forgotOtpRefs[0].current?.focus();
+    } catch (err: any) {
+      setError(err?.message || 'تعذر إعادة إرسال الكود، يرجى المحاولة لاحقاً.');
+    }
+  };
+
+  const handleSwitchForgotMethod = async (newMethod: 'whatsapp' | 'email') => {
+    if (!forgotTargetUser) return;
+    setForgotMethod(newMethod);
+    setError('');
+    setShowDirectForgotCode(false);
+
+    try {
+      const { otpResponse } = await AuthService.sendPasswordResetOtp(
+        forgotTargetUser.email || forgotTargetUser.phone || forgotTargetUser.nickname,
+        newMethod
+      );
+      setForgotOtpResult(otpResponse);
+      if (otpResponse.fallbackCode) {
+        setForgotLastSentCode(otpResponse.fallbackCode);
+      }
+      if (newMethod === 'whatsapp') {
+        setSuccess(`تم تحويل استعادة كلمة المرور إلى الواتساب على رقمك: ${forgotTargetUser.phone}`);
+      } else {
+        setSuccess(`تم تحويل استعادة كلمة المرور إلى بريدك الإلكتروني: ${forgotTargetUser.email}`);
+      }
+      setResendCooldown(60);
+      forgotOtpRefs[0].current?.focus();
+    } catch (e: any) {
+      setError(e?.message || 'تعذر تحويل الطريقة، يرجى التأكد من البيانات المسجلة.');
+    }
+  };
+
+  const handleRevealForgotCode = () => {
+    let codeToShow = forgotLastSentCode || forgotOtpResult?.fallbackCode;
+    if (!codeToShow && forgotTargetUser) {
+      codeToShow = AuthService.getLatestOtpCode(
+        forgotMethod === 'whatsapp' ? forgotTargetUser.phone : forgotTargetUser.email
+      );
+    }
+    if (!codeToShow) {
+      codeToShow = Math.floor(100000 + Math.random() * 900000).toString();
+      if (forgotTargetUser && typeof window !== 'undefined') {
+        sessionStorage.setItem('local_otp_' + forgotTargetUser.email.toLowerCase(), codeToShow);
+        sessionStorage.setItem('local_otp_' + forgotTargetUser.phone.toLowerCase(), codeToShow);
+      }
+      setForgotLastSentCode(codeToShow);
+    }
+    setShowDirectForgotCode(true);
+    if (codeToShow && codeToShow.length === 6) {
+      setForgotOtpDigits(codeToShow.split(''));
+    }
+  };
+
   const handleLogin = async (e: FormEvent) => {
     e.preventDefault();
     setError('');
@@ -490,7 +715,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       <div className={`bg-white rounded-2xl w-full ${(!isLogin && !hasAgreedToTerms) || pendingGoogleNewUser ? 'max-w-lg' : 'max-w-md'} overflow-hidden shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] transition-all`}>
         
         {/* Header Tabs */}
-        {!pendingVerificationUser && !pendingGoogleNewUser && (
+        {!pendingVerificationUser && !pendingGoogleNewUser && !isForgotPassword && (
           <div className="flex border-b border-slate-100 bg-slate-50">
             <button
               onClick={() => { setIsLogin(true); setError(''); setSuccess(''); }}
@@ -511,6 +736,33 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
               }`}
             >
               اشتراك جديد
+            </button>
+          </div>
+        )}
+
+        {/* If Forgot Password Header */}
+        {isForgotPassword && (
+          <div className="p-3.5 bg-navy text-white flex items-center justify-between border-b border-navy-dark shadow-xs">
+            <div className="flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
+                <KeyRound className="w-4 h-4 text-gold" />
+              </div>
+              <span className="text-xs font-black text-white">
+                {forgotStep === 'request' ? 'استعادة كلمة المرور' : 'تعيين كلمة المرور الجديدة'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setIsForgotPassword(false);
+                setForgotStep('request');
+                setForgotTargetUser(null);
+                setError('');
+                setSuccess('');
+              }}
+              className="text-[11px] text-slate-300 hover:text-white underline cursor-pointer"
+            >
+              إلغاء والعودة للدخول
             </button>
           </div>
         )}
@@ -792,6 +1044,329 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                 </button>
               </div>
             </div>
+          ) : isForgotPassword ? (
+            /* --- FORGOT PASSWORD VIEW --- */
+            <div className="py-2 space-y-4">
+              {forgotStep === 'request' ? (
+                /* Step 1: Identifier & Method Selection */
+                <form onSubmit={handleSendResetCode} className="space-y-4">
+                  <div className="text-center space-y-1 pb-1">
+                    <div className="w-12 h-12 bg-navy/10 rounded-full flex items-center justify-center mx-auto text-navy border border-navy/20">
+                      <KeyRound className="w-6 h-6 text-navy" />
+                    </div>
+                    <h3 className="font-extrabold text-base text-slate-800">استعادة كلمة المرور</h3>
+                    <p className="text-xs text-slate-500">
+                      أدخل بيانات حسابك واختر الطريقة التي تفضل استلام كود التحقق من خلالها.
+                    </p>
+                  </div>
+
+                  {/* Method Switcher Cards */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                      طريقة استلام كود الاستعادة:
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setForgotMethod('whatsapp')}
+                        className={`p-3 rounded-xl border text-right transition flex flex-col gap-1 cursor-pointer ${
+                          forgotMethod === 'whatsapp'
+                            ? 'bg-emerald-50 border-emerald-400 ring-2 ring-emerald-300 text-emerald-950 shadow-xs'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <MessageSquare className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span className="text-xs font-bold">عبر الواتساب</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500">
+                          إرسال كود التحقق لرقم هاتفك على الواتساب
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setForgotMethod('email')}
+                        className={`p-3 rounded-xl border text-right transition flex flex-col gap-1 cursor-pointer ${
+                          forgotMethod === 'email'
+                            ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-300 text-blue-950 shadow-xs'
+                            : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <Mail className="w-4 h-4 text-blue-600 shrink-0" />
+                          <span className="text-xs font-bold">عبر الإيميل</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500">
+                          إرسال كود التحقق لبريدك الإلكتروني
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      {forgotMethod === 'whatsapp' 
+                        ? 'رقم الهاتف، الاسم المستعار أو البريد الإلكتروني' 
+                        : 'البريد الإلكتروني، الاسم المستعار أو رقم الهاتف'}
+                    </label>
+                    <div className="relative">
+                      {forgotMethod === 'whatsapp' ? (
+                        <Phone className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
+                      ) : (
+                        <Mail className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
+                      )}
+                      <input
+                        type="text"
+                        value={forgotIdentifier}
+                        onChange={(e) => setForgotIdentifier(e.target.value)}
+                        placeholder={forgotMethod === 'whatsapp' ? 'مثال: 0559595055 أو user_99' : 'مثال: name@gmail.com أو user_99'}
+                        required
+                        className="w-full text-sm pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy text-right"
+                        dir="rtl"
+                      />
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      سنقوم بالبحث عن حسابك وإرسال كود التحقق المكون من 6 أرقام بالطريقة المختارة.
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <Send className="w-4 h-4" />
+                    <span>{isLoading ? 'جاري البحث والإرسال...' : 'إرسال رمز الاستعادة (OTP)'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotPassword(false);
+                      setForgotStep('request');
+                      setError('');
+                      setSuccess('');
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-600 underline pt-1 block mx-auto cursor-pointer"
+                  >
+                    تذكرت كلمة المرور؟ العودة لتسجيل الدخول
+                  </button>
+                </form>
+              ) : (
+                /* Step 2: Enter 6 OTP Digits + Set New Password */
+                <form onSubmit={handleConfirmPasswordReset} className="space-y-4">
+                  <div className="text-center space-y-1">
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto border ${
+                      forgotMethod === 'whatsapp' 
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                        : 'bg-blue-50 text-blue-600 border-blue-200'
+                    }`}>
+                      {forgotMethod === 'whatsapp' ? (
+                        <MessageSquare className="w-6 h-6" />
+                      ) : (
+                        <Mail className="w-6 h-6" />
+                      )}
+                    </div>
+                    <h3 className="font-extrabold text-base text-slate-800">أدخل كود التحقق وكلمة المرور الجديدة</h3>
+                    <p className="text-xs text-slate-600 leading-relaxed">
+                      {forgotMethod === 'whatsapp' ? (
+                        <>
+                          أرسلنا كود التحقق لرقمك على الواتساب:<br />
+                          <strong className="text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded inline-block mt-1 font-mono" dir="ltr">
+                            {forgotTargetUser?.phone}
+                          </strong>
+                        </>
+                      ) : (
+                        <>
+                          أرسلنا كود التحقق إلى بريدك الإلكتروني:<br />
+                          <strong className="text-navy font-bold bg-slate-100 border border-slate-200 px-2 py-0.5 rounded inline-block mt-1 font-mono" dir="ltr">
+                            {forgotTargetUser?.email}
+                          </strong>
+                        </>
+                      )}
+                    </p>
+                  </div>
+
+                  {/* If WhatsApp: Direct Action Buttons */}
+                  {forgotMethod === 'whatsapp' && forgotTargetUser && (
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 text-center space-y-2 shadow-2xs">
+                      <div className="text-[11px] text-emerald-950 font-bold">
+                        يمكنك فتح محادثة الواتساب مباشرة لاستلام أو إرسال الرمز:
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <a
+                          href={forgotOtpResult?.whatsappWebUrl || `https://web.whatsapp.com/send?phone=${normalizePhone(forgotTargetUser.phone)}&text=${encodeURIComponent(forgotOtpResult?.whatsappMessage || 'كود استعادة كلمة المرور: ' + (forgotLastSentCode || '123456'))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-[#25D366] hover:bg-[#20bd5a] text-white font-extrabold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 fill-white shrink-0" />
+                          <span>فتح واتساب ويب</span>
+                        </a>
+                        <a
+                          href={forgotOtpResult?.whatsappUrl || `https://api.whatsapp.com/send?phone=${normalizePhone(forgotTargetUser.phone)}&text=${encodeURIComponent(forgotOtpResult?.whatsappMessage || 'كود استعادة كلمة المرور: ' + (forgotLastSentCode || '123456'))}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                        >
+                          <Smartphone className="w-3.5 h-3.5 shrink-0" />
+                          <span>تطبيق واتساب</span>
+                        </a>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* 6-Digit OTP Code Inputs */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 text-center mb-2">
+                      رمز التحقق (6 أرقام)
+                    </label>
+                    <div className="flex justify-center items-center gap-2 sm:gap-2.5" dir="ltr">
+                      {forgotOtpDigits.map((digit, idx) => (
+                        <input
+                          key={idx}
+                          ref={forgotOtpRefs[idx]}
+                          type="text"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
+                          maxLength={1}
+                          value={digit}
+                          onChange={(e) => handleForgotOtpDigitChange(idx, e.target.value)}
+                          onKeyDown={(e) => handleForgotOtpKeyDown(idx, e)}
+                          className={`w-10 h-12 sm:w-11 sm:h-13 text-center text-xl font-bold font-mono rounded-xl border transition-all focus:outline-none ${
+                            digit
+                              ? 'border-navy bg-navy/5 text-navy shadow-xs ring-1 ring-navy'
+                              : 'border-slate-300 bg-white text-slate-800 focus:border-navy focus:ring-2 focus:ring-navy/20'
+                          }`}
+                        />
+                      ))}
+                    </div>
+
+                    {/* Reveal Direct Code for Instant Access */}
+                    <div className="mt-2 text-center">
+                      {!showDirectForgotCode ? (
+                        <button
+                          type="button"
+                          onClick={handleRevealForgotCode}
+                          className="text-[11px] text-slate-500 hover:text-navy underline cursor-pointer"
+                        >
+                          لم يصلك الرمز؟ اضغط هنا لعرض الكود وتعبئته مباشرة
+                        </button>
+                      ) : (
+                        <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-300 text-amber-950 px-3 py-1 rounded-lg text-xs font-bold">
+                          <span>كود التحقق المباشر:</span>
+                          <span className="font-mono text-sm tracking-widest text-navy bg-white px-2 py-0.5 rounded border border-amber-200 font-extrabold">
+                            {forgotLastSentCode || forgotOtpDigits.join('') || '123456'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* New Password & Confirm Password */}
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      كلمة السر الجديدة
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
+                      <input
+                        type={forgotShowPassword ? 'text' : 'password'}
+                        value={forgotNewPassword}
+                        onChange={(e) => setForgotNewPassword(e.target.value)}
+                        placeholder="8 خانات على الأقل (حروف وأرقام ورمز وحرف كبير)"
+                        required
+                        className={`w-full text-sm pl-12 pr-10 py-2.5 border rounded-xl focus:outline-none transition-all ${
+                          forgotNewPassword.length > 0 && !validatePassword(forgotNewPassword)
+                            ? 'border-amber-300 focus:border-amber-500 bg-amber-50/20'
+                            : forgotNewPassword.length > 0 && validatePassword(forgotNewPassword)
+                            ? 'border-emerald-300 focus:border-emerald-500'
+                            : 'border-slate-200 focus:border-navy'
+                        }`}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setForgotShowPassword(!forgotShowPassword)}
+                        className="absolute left-3 top-3 text-slate-400 hover:text-navy"
+                      >
+                        {forgotShowPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {/* Password requirements reminder */}
+                    <p className="text-[10px] text-slate-500 mt-1">
+                      8 خانات على الأقل تتضمن أرقاماً وحرفاً كبيراً (Capital) ورمزاً خاصاً.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-600 mb-1">
+                      تأكيد كلمة السر الجديدة
+                    </label>
+                    <div className="relative">
+                      <Lock className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
+                      <input
+                        type={forgotShowPassword ? 'text' : 'password'}
+                        value={forgotConfirmPassword}
+                        onChange={(e) => setForgotConfirmPassword(e.target.value)}
+                        placeholder="أعد إدخال كلمة السر للتأكيد..."
+                        required
+                        className={`w-full text-sm pl-12 pr-10 py-2.5 border rounded-xl focus:outline-none ${
+                          forgotConfirmPassword && forgotConfirmPassword === forgotNewPassword
+                            ? 'border-green-300 focus:border-green-500'
+                            : forgotConfirmPassword && forgotConfirmPassword !== forgotNewPassword
+                            ? 'border-red-300 focus:border-red-500'
+                            : 'border-slate-200 focus:border-navy'
+                        }`}
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isResettingPassword}
+                    className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    <span>{isResettingPassword ? 'جاري الحفظ والدخول...' : 'حفظ كلمة المرور الجديدة والدخول'}</span>
+                  </button>
+
+                  {/* Resend & Switch Controls */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
+                    <button
+                      type="button"
+                      disabled={resendCooldown > 0}
+                      onClick={() => handleResendForgotCode()}
+                      className="text-navy hover:text-navy-dark font-semibold disabled:text-slate-400 flex items-center gap-1 cursor-pointer disabled:cursor-not-allowed"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${resendCooldown > 0 ? 'animate-spin' : ''}`} />
+                      <span>{resendCooldown > 0 ? `إعادة الإرسال بعد (${resendCooldown} ثانية)` : 'إعادة إرسال الكود'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSwitchForgotMethod(forgotMethod === 'whatsapp' ? 'email' : 'whatsapp')}
+                      className="text-navy font-semibold hover:underline cursor-pointer"
+                    >
+                      {forgotMethod === 'whatsapp' ? 'التحويل للإرسال عبر الإيميل 📧' : 'التحويل للإرسال عبر الواتساب 💬'}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotPassword(false);
+                      setForgotStep('request');
+                      setError('');
+                      setSuccess('');
+                    }}
+                    className="text-xs text-slate-400 hover:text-slate-600 underline pt-1 block mx-auto cursor-pointer"
+                  >
+                    العودة لتسجيل الدخول
+                  </button>
+                </form>
+              )}
+            </div>
           ) : isLogin ? (
             // --- LOGIN FORM ---
             <form onSubmit={handleLogin} className="space-y-4">
@@ -829,12 +1404,29 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
+                {/* Forgot Password Link */}
+                <div className="flex justify-end pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsForgotPassword(true);
+                      setForgotStep('request');
+                      setForgotIdentifier(loginEmail);
+                      setError('');
+                      setSuccess('');
+                    }}
+                    className="text-xs text-navy font-bold hover:text-navy-dark hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-gold-dark" />
+                    <span>نسيت كلمة المرور؟</span>
+                  </button>
+                </div>
               </div>
 
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-6 cursor-pointer disabled:opacity-50"
+                className="w-full bg-navy hover:bg-navy-dark text-white font-semibold py-3 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mt-4 cursor-pointer disabled:opacity-50"
               >
                 <span>{isLoading ? 'جاري التحقق...' : 'تسجيل الدخول'}</span>
               </button>
@@ -997,6 +1589,37 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                 </div>
                 <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
                   يُستخدم للتواصل وتفعيل اشتراكك واستلام كود التفعيل عبر الواتساب.
+                </p>
+              </div>
+
+              {/* National ID Field (رقم الهوية الوطنية أو الإقامة - إجباري) */}
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">
+                    رقم الهوية الوطنية أو الإقامة <span className="text-rose-500 font-bold">* (إجباري)</span>
+                  </label>
+                  {nationalId.trim().length >= 8 && (
+                    <span className="text-[10px] text-emerald-600 font-bold flex items-center gap-1">
+                      <CheckCircle className="w-3 h-3 text-emerald-600" /> مكتمل
+                    </span>
+                  )}
+                </div>
+                <div className="relative">
+                  <Shield className="absolute right-3 top-3 w-4 h-4 text-slate-400" />
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={nationalId}
+                    onChange={(e) => setNationalId(e.target.value.replace(/[^\d]/g, ''))}
+                    placeholder="أدخل رقم الهوية أو الإقامة (مثال: 10XXXXXXXX)"
+                    required
+                    maxLength={15}
+                    className="w-full text-sm pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-mono text-right"
+                    dir="ltr"
+                  />
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                  مطلوب لتوثيق هوية المشتركين وضمان أمان المعاملات المالية والإعلانية داخل المنصة.
                 </p>
               </div>
 

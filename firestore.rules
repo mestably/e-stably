@@ -1,41 +1,113 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    // Global Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email in [
+          'fares.m.alamoudi@gmail.com',
+          'admin@m-estably.com',
+          'x24.akar@gmail.com',
+          'x2.sharshar@gmail.com',
+          'mfc@m-estably.com'
+        ] || (request.auth.token.email != null && request.auth.token.email.matches('.*@m-estably[.]com$'))
+      );
+    }
+
+    // Default deny all undefined paths
     match /{document=**} {
       allow read, write: if false;
     }
+
+    // 1. System Settings & Announcement Banner (Public read, admin write)
     match /site_settings/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
-    match /horses/{docId} {
-      allow read, write: if true;
-    }
-    match /stables/{docId} {
-      allow read, write: if true;
-    }
-    match /shelters/{docId} {
-      allow read, write: if true;
-    }
-    match /transports/{docId} {
-      allow read, write: if true;
-    }
-    match /users/{docId} {
-      allow read, write: if true;
-    }
-    match /chats/{docId} {
-      allow read, write: if true;
-    }
+
     match /banner/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isAdmin();
     }
+
+    // 2. Public Advertisements (Public read for buyers/visitors, authenticated write for owners/admin)
+    match /horses/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /stables/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /shelters/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    match /transports/{docId} {
+      allow read: if true;
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // 3. User Profiles (Public read for contact info, owner or admin write)
+    match /users/{userId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow delete: if isAdmin();
+    }
+
+    // 4. Private Chats & Messages (Sender, receiver, or admin)
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.senderId == request.auth.uid || isAdmin());
+    }
+
+    // 5. Subscription Codes (Owner read, admin write)
+    match /subscription_codes/{codeId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    // 6. Bank Receipts (Owner create & read, admin manage)
+    match /bank_receipts/{receiptId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // 7. Ad Notifications (Recipient only)
+    match /ad_notifications/{notifId} {
+      allow read: if isSignedIn() && (resource.data.recipientUserId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn();
+      allow update, delete: if isSignedIn() && (resource.data.recipientUserId == request.auth.uid || isAdmin());
+    }
+
+    // 8. Deleted Records Tracking (Public sync read, authenticated write)
     match /deleted_records/{docId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow write: if isSignedIn() || isAdmin();
     }
-    match /subscription_codes/{docId} {
-      allow read, write: if true;
-    }
-    match /bank_receipts/{docId} {
-      allow read, write: if true;
+
+    match /deleted_ads_archive/{docId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow write: if isSignedIn() && (request.resource.data.userId == request.auth.uid || isAdmin());
     }
   }
 }
