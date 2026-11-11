@@ -153,6 +153,7 @@ export interface SendOtpParams {
   email: string;
   phone?: string;
   method?: 'email' | 'whatsapp';
+  type?: 'activation' | 'password_reset';
 }
 
 export interface SendOtpResponse {
@@ -179,6 +180,7 @@ export const AuthService = {
     phone: string;
     nickname: string;
     password: string;
+    nationalId?: string;
   }): Promise<User> {
     const cleanEmail = data.email.trim().toLowerCase();
     const cleanNick = data.nickname.trim().toLowerCase();
@@ -207,6 +209,7 @@ export const AuthService = {
       phone: data.phone.trim(),
       nickname: data.nickname.trim(),
       password: data.password,
+      nationalId: data.nationalId ? data.nationalId.trim() : undefined,
       role: isSystemAdminEmail(cleanEmail) || isSystemAdminEmail(data.nickname) ? 'admin' : 'user',
       isVerified: false,
       createdAt: new Date().toISOString(),
@@ -235,6 +238,89 @@ export const AuthService = {
   },
 
   /**
+   * Finds an existing user account for password reset using email, phone, or nickname.
+   */
+  async findUserForReset(identifier: string): Promise<User> {
+    const clean = identifier.trim().toLowerCase();
+    const cleanP = normalizePhone(identifier);
+    if (!clean) {
+      throw new Error('يرجى إدخال البريد الإلكتروني أو رقم الهاتف أو اسم المستخدم.');
+    }
+
+    const users = await FirebaseService.getUsers();
+    const targetUser = users.find((u) => {
+      const uEmail = (u.email || '').trim().toLowerCase();
+      const uNick = (u.nickname || '').trim().toLowerCase();
+      const uPhone = normalizePhone(u.phone);
+      if (clean.includes('@') && uEmail === clean) return true;
+      if (uNick === clean) return true;
+      if (cleanP && uPhone === cleanP) return true;
+      if (uPhone && uPhone.includes(clean)) return true;
+      if (uEmail === clean) return true;
+      return false;
+    });
+
+    if (!targetUser) {
+      throw new Error('لم يتم العثور على أي حساب مسجل بهذه البيانات. يرجى التحقق من البريد أو الهاتف أو الاسم المستعار.');
+    }
+
+    return targetUser;
+  },
+
+  /**
+   * Dispatches password reset code via WhatsApp or Email.
+   */
+  async sendPasswordResetOtp(
+    identifier: string,
+    method: 'whatsapp' | 'email'
+  ): Promise<{ user: User; otpResponse: SendOtpResponse }> {
+    const user = await this.findUserForReset(identifier);
+
+    if (method === 'whatsapp') {
+      if (!user.phone || user.phone.trim().length < 8) {
+        throw new Error('هذا الحساب لا يحتوي على رقم هاتف مسجل، يرجى اختيار الإرسال عبر البريد الإلكتروني.');
+      }
+    } else {
+      if (!user.email || !user.email.includes('@')) {
+        throw new Error('هذا الحساب لا يحتوي على بريد إلكتروني مسجل، يرجى اختيار الإرسال عبر الواتساب.');
+      }
+    }
+
+    const otpResponse = await this.sendOtpCode({
+      email: user.email,
+      phone: user.phone,
+      method,
+      type: 'password_reset'
+    });
+
+    return { user, otpResponse };
+  },
+
+  /**
+   * Resets user password after verifying 6-digit OTP code and updates Firebase RTDB.
+   */
+  async resetPasswordWithOtp(params: {
+    user: User;
+    code: string;
+    newPassword: string;
+  }): Promise<User> {
+    const { user, code, newPassword } = params;
+
+    // 1. Verify code
+    await this.verifyOtpCode(user.email, code, user.phone);
+
+    // 2. Update user in Firebase RTDB
+    const updatedUser: User = {
+      ...user,
+      password: newPassword,
+      isVerified: true
+    };
+    await FirebaseService.saveUser(updatedUser);
+
+    return updatedUser;
+  },
+
+  /**
    * Legacy register method wrapper.
    */
   async registerUser(data: {
@@ -260,7 +346,9 @@ export const AuthService = {
     const rawPhone = typeof target === 'string' ? optionalPhone : (target.phone || optionalPhone);
     const cleanPhone = normalizePhone(rawPhone);
     const method = typeof target === 'string' ? optionalMethod : (target.method || optionalMethod);
+    const otpType = typeof target === 'object' && target.type ? target.type : 'activation';
     const isWhatsApp = method === 'whatsapp' || (!cleanEmail && Boolean(cleanPhone));
+    const isReset = otpType === 'password_reset';
 
     const localCode = Math.floor(100000 + Math.random() * 900000).toString();
 
@@ -272,7 +360,9 @@ export const AuthService = {
       } catch (e) {}
     }
 
-    const defaultWhatsappMsg = `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز تفعيل حسابك (OTP) هو: *${localCode}*\n\nالرمز صالح لمدة 10 دقائق لتأكيد رقم هاتفك وتفعيل اشتراكك في المنصة.`;
+    const defaultWhatsappMsg = isReset
+      ? `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز استعادة كلمة المرور هو: *${localCode}*\n\nالرمز صالح لمدة 10 دقائق لتعيين كلمة مرور جديدة لحسابك.`
+      : `🐎 منصة إستابلي للخيول العربية الأصيلة\nرمز تفعيل حسابك (OTP) هو: *${localCode}*\n\nالرمز صالح لمدة 10 دقائق لتأكيد رقم هاتفك وتفعيل اشتراكك في المنصة.`;
     const encodedDefaultMsg = encodeURIComponent(defaultWhatsappMsg);
     const defaultWhatsappUrl = cleanPhone 
       ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodedDefaultMsg}`
@@ -288,7 +378,8 @@ export const AuthService = {
         body: JSON.stringify({ 
           email: cleanEmail, 
           phone: cleanPhone, 
-          method: isWhatsApp ? 'whatsapp' : 'email' 
+          method: isWhatsApp ? 'whatsapp' : 'email',
+          type: otpType
         })
       });
 

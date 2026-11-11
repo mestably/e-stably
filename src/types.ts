@@ -22,6 +22,7 @@ export interface User {
   subscriptionExpiresAt?: string; // تاريخ انتهاء الاشتراك
   extraAdCredits?: number; // رصيد إعلانات إضافي متاح للمستخدم من الأكواد
   password?: string;
+  nationalId?: string; // رقم الهوية الوطنية أو الإقامة
   authProvider?: 'google' | 'email';
   updatedAt?: string;
 }
@@ -51,6 +52,20 @@ export interface Review {
   rating: number; // 1 to 5 stars
   comment: string;
   createdAt: string;
+}
+
+export interface AdNotification {
+  id: string;
+  recipientUserId: string; // The owner of the ad
+  adId: string;
+  adType: 'horse' | 'stable' | 'shelter' | 'transport';
+  adTitle: string;
+  commenterName: string;
+  commenterId: string;
+  commentText: string;
+  rating: number; // rating given by the commenter (1-5)
+  createdAt: string;
+  read: boolean;
 }
 
 export interface Stable {
@@ -105,6 +120,8 @@ export interface Horse {
   rentEnd?: string;
   isSold?: boolean; // هل تم البيع
   soldAt?: string; // تاريخ البيع
+  isEnded?: boolean; // هل الإعلان منتهي (في حالة خيول الإيجار أو العرض المنتهي)
+  endedAt?: string; // تاريخ انتهاء الإعلان
   isVerified?: boolean; // هل الإعلان موثق رسمياً من الإدارة
   verifiedAt?: string; // تاريخ التوثيق
   editPermissionExpiresAt?: string; // تاريخ ووقت انتهاء صلاحية التعديل والحذف (12 ساعة)
@@ -233,6 +250,7 @@ export interface BankReceipt {
   userName: string;
   userPhone?: string;
   userEmail?: string;
+  nationalId?: string; // رقم الهوية الوطنية أو الإقامة للمحول
   bankName: string; // 'حساب بنك فيصل الإسلامي' | 'حساب البنك السعودي'
   accountNumber: string; // '8542412232100' | '21546522122'
   images: string[]; // Base64 or URLs (صورة إيداع الحساب - يمكن عدد من الصور)

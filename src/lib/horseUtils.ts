@@ -45,3 +45,32 @@ export function formatHorseAge(
 
   return parts.join(' و ');
 }
+
+/**
+ * Checks if a rental horse's available date has passed.
+ * Handles YYYY-MM-DD format as expiring at the end of that day.
+ */
+export function isHorseRentExpired(horse: { adType?: string; rentEnd?: string } | null | undefined): boolean {
+  if (!horse || horse.adType !== 'rent' || !horse.rentEnd) return false;
+  try {
+    const raw = horse.rentEnd.trim();
+    if (!raw) return false;
+    // If date is YYYY-MM-DD, end of that day is 23:59:59
+    const end = new Date(raw.includes('T') ? raw : `${raw}T23:59:59`);
+    return !isNaN(end.getTime()) && Date.now() > end.getTime();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Determines whether a horse ad is considered ended or sold.
+ * Automatically marks rent horses as ended if their available rentEnd date has expired.
+ */
+export function isHorseEndedOrSold(horse: { adType?: string; isSold?: boolean; isEnded?: boolean; rentEnd?: string } | null | undefined): boolean {
+  if (!horse) return false;
+  if (horse.adType === 'rent') {
+    return !!(horse.isEnded || horse.isSold || isHorseRentExpired(horse));
+  }
+  return !!horse.isSold;
+}

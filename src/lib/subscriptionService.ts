@@ -113,21 +113,91 @@ export const SubscriptionService = {
   },
 
   /**
+   * Counts the number of ads posted by the user within the last 24 hours (rolling window).
+   * Also returns the timestamp of the latest ad and remaining time until next free ad.
+   */
+  async getUserLast24HoursAdsCount(userId: string): Promise<{
+    count: number;
+    lastAdCreatedAt?: string;
+    msRemaining: number;
+    hoursRemaining: number;
+    minutesRemaining: number;
+  }> {
+    if (!userId) return { count: 0, msRemaining: 0, hoursRemaining: 0, minutesRemaining: 0 };
+    try {
+      const [horses, stables, shelters, transports] = await Promise.all([
+        FirebaseService.getHorses(),
+        FirebaseService.getStables(),
+        FirebaseService.getShelters(),
+        FirebaseService.getTransports()
+      ]);
+
+      const now = Date.now();
+      const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+      let count = 0;
+      let newestAdTime = 0;
+      let newestAdDateStr = '';
+
+      const checkItem = (item: { userId?: string; createdAt?: string }) => {
+        if (item && item.userId === userId && item.createdAt) {
+          const t = new Date(item.createdAt).getTime();
+          if (!isNaN(t)) {
+            if (t > newestAdTime) {
+              newestAdTime = t;
+              newestAdDateStr = item.createdAt;
+            }
+            if (now - t < TWENTY_FOUR_HOURS_MS) {
+              count++;
+            }
+          }
+        }
+      };
+
+      horses.forEach(checkItem);
+      stables.forEach(checkItem);
+      shelters.forEach(checkItem);
+      transports.forEach(checkItem);
+
+      let msRemaining = 0;
+      if (newestAdTime > 0 && count > 0) {
+        msRemaining = Math.max(0, (newestAdTime + TWENTY_FOUR_HOURS_MS) - now);
+      }
+      const hoursRemaining = Math.floor(msRemaining / (1000 * 60 * 60));
+      const minutesRemaining = Math.floor((msRemaining % (1000 * 60 * 60)) / (1000 * 60));
+
+      return {
+        count,
+        lastAdCreatedAt: newestAdDateStr,
+        msRemaining,
+        hoursRemaining,
+        minutesRemaining
+      };
+    } catch (e) {
+      console.warn('Failed to calculate 24h ads count:', e);
+      return { count: 0, msRemaining: 0, hoursRemaining: 0, minutesRemaining: 0 };
+    }
+  },
+
+  /**
    * Checks if user has reached their ad limit.
-   * Free users: 1 ad only.
+   * Free users: 1 ad every 24 hours.
    * Subscribed / Gold / Admin: unlimited.
    */
   async canUserPostAd(user: User | null): Promise<{
     allowed: boolean;
     totalAds: number;
+    adsLast24h: number;
     limit: number;
     isUnlimited: boolean;
+    hoursRemaining?: number;
+    minutesRemaining?: number;
     reason?: string;
   }> {
     if (!user) {
       return {
         allowed: false,
         totalAds: 0,
+        adsLast24h: 0,
         limit: FREE_USER_ADS_LIMIT,
         isUnlimited: false,
         reason: 'يرجى تسجيل الدخول أولاً لتتمكن من نشر إعلان.'
@@ -135,32 +205,47 @@ export const SubscriptionService = {
     }
 
     const isUnlimited = user.role === 'admin' || !!user.isGold || !!user.isSubscribed;
-    const totalAds = await this.getUserTotalAdsCount(user.id);
+    const [totalAds, status24h] = await Promise.all([
+      this.getUserTotalAdsCount(user.id),
+      this.getUserLast24HoursAdsCount(user.id)
+    ]);
 
     if (isUnlimited) {
       return {
         allowed: true,
         totalAds,
+        adsLast24h: status24h.count,
         limit: Infinity,
         isUnlimited: true
       };
     }
 
-    if (totalAds < FREE_USER_ADS_LIMIT) {
+    // Free user is allowed 1 ad every 24 hours
+    if (status24h.count < 1) {
       return {
         allowed: true,
         totalAds,
-        limit: FREE_USER_ADS_LIMIT,
+        adsLast24h: status24h.count,
+        limit: 1,
         isUnlimited: false
       };
     }
 
+    const timeNotice = status24h.hoursRemaining > 0 
+      ? `(متبقي حوالي ${status24h.hoursRemaining} ساعة و ${status24h.minutesRemaining} دقيقة حتى يتجدد إعلانك المجاني)`
+      : status24h.minutesRemaining > 0
+      ? `(متبقي حوالي ${status24h.minutesRemaining} دقيقة حتى يتجدد إعلانك المجاني)`
+      : '';
+
     return {
       allowed: false,
       totalAds,
-      limit: FREE_USER_ADS_LIMIT,
+      adsLast24h: status24h.count,
+      limit: 1,
       isUnlimited: false,
-      reason: `عذراً! بصفتك مستخدماً مجانياً، يحق لك نشر إعلان واحد فقط وقد قمت بنشره بالفعل (${totalAds} من ${FREE_USER_ADS_LIMIT}). لنشر إعلان آخر، يرجى ترقية اشتراكك أو إدخال كود اشتراك معتمد.`
+      hoursRemaining: status24h.hoursRemaining,
+      minutesRemaining: status24h.minutesRemaining,
+      reason: `عذراً! تتيح الباقة المجانية نشر إعلان واحد فقط كل 24 ساعة، وقد قمت بنشر إعلانك لليوم ${timeNotice}. لنشر إعلان إضافي الآن، يرجى إدخال كود اشتراك معتمد أو ترقية اشتراكك للعضوية الذهبية.`
     };
   },
 

@@ -56,7 +56,7 @@ import UserBankAccountsSection from './UserBankAccountsSection';
 import EditTermsAgreementModal from './EditTermsAgreementModal';
 import { hasEditPermission, isAdVerified, generateWhatsAppEditRequestUrl, generateWhatsAppVerificationRequestUrl } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
-import { formatHorseAge } from '../lib/horseUtils';
+import { formatHorseAge, isHorseEndedOrSold, isHorseRentExpired } from '../lib/horseUtils';
 
 interface UserDashboardSectionProps {
   currentUser: User | null;
@@ -164,8 +164,8 @@ export default function UserDashboardSection({
           createdAt: h.createdAt,
           price: h.price,
           phone: h.phone,
-          status: h.isSold ? 'sold' : 'active',
-          endedAt: h.soldAt,
+          status: isHorseEndedOrSold(h) ? (h.adType === 'rent' ? 'ended' : 'sold') : 'active',
+          endedAt: h.adType === 'rent' ? (h.endedAt || h.soldAt) : h.soldAt,
           isPendingEditApproval: !!h.isPendingEditApproval,
           pendingEditAt: h.pendingEditAt,
           rawItem: h
@@ -301,14 +301,24 @@ export default function UserDashboardSection({
   const handleToggleStatus = async (ad: UnifiedUserAd) => {
     try {
       if (ad.category === 'horse') {
-        const newStatus = ad.status !== 'sold';
+        const isRent = ad.rawItem?.adType === 'rent';
+        const isCurrentlyEndedOrSold = isHorseEndedOrSold(ad.rawItem);
+        const newStatus = !isCurrentlyEndedOrSold;
+        const now = new Date().toISOString();
         const updated: Horse = {
           ...ad.rawItem,
           isSold: newStatus,
-          soldAt: newStatus ? new Date().toISOString() : undefined
+          soldAt: newStatus ? now : undefined,
+          isEnded: isRent ? newStatus : (ad.rawItem?.isEnded || false),
+          endedAt: isRent && newStatus ? now : undefined,
+          rentEnd: (!newStatus && isRent && isHorseRentExpired(ad.rawItem)) ? undefined : ad.rawItem?.rentEnd,
         };
         await FirebaseService.saveHorse(updated);
-        showNotification(newStatus ? `تم تمييز "${ad.title}" كـ "تم البيع" 🏷️` : `تم إعادة عرض "${ad.title}" كـ "متاح" ✅`);
+        if (isRent) {
+          showNotification(newStatus ? `تم تمييز إعلان "${ad.title}" كـ "الاعلان منتهي"! ⏳` : `تم إعادة تفعيل إعلان "${ad.title}" كـ "متاح" ✅`);
+        } else {
+          showNotification(newStatus ? `تم تمييز "${ad.title}" كـ "تم البيع" 🏷️` : `تم إعادة عرض "${ad.title}" كـ "متاح" ✅`);
+        }
       } else if (ad.category === 'stable') {
         const newStatus = ad.status !== 'ended';
         const updated: Stable = {
@@ -570,6 +580,11 @@ export default function UserDashboardSection({
 
   // Counts
   const totalUserAdsCount = activeAds.length;
+  const adsInLast24h = activeAds.filter((a) => {
+    if (!a.createdAt) return false;
+    const t = new Date(a.createdAt).getTime();
+    return !isNaN(t) && (Date.now() - t < 24 * 60 * 60 * 1000);
+  }).length;
   const activeAdsCount = activeAds.filter((a) => a.status === 'active').length;
   const endedAdsCount = activeAds.filter((a) => a.status !== 'active').length;
   const deletedAdsCount = deletedAds.length;
@@ -799,16 +814,16 @@ export default function UserDashboardSection({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2.5">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                      totalUserAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+                      adsInLast24h >= 1 ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'
                     }`}>
                       <Sparkles className="w-4 h-4" />
                     </div>
                     <div>
                       <span className="text-xs font-black text-slate-800 block">
-                        رصيد الإعلانات المجاني: {totalUserAdsCount} من {FREE_USER_ADS_LIMIT} إعلان مستهلك
+                        باقة 0 ريال شهرياً: {adsInLast24h >= 1 ? 'تم استهلاك إعلان اليوم (يتجدد كل 24 ساعة)' : 'إعلانك المجاني لليوم متاح الآن (إعلان كل 24 ساعة)'}
                       </span>
                       <span className="text-[11px] text-slate-500 block">
-                        يحق للمستخدم المجاني نشر إعلان واحد فقط. لنشر إعلان إضافي يمكنك الترقية أو طلب كود نشر.
+                        يحق للمستخدم المجاني نشر إعلان واحد مجاناً كل 24 ساعة. لنشر إعلان إضافي خلال نفس الـ 24 ساعة، يمكنك الترقية أو طلب كود نشر.
                       </span>
                     </div>
                   </div>
@@ -824,8 +839,8 @@ export default function UserDashboardSection({
                 {/* Progress bar */}
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                   <div
-                    className={`h-full transition-all duration-300 ${totalUserAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600' : 'bg-emerald-600'}`}
-                    style={{ width: `${Math.min(100, (totalUserAdsCount / FREE_USER_ADS_LIMIT) * 100)}%` }}
+                    className={`h-full transition-all duration-300 ${adsInLast24h >= 1 ? 'bg-amber-500' : 'bg-emerald-600'}`}
+                    style={{ width: `${Math.min(100, adsInLast24h * 100)}%` }}
                   ></div>
                 </div>
               </div>
@@ -1143,7 +1158,11 @@ export default function UserDashboardSection({
                                 {isSoldOrEnded ? (
                                   <>
                                     <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                                    <span>{ad.category === 'horse' ? 'مُباع' : 'مكتمل'}</span>
+                                    <span>
+                                      {ad.category === 'horse'
+                                        ? (ad.rawItem?.adType === 'rent' ? 'الاعلان منتهي' : 'مُباع')
+                                        : 'مكتمل'}
+                                    </span>
                                   </>
                                 ) : (
                                   <>
@@ -1298,20 +1317,32 @@ export default function UserDashboardSection({
                               className={`py-1.5 px-1 text-[8.5px] sm:text-[10px] font-bold rounded-lg flex items-center justify-center gap-0.5 transition cursor-pointer border active:scale-95 shadow-2xs ${
                                 isSoldOrEnded
                                   ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border-emerald-200'
+                                  : ad.category === 'horse' && ad.rawItem?.adType === 'rent'
+                                  ? 'text-rose-700 bg-rose-50 hover:bg-rose-100 border-rose-200'
                                   : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border-amber-200'
                               }`}
-                              title={isSoldOrEnded ? 'إعادة عرض كمتاح' : 'وضع علامة تم البيع / مكتمل'}
+                              title={
+                                isSoldOrEnded
+                                  ? (ad.category === 'horse' && ad.rawItem?.adType === 'rent' ? 'إعادة تفعيل الإعلان كمتاح' : 'إعادة عرض كمتاح')
+                                  : (ad.category === 'horse' && ad.rawItem?.adType === 'rent' ? 'تمييز كـ "الاعلان منتهي"' : 'وضع علامة تم البيع / مكتمل')
+                              }
                             >
                               {isSoldOrEnded ? (
                                 <>
                                   <RotateCcw className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-600 shrink-0" />
-                                  <span className="truncate">{ad.category === 'horse' ? 'متاح' : 'إتاحة'}</span>
+                                  <span className="truncate text-[7.5px] sm:text-[9px] font-bold">{ad.category === 'horse' && ad.rawItem?.adType === 'rent' ? 'إعادة تفعيل' : ad.category === 'horse' ? 'متاح' : 'إتاحة'}</span>
                                 </>
                               ) : (
                                 <>
-                                  <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600 shrink-0" />
-                                  <span className="truncate">
-                                    {ad.category === 'horse' ? 'تم البيع' : ad.category === 'stable' ? 'كمكتمل' : ad.category === 'shelter' ? 'كمحجوز' : 'كمنجز'}
+                                  {ad.category === 'horse' && ad.rawItem?.adType === 'rent' ? (
+                                    <Clock className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-rose-600 shrink-0" />
+                                  ) : (
+                                    <Tag className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600 shrink-0" />
+                                  )}
+                                  <span className="text-[6.8px] sm:text-[8.5px] font-black tracking-tighter leading-tight whitespace-nowrap truncate">
+                                    {ad.category === 'horse'
+                                      ? (ad.rawItem?.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع')
+                                      : ad.category === 'stable' ? 'كمكتمل' : ad.category === 'shelter' ? 'كمحجوز' : 'كمنجز'}
                                   </span>
                                 </>
                               )}
@@ -2345,9 +2376,10 @@ export default function UserDashboardSection({
                     <input
                       type="number"
                       max={5}
-                      min={1}
-                      value={editFormData.rating || 5}
-                      onChange={(e) => setEditFormData({ ...editFormData, rating: parseFloat(e.target.value) || 5 })}
+                      min={0}
+                      step={0.1}
+                      value={editFormData.rating ?? 0}
+                      onChange={(e) => setEditFormData({ ...editFormData, rating: parseFloat(e.target.value) || 0 })}
                       className="w-full text-xs p-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-mono"
                     />
                   </div>

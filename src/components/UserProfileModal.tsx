@@ -53,6 +53,7 @@ export default function UserProfileModal({
   const [email, setEmail] = useState(currentUser.email || '');
   const [phone, setPhone] = useState(currentUser.phone || '');
   const [nickname, setNickname] = useState(currentUser.nickname || '');
+  const [nationalId, setNationalId] = useState(currentUser.nationalId || '');
   const [city, setCity] = useState(currentUser.city || '');
   const [bio, setBio] = useState(currentUser.bio || '');
   const [avatar, setAvatar] = useState(currentUser.avatar || '');
@@ -63,6 +64,8 @@ export default function UserProfileModal({
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [totalAdsCount, setTotalAdsCount] = useState(0);
+  const [ads24hCount, setAds24hCount] = useState(0);
+  const [timeRemainingText, setTimeRemainingText] = useState('');
   const [isRequestCodeOpen, setIsRequestCodeOpen] = useState(false);
 
   // Reset form and fetch total ads count when modal opens or user changes
@@ -71,6 +74,7 @@ export default function UserProfileModal({
     setEmail(currentUser.email || '');
     setPhone(currentUser.phone || '');
     setNickname(currentUser.nickname || '');
+    setNationalId(currentUser.nationalId || '');
     setCity(currentUser.city || '');
     setBio(currentUser.bio || '');
     setAvatar(currentUser.avatar || '');
@@ -81,6 +85,14 @@ export default function UserProfileModal({
     if (isOpen && currentUser?.id) {
       SubscriptionService.getUserTotalAdsCount(currentUser.id).then((cnt) => {
         setTotalAdsCount(cnt);
+      });
+      SubscriptionService.getUserLast24HoursAdsCount(currentUser.id).then((res) => {
+        setAds24hCount(res.count);
+        if (res.hoursRemaining > 0 || res.minutesRemaining > 0) {
+          setTimeRemainingText(`(متبقي حوالي ${res.hoursRemaining} س و ${res.minutesRemaining} د حتى التجدد)`);
+        } else {
+          setTimeRemainingText('');
+        }
       });
     }
   }, [currentUser, isOpen]);
@@ -151,6 +163,7 @@ export default function UserProfileModal({
         email: email.trim(),
         phone: phone.trim(),
         nickname: nickname.trim(),
+        nationalId: nationalId.trim() || undefined,
         city: city.trim(),
         bio: bio.trim(),
         avatar: avatar,
@@ -291,6 +304,23 @@ export default function UserProfileModal({
               </div>
             </div>
 
+            {/* National ID */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">رقم الهوية الوطنية / الإقامة</label>
+              <div className="relative">
+                <Shield className="absolute right-3 top-2.5 w-4 h-4 text-slate-400" />
+                <input
+                  type="text"
+                  value={nationalId}
+                  onChange={(e) => setNationalId(e.target.value.replace(/[^\d]/g, ''))}
+                  placeholder="10XXXXXXXX"
+                  maxLength={15}
+                  className="w-full text-xs pl-3 pr-9 py-2.5 border border-slate-200 rounded-xl focus:outline-none focus:border-navy font-mono"
+                  dir="ltr"
+                />
+              </div>
+            </div>
+
             {/* Nickname */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">الاسم المستعار</label>
@@ -410,47 +440,54 @@ export default function UserProfileModal({
             </div>
           ) : (
             <div className="space-y-3">
-              {/* Free Ads 1-Ad-Limit Status Card */}
+              {/* Free Ads 24h Quota Status Card */}
               <div className={`p-4 rounded-2xl border space-y-2.5 ${
-                totalAdsCount >= FREE_USER_ADS_LIMIT 
-                  ? 'bg-red-50/80 border-red-200 text-red-900' 
+                ads24hCount >= 1 
+                  ? 'bg-amber-50/90 border-amber-300 text-amber-950' 
                   : 'bg-emerald-50/80 border-emerald-200 text-emerald-900'
               }`}>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${
-                      totalAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+                      ads24hCount >= 1 ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'
                     }`}>
                       <Sparkles className="w-4 h-4" />
                     </div>
                     <div>
                       <span className="text-xs font-black block">
-                        رصيد الإعلانات المتاح (للمستخدم المجاني)
+                        باقة 0 ريال شهرياً (إعلان مجاني كل 24 ساعة)
                       </span>
                       <span className="text-[11px] text-slate-500 block">
-                        الحد المسموح به مجاناً هو <strong>إعلان واحد فقط</strong>
+                        {ads24hCount >= 1
+                          ? `تم نشر إعلانك لليوم ${timeRemainingText}`
+                          : 'إعلانك المجاني لليوم متاح الآن'}
                       </span>
                     </div>
                   </div>
                   <span className={`font-black text-xs px-3 py-1 rounded-full shadow-2xs ${
-                    totalAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600 text-white' : 'bg-emerald-600 text-white'
+                    ads24hCount >= 1 ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'
                   }`}>
-                    {totalAdsCount} من {FREE_USER_ADS_LIMIT} إعلان مستهلك
+                    {ads24hCount >= 1 ? '1 / 1 مستهلك اليوم' : '1 متاح اليوم'}
                   </span>
                 </div>
 
                 {/* Progress Bar */}
                 <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
                   <div 
-                    className={`h-full transition-all duration-300 ${totalAdsCount >= FREE_USER_ADS_LIMIT ? 'bg-red-600' : 'bg-emerald-600'}`}
-                    style={{ width: `${Math.min(100, (totalAdsCount / FREE_USER_ADS_LIMIT) * 100)}%` }}
+                    className={`h-full transition-all duration-300 ${ads24hCount >= 1 ? 'bg-amber-500' : 'bg-emerald-600'}`}
+                    style={{ width: `${Math.min(100, ads24hCount * 100)}%` }}
                   ></div>
                 </div>
 
-                {totalAdsCount >= FREE_USER_ADS_LIMIT && (
-                  <div className="text-[11px] text-red-700 bg-red-100/60 p-2 rounded-xl flex items-center gap-1.5 font-bold">
-                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
-                    <span>لقد استنفدت إعلانك المجاني المتاح. لنشر إعلان آخر، قم بترقية اشتراكك أو اطلب كود نشر متغير بالأسفل.</span>
+                {ads24hCount >= 1 ? (
+                  <div className="text-[11px] text-amber-800 bg-amber-100/70 p-2 rounded-xl flex items-center gap-1.5 font-bold">
+                    <Clock className="w-4 h-4 text-amber-700 shrink-0" />
+                    <span>تم استهلاك إعلان اليوم. يتجدد إعلانك تلقائياً كل 24 ساعة مجاناً، أو يمكنك استخدام كود اشتراك معتمد أو الترقية للعضوية الذهبية.</span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-emerald-800 bg-emerald-100/70 p-2 rounded-xl flex items-center gap-1.5 font-bold">
+                    <CheckCircle className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>إعلانك المجاني لليوم متاح لنشره فوراً (إعلان مجاني كل 24 ساعة لجميع المستخدمين).</span>
                   </div>
                 )}
               </div>

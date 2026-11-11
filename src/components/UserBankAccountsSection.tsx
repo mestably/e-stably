@@ -24,12 +24,17 @@ import {
   CreditCard,
   ExternalLink,
   ChevronRight,
-  Info
+  Info,
+  Phone,
+  UserCheck,
+  UserX,
+  User as UserIcon
 } from 'lucide-react';
 import { User, BankReceipt, PLATFORM_BANK_ACCOUNTS, PlatformBankAccount } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { compressImage } from '../lib/imageUtils';
 import { useAdminContact } from '../lib/useAdminContact';
+import { isSystemAdminEmail, normalizePhone } from '../lib/authService';
 import ImageLightboxModal from './ImageLightboxModal';
 
 interface UserBankAccountsSectionProps {
@@ -47,12 +52,23 @@ export default function UserBankAccountsSection({
 }: UserBankAccountsSectionProps) {
   const { adminWhatsApp, adminPhone } = useAdminContact();
 
+  const isAdmin = Boolean(
+    currentUser && (
+      currentUser.role === 'admin' ||
+      isSystemAdminEmail(currentUser.email) ||
+      isSystemAdminEmail(currentUser.nickname)
+    )
+  );
+
+  const [adminViewMode, setAdminViewMode] = useState<'all' | 'mine'>('all');
+
   // Copy feedback states
   const [copiedBankId, setCopiedBankId] = useState<string | null>(null);
   const [copiedIbanId, setCopiedIbanId] = useState<string | null>(null);
 
   // Form states for uploading deposit slip
   const [selectedBankId, setSelectedBankId] = useState<string>('faisal_islamic_bank');
+  const [nationalId, setNationalId] = useState<string>(currentUser?.nationalId || '');
   const [purpose, setPurpose] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [transferDate, setTransferDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
@@ -62,6 +78,12 @@ export default function UserBankAccountsSection({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string>('');
   const [formSuccess, setFormSuccess] = useState<string>('');
+
+  useEffect(() => {
+    if (currentUser?.nationalId && !nationalId) {
+      setNationalId(currentUser.nationalId);
+    }
+  }, [currentUser?.nationalId]);
 
   // User receipts history
   const [userReceipts, setUserReceipts] = useState<BankReceipt[]>([]);
@@ -75,7 +97,7 @@ export default function UserBankAccountsSection({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load user receipts
+  // Load user receipts (or all receipts for managers)
   const fetchUserReceipts = async () => {
     if (!currentUser?.id) {
       setUserReceipts([]);
@@ -84,12 +106,17 @@ export default function UserBankAccountsSection({
     }
     setIsLoadingReceipts(true);
     try {
-      const list = await FirebaseService.getUserBankReceipts(currentUser.id);
-      // Sort newest first
-      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-      setUserReceipts(list);
+      if (isAdmin && adminViewMode === 'all') {
+        const allList = await FirebaseService.getBankReceipts();
+        allList.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setUserReceipts(allList);
+      } else {
+        const list = await FirebaseService.getUserBankReceipts(currentUser.id);
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setUserReceipts(list);
+      }
     } catch (err) {
-      console.error('Failed to load user bank receipts', err);
+      console.error('Failed to load bank receipts', err);
     } finally {
       setIsLoadingReceipts(false);
     }
@@ -97,7 +124,33 @@ export default function UserBankAccountsSection({
 
   useEffect(() => {
     fetchUserReceipts();
-  }, [currentUser?.id]);
+  }, [currentUser?.id, isAdmin, adminViewMode]);
+
+  // Admin Quick Action: Change status (Approve / Reject)
+  const handleAdminStatusChange = async (receiptId: string, status: 'approved' | 'rejected' | 'pending') => {
+    try {
+      await FirebaseService.updateBankReceiptStatus(receiptId, status);
+      setUserReceipts(prev => prev.map(r => r.id === receiptId ? { ...r, status, reviewedAt: new Date().toISOString() } : r));
+      if (onSuccessToast) {
+        onSuccessToast(status === 'approved' ? 'تم اعتماد الإيصال بنجاح ✓' : 'تم تحديث حالة الإيصال');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Admin Quick Action: Delete receipt
+  const handleAdminDeleteReceipt = async (receiptId: string) => {
+    try {
+      await FirebaseService.deleteBankReceipt(receiptId);
+      setUserReceipts(prev => prev.filter(r => r.id !== receiptId));
+      if (onSuccessToast) {
+        onSuccessToast('تم حذف الإيصال بنجاح');
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Handle Copy to clipboard
   const handleCopy = (text: string, type: 'account' | 'iban', id: string) => {
@@ -197,6 +250,11 @@ export default function UserBankAccountsSection({
       return;
     }
 
+    if (!nationalId.trim()) {
+      setFormError('يرجى إدخال رقم الهوية الوطنية أو الإقامة (حقل إجباري لمطابقة الحوالة).');
+      return;
+    }
+
     const selectedBank = PLATFORM_BANK_ACCOUNTS.find((b) => b.id === selectedBankId) || PLATFORM_BANK_ACCOUNTS[0];
 
     setIsSubmitting(true);
@@ -208,6 +266,7 @@ export default function UserBankAccountsSection({
         userName: currentUser.name || 'مستخدم منصة إستابلي',
         userPhone: currentUser.phone || '',
         userEmail: currentUser.email || '',
+        nationalId: nationalId.trim(),
         bankName: selectedBank.bankName,
         accountNumber: selectedBank.accountNumber,
         images: uploadedImages,
@@ -533,6 +592,26 @@ export default function UserBankAccountsSection({
             </div>
           </div>
 
+          {/* National ID Field (رقم الهوية الوطنية أو الإقامة - إجباري) */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-xs font-black text-slate-700">
+                رقم الهوية الوطنية أو الإقامة للمحول: <span className="text-rose-500 font-bold">* (إجباري)</span>
+              </label>
+              <span className="text-[11px] text-slate-400 font-bold">مطلوب لمطابقة صاحب الحوالة</span>
+            </div>
+            <input
+              type="text"
+              required
+              value={nationalId}
+              onChange={(e) => setNationalId(e.target.value.replace(/[^\d]/g, ''))}
+              placeholder="أدخل رقم الهوية الوطنية أو الإقامة (مثال: 10XXXXXXXX)"
+              maxLength={15}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition font-mono"
+              dir="ltr"
+            />
+          </div>
+
           {/* 3. Purpose of Transfer (الغرض من التحويل / دفع الحساب) */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
@@ -730,32 +809,70 @@ export default function UserBankAccountsSection({
         </form>
       </div>
 
-      {/* --- SECTION 3: USER'S PREVIOUS RECEIPTS (سجل إيصالاتي السابقة) --- */}
+      {/* --- SECTION 3: USER'S PREVIOUS RECEIPTS (سجل إيصالات الإيداع المرفوعة) --- */}
       <div className="bg-white rounded-2xl p-5 sm:p-7 border border-slate-200/90 shadow-sm space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 flex-wrap gap-2">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center font-black">
-              <FileText className="w-4 h-4 text-slate-700" />
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-black ${
+              isAdmin ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'
+            }`}>
+              <Landmark className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-base sm:text-lg font-black text-slate-900">
-                سجل إيصالات الإيداع المرفوعة من قبلك
-              </h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black text-slate-900">
+                  {isAdmin && adminViewMode === 'all'
+                    ? `إيصالات الحسابات البنكية المرفوعة من المستخدمين (${userReceipts.length})`
+                    : 'سجل إيصالات الإيداع المرفوعة من قبلك'}
+                </h3>
+                {isAdmin && (
+                  <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md shadow-2xs">
+                    عرض الإدارة 🛡️
+                  </span>
+                )}
+              </div>
               <p className="text-xs text-slate-500">
-                متابعة حالة الإيصالات المرسلة للمدير (قيد المراجعة / معتمد / مرفوض)
+                {isAdmin && adminViewMode === 'all'
+                  ? 'مراجعة وتأكيد إيداعات الحسابات المحولة من كافة المستخدمين واعتمادها فورياً'
+                  : 'متابعة حالة الإيصالات المرسلة للمدير (قيد المراجعة / معتمد / مرفوض)'}
               </p>
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={fetchUserReceipts}
-            disabled={isLoadingReceipts}
-            className="px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingReceipts ? 'animate-spin' : ''}`} />
-            <span>تحديث السجل</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            {isAdmin && (
+              <div className="flex bg-slate-100 p-1 rounded-xl text-xs font-bold">
+                <button
+                  type="button"
+                  onClick={() => setAdminViewMode('all')}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    adminViewMode === 'all' ? 'bg-emerald-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  جميع إيصالات المستخدمين ({userReceipts.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdminViewMode('mine')}
+                  className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${
+                    adminViewMode === 'mine' ? 'bg-white text-navy shadow-xs' : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  إيصالاتي فقط
+                </button>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={fetchUserReceipts}
+              disabled={isLoadingReceipts}
+              className="px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingReceipts ? 'animate-spin' : ''}`} />
+              <span>تحديث السجل</span>
+            </button>
+          </div>
         </div>
 
         {isLoadingReceipts ? (
@@ -817,6 +934,32 @@ export default function UserBankAccountsSection({
                       </span>
                     </div>
 
+                    {/* Admin User Info Tag if viewing as admin */}
+                    {isAdmin && adminViewMode === 'all' && (
+                      <div className="p-2.5 bg-emerald-50/90 border border-emerald-200 rounded-xl text-xs space-y-1">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-1.5 font-black text-emerald-950">
+                            <UserIcon className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>المستخدم: {receipt.userName || 'غير محدد'}</span>
+                          </div>
+                          {receipt.userPhone && (
+                            <a
+                              href={`tel:${receipt.userPhone}`}
+                              className="text-[11px] font-mono text-emerald-800 font-bold hover:underline flex items-center gap-1"
+                            >
+                              <Phone className="w-3 h-3" />
+                              <span className="dir-ltr">{receipt.userPhone}</span>
+                            </a>
+                          )}
+                        </div>
+                        {receipt.userEmail && (
+                          <div className="text-[10px] text-emerald-700 font-mono truncate">
+                            {receipt.userEmail}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     {/* Purpose (الغرض من دفع الحساب) */}
                     <div className="bg-white p-3 rounded-xl border border-slate-200 shadow-2xs">
                       <span className="text-[10px] font-bold text-slate-400 block mb-0.5">
@@ -852,10 +995,18 @@ export default function UserBankAccountsSection({
                       </div>
                     </div>
 
+                    {/* National ID */}
+                    {receipt.nationalId && (
+                      <div className="bg-white p-2 rounded-xl border border-slate-200/80 text-xs flex items-center justify-between">
+                        <span className="text-[11px] font-bold text-slate-500">رقم الهوية الوطنية / الإقامة:</span>
+                        <span className="font-mono font-black text-slate-800 dir-ltr">{receipt.nationalId}</span>
+                      </div>
+                    )}
+
                     {/* Notes if any */}
                     {receipt.notes && (
                       <p className="text-xs text-slate-600 bg-white p-2 rounded-lg border border-slate-200">
-                        <span className="font-bold text-slate-700">ملاحظتك:</span> {receipt.notes}
+                        <span className="font-bold text-slate-700">ملاحظة التحويل:</span> {receipt.notes}
                       </p>
                     )}
 
@@ -871,7 +1022,7 @@ export default function UserBankAccountsSection({
                     {receipt.images && receipt.images.length > 0 && (
                       <div>
                         <span className="text-[11px] font-bold text-slate-600 block mb-1.5">
-                          صور الإيصال المرفوعة ({receipt.images.length} صور):
+                          صور الإيصال المرفوعة ({receipt.images.length} صور) - انقر للتكبير:
                         </span>
                         <div className="flex items-center gap-2 overflow-x-auto pb-1">
                           {receipt.images.map((img, idx) => (
@@ -893,21 +1044,85 @@ export default function UserBankAccountsSection({
                     )}
                   </div>
 
-                  {/* Contact WhatsApp with admin regarding this receipt */}
-                  {adminWhatsApp && (
-                    <div className="pt-2 border-t border-slate-200/70">
-                      <a
-                        href={`https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(
-                          `السلام عليكم ورحمة الله، بخصوص إيصال التحويل الخاص بي على منصة إستابلي:\n- الغرض: ${receipt.purpose}\n- البنك: ${receipt.bankName}\n- كود الإيصال: ${receipt.id}\nأرجو التكرم بالاعتماد.`
-                        )}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 transition shadow-2xs"
-                      >
-                        <MessageCircle className="w-3.5 h-3.5" />
-                        <span>مراسلة الإدارة عبر الواتساب للاستفسار</span>
-                      </a>
+                  {/* Actions Area */}
+                  {isAdmin && adminViewMode === 'all' ? (
+                    <div className="pt-3 border-t border-slate-200/80 space-y-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {receipt.status !== 'approved' && (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminStatusChange(receipt.id, 'approved')}
+                            className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition shadow-2xs"
+                          >
+                            <UserCheck className="w-3.5 h-3.5" />
+                            <span>اعتماد وتأكيد الإيداع ✓</span>
+                          </button>
+                        )}
+
+                        {receipt.status !== 'rejected' && (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminStatusChange(receipt.id, 'rejected')}
+                            className="py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-black flex items-center justify-center gap-1.5 cursor-pointer transition shadow-2xs"
+                          >
+                            <UserX className="w-3.5 h-3.5" />
+                            <span>رفض ❌</span>
+                          </button>
+                        )}
+
+                        {receipt.status !== 'pending' && (
+                          <button
+                            type="button"
+                            onClick={() => handleAdminStatusChange(receipt.id, 'pending')}
+                            className="py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1 cursor-pointer transition shadow-2xs"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>إعادة للمراجعة</span>
+                          </button>
+                        )}
+
+                        {receipt.userPhone && (
+                          <a
+                            href={`https://wa.me/${normalizePhone(receipt.userPhone)}?text=${encodeURIComponent(
+                              `السلام عليكم ورحمة الله أخي ${receipt.userName}، بخصوص إيصال التحويل المرفوع عبر منصة إستابلي:\n- الغرض: ${receipt.purpose}\n- البنك: ${receipt.bankName}\n- الحالة: ${receipt.status === 'approved' ? 'معتمد ✓' : receipt.status === 'rejected' ? 'مرفوض ❌' : 'قيد المراجعة ⏳'}`
+                            )}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="py-2 px-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition shadow-2xs"
+                            title="مراسلة المستخدم عبر واتساب"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>واتساب العميل</span>
+                          </a>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => handleAdminDeleteReceipt(receipt.id)}
+                          className="p-2 text-rose-500 hover:bg-rose-100 rounded-xl transition cursor-pointer"
+                          title="حذف الإيصال"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
+                  ) : (
+                    /* User mode: WhatsApp Admin contact */
+                    adminWhatsApp && (
+                      <div className="pt-2 border-t border-slate-200/70">
+                        <a
+                          href={`https://wa.me/${adminWhatsApp}?text=${encodeURIComponent(
+                            `السلام عليكم ورحمة الله، بخصوص إيصال التحويل الخاص بي على منصة إستابلي:\n- الغرض: ${receipt.purpose}\n- البنك: ${receipt.bankName}\n- كود الإيصال: ${receipt.id}\nأرجو التكرم بالاعتماد.`
+                          )}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black flex items-center justify-center gap-1.5 transition shadow-2xs"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" />
+                          <span>مراسلة الإدارة عبر الواتساب للاستفسار</span>
+                        </a>
+                      </div>
+                    )
                   )}
                 </div>
               );
