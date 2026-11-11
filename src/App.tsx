@@ -1,0 +1,1263 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import { 
+  Home, 
+  Award, 
+  ShieldCheck, 
+  Truck, 
+  FileText, 
+  Mail, 
+  Search, 
+  User as UserIcon, 
+  LogOut, 
+  Sparkles, 
+  MessageSquare, 
+  Menu, 
+  X,
+  Compass,
+  Cloud,
+  ShieldAlert,
+  Crown,
+  Clock,
+  Layers
+} from 'lucide-react';
+import { User, AnnouncementBanner, SiteSettings } from './types';
+import { FirebaseService } from './lib/firebase';
+import StablesSection from './components/StablesSection';
+import HorsesSection from './components/HorsesSection';
+import ShelterSection from './components/ShelterSection';
+import TransportSection from './components/TransportSection';
+import TermsSection from './components/TermsSection';
+import ContactSection from './components/ContactSection';
+import AuthModal from './components/AuthModal';
+import HomeSection from './components/HomeSection';
+import DriveBackupSection from './components/DriveBackupSection';
+import UserProfileModal from './components/UserProfileModal';
+import AdminControlSection from './components/AdminControlSection';
+import BannerModal from './components/BannerModal';
+import DetailModal from './components/DetailModal';
+import SubscriptionsSection from './components/SubscriptionsSection';
+import UserDashboardSection from './components/UserDashboardSection';
+import { HorsesScreensaver } from './components/HorsesScreensaver';
+import MandatoryNationalIdModal from './components/MandatoryNationalIdModal';
+import AdNotificationCenter from './components/AdNotificationCenter';
+import { GlobalSearchBar } from './components/GlobalSearchBar';
+
+import { AuthService, isSystemAdminEmail } from './lib/authService';
+import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
+import { SubscriptionService, FREE_USER_ADS_LIMIT } from './lib/subscriptionService';
+import { useVipCountdown } from './lib/useVipCountdown';
+
+export default function App() {
+  const [activeTab, setActiveTab] = useState<'home' | 'stables' | 'horses' | 'shelter' | 'transport' | 'terms' | 'contact' | 'backup' | 'admin' | 'subscriptions' | 'user-dashboard'>('home');
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+
+  const vipCountdown = useVipCountdown(
+    currentUser?.subscriptionExpiresAt,
+    currentUser?.updatedAt || currentUser?.createdAt,
+    !!currentUser?.isGold
+  );
+  const [banner, setBanner] = useState<AnnouncementBanner | null>(null);
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isSubscriptionsModalOpen, setIsSubscriptionsModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [todayAdsCount, setTodayAdsCount] = useState<number>(0);
+  const [userTotalAds, setUserTotalAds] = useState<number>(0);
+  const [isScreensaverOpen, setIsScreensaverOpen] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [isNationalIdModalOpen, setIsNationalIdModalOpen] = useState(false);
+
+  // Periodic check (every 3 minutes) for users missing nationalId
+  useEffect(() => {
+    const checkMissingNationalId = () => {
+      if (currentUser && (!currentUser.nationalId || currentUser.nationalId.trim().length < 8)) {
+        setIsNationalIdModalOpen(true);
+      } else {
+        setIsNationalIdModalOpen(false);
+      }
+    };
+
+    // Initial check after short delay when user is present
+    const initialTimer = setTimeout(() => {
+      checkMissingNationalId();
+    }, 1200);
+
+    // Repeat check every 3 minutes (180,000 ms)
+    const intervalTimer = setInterval(() => {
+      checkMissingNationalId();
+    }, 3 * 60 * 1000);
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(intervalTimer);
+    };
+  }, [currentUser]);
+
+  // Direct Shared Ad State
+  const [sharedAdModal, setSharedAdModal] = useState<{
+    item: any;
+    type: 'horse' | 'stable' | 'shelter' | 'transport';
+    focusReviews?: boolean;
+    highlightReviewId?: string;
+  } | null>(null);
+  const [sharedAdNotFound, setSharedAdNotFound] = useState(false);
+  const [isSharedAdLoading, setIsSharedAdLoading] = useState(false);
+
+  const handleOpenAdFromNotification = async (
+    adId: string,
+    adType: 'horse' | 'stable' | 'shelter' | 'transport',
+    notificationId?: string
+  ) => {
+    try {
+      setIsSharedAdLoading(true);
+      setSharedAdNotFound(false);
+
+      let result = await FirebaseService.getAdById(adId, adType);
+      if (!result) {
+        await new Promise((res) => setTimeout(res, 500));
+        result = await FirebaseService.getAdById(adId, adType);
+      }
+      setIsSharedAdLoading(false);
+
+      if (result && result.item) {
+        if (result.type === 'horse') setActiveTab('horses');
+        else if (result.type === 'stable') setActiveTab('stables');
+        else if (result.type === 'shelter') setActiveTab('shelter');
+        else if (result.type === 'transport') setActiveTab('transport');
+
+        setSharedAdModal({
+          item: result.item,
+          type: result.type,
+          focusReviews: true,
+          highlightReviewId: notificationId
+        });
+      } else {
+        setSharedAdNotFound(true);
+        setTimeout(() => setSharedAdNotFound(false), 5000);
+      }
+    } catch (err) {
+      console.warn('Error opening ad from notification:', err);
+      setIsSharedAdLoading(false);
+    }
+  };
+
+  const refreshDailyAdsCount = useCallback(async () => {
+    if (currentUser?.id) {
+      const [cnt, total] = await Promise.all([
+        FirebaseService.getUserTodayAdsCount(currentUser.id),
+        SubscriptionService.getUserTotalAdsCount(currentUser.id)
+      ]);
+      setTodayAdsCount(cnt);
+      setUserTotalAds(total);
+    } else {
+      setTodayAdsCount(0);
+      setUserTotalAds(0);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    refreshDailyAdsCount();
+  }, [refreshDailyAdsCount, activeTab]);
+
+  const remainingDailyAds = Math.max(0, DAILY_FREE_ADS_LIMIT - todayAdsCount);
+  const remainingFreeAds = Math.max(0, FREE_USER_ADS_LIMIT - userTotalAds);
+
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem('site_settings_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.siteName) {
+            return {
+              ...parsed,
+              logoUrl: (!parsed.logoUrl || parsed.logoUrl === '/logomaster.jpg') ? '/logo.jpg' : parsed.logoUrl,
+              screensaverEnabled: parsed.screensaverEnabled !== undefined ? parsed.screensaverEnabled : true,
+              screensaverTimeoutSeconds: parsed.screensaverTimeoutSeconds || 60,
+              screensaverShowClock: parsed.screensaverShowClock !== undefined ? parsed.screensaverShowClock : true,
+            };
+          }
+        }
+      } catch (e) {}
+    }
+    return {
+      id: 'main_site_settings',
+      siteName: 'Estably - منصة الخيول العربية الأصيلة',
+      siteDescription: 'منصة متكاملة للاستطبلات، بيع وتأجير الخيول العربية الأصيلة، الإيواء، ونقل الخيول.',
+      logoUrl: '/logo.jpg',
+      screensaverEnabled: true,
+      screensaverTimeoutSeconds: 60,
+      screensaverShowClock: true
+    };
+  });
+
+  // Initialize data cache & perform real-time cloud sync on startup
+  useEffect(() => {
+    FirebaseService.initFallbackData();
+    // Actively purge deleted items and sync with live database on browser startup
+    FirebaseService.performInitialCloudSync().catch(err => {
+      console.warn('Initial cloud sync background run:', err);
+    });
+    
+    // Check if user session exists in local storage
+    const savedUser = localStorage.getItem('horses_forum_session');
+    if (savedUser) {
+      try {
+        let u: User = JSON.parse(savedUser);
+        if (u.authProvider === 'google') {
+          u.role = 'user';
+        } else if (isSystemAdminEmail(u.email) || isSystemAdminEmail(u.nickname)) {
+          u.role = 'admin';
+        }
+        setCurrentUser(u);
+
+        // Fetch fresh user profile from DB to preserve all profile edits (avatar, phone, etc.)
+        FirebaseService.getUsers().then((users) => {
+          const freshUser = users.find(
+            (dbUser) => dbUser.id === u.id || (dbUser.email && u.email && dbUser.email.toLowerCase() === u.email.toLowerCase())
+          );
+          if (freshUser) {
+            if (freshUser.authProvider === 'google') {
+              freshUser.role = 'user';
+            } else if (isSystemAdminEmail(freshUser.email) || isSystemAdminEmail(freshUser.nickname)) {
+              freshUser.role = 'admin';
+            }
+            setCurrentUser(freshUser);
+            localStorage.setItem('horses_forum_session', JSON.stringify(freshUser));
+          }
+        }).catch(err => console.warn('Could not sync fresh user profile', err));
+      } catch (e) {}
+    }
+
+    // Load Announcement Banner & Site Settings
+    FirebaseService.getBanner().then((b) => {
+      if (b) setBanner(b);
+    }).catch(err => console.warn('Could not load banner', err));
+
+    FirebaseService.getSiteSettings().then((settings) => {
+      if (settings) {
+        if (!settings.logoUrl || settings.logoUrl === '/logomaster.jpg') {
+          settings.logoUrl = '/logo.jpg';
+        }
+        setSiteSettings(settings);
+        FirebaseService.applySiteSettings(settings);
+      }
+    }).catch(err => console.warn('Could not load site settings', err));
+  }, []);
+
+  // Listen for admin live preview trigger
+  useEffect(() => {
+    const handleOpenScreensaver = () => setIsScreensaverOpen(true);
+    window.addEventListener('open_horses_screensaver', handleOpenScreensaver);
+    return () => window.removeEventListener('open_horses_screensaver', handleOpenScreensaver);
+  }, []);
+
+  // Idle Screensaver detection: automatically triggers running horses when user is inactive
+  useEffect(() => {
+    // If screensaver is disabled by admin, don't run the countdown
+    if (siteSettings.screensaverEnabled === false) {
+      return;
+    }
+
+    const timeoutSec = siteSettings.screensaverTimeoutSeconds && siteSettings.screensaverTimeoutSeconds > 0
+      ? siteSettings.screensaverTimeoutSeconds
+      : 60;
+    const timeoutMs = timeoutSec * 1000;
+
+    let timerId: any = null;
+
+    const resetIdleTimer = () => {
+      if (timerId) clearTimeout(timerId);
+      timerId = setTimeout(() => {
+        if (siteSettings.screensaverEnabled !== false) {
+          setIsScreensaverOpen(true);
+        }
+      }, timeoutMs);
+    };
+
+    const handleUserActivity = () => {
+      // If screensaver is active, waking up dismisses it
+      if (isScreensaverOpen) {
+        setIsScreensaverOpen(false);
+      }
+      resetIdleTimer();
+    };
+
+    // Initialize idle timer
+    resetIdleTimer();
+
+    // Track user inputs to reset the idle countdown
+    const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'wheel'];
+    events.forEach((evt) => {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    });
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+      events.forEach((evt) => {
+        window.removeEventListener(evt, handleUserActivity);
+      });
+    };
+  }, [siteSettings.screensaverEnabled, siteSettings.screensaverTimeoutSeconds, isScreensaverOpen]);
+ 
+  // Mobile virtual keyboard & focus detection to prevent bottom nav from floating to screen center
+  useEffect(() => {
+    const handleFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        setIsKeyboardVisible(true);
+      }
+    };
+
+    const handleFocusOut = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        setTimeout(() => {
+          const activeEl = document.activeElement as HTMLElement | null;
+          if (
+            !activeEl ||
+            (activeEl.tagName !== 'INPUT' &&
+              activeEl.tagName !== 'TEXTAREA' &&
+              activeEl.tagName !== 'SELECT' &&
+              !activeEl.isContentEditable)
+          ) {
+            setIsKeyboardVisible(false);
+          }
+        }, 120);
+      }
+    };
+
+    const handleVisualViewportResize = () => {
+      if (window.visualViewport) {
+        const heightDifference = window.innerHeight - window.visualViewport.height;
+        setIsKeyboardVisible(heightDifference > 140);
+      }
+    };
+
+    window.addEventListener('focusin', handleFocusIn);
+    window.addEventListener('focusout', handleFocusOut);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleVisualViewportResize);
+    }
+
+    return () => {
+      window.removeEventListener('focusin', handleFocusIn);
+      window.removeEventListener('focusout', handleFocusOut);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleVisualViewportResize);
+      }
+    };
+  }, []);
+
+  // Deep linking: Automatically open shared ad if 'ad' or 'id' query parameter is present in URL
+  useEffect(() => {
+    const checkUrlForSharedAd = async () => {
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        let adId = searchParams.get('ad') || searchParams.get('id');
+        let adType = searchParams.get('type') as 'horse' | 'stable' | 'shelter' | 'transport' | null;
+
+        // Support hash format fallback e.g. #type=stable&ad=stb_123
+        if (!adId && window.location.hash) {
+          const hashClean = window.location.hash.replace(/^#\/?/, '');
+          const hashParams = new URLSearchParams(hashClean);
+          adId = hashParams.get('ad') || hashParams.get('id');
+          if (!adType) adType = hashParams.get('type') as any;
+        }
+
+        if (!adId) return;
+
+        setIsSharedAdLoading(true);
+        setSharedAdNotFound(false);
+
+        // Fetch ad by ID across collections (fast cache first, then cloud direct lookup)
+        let result = await FirebaseService.getAdById(adId, adType || undefined);
+        
+        // If not immediately found, wait 600ms for startup network sync to establish and try once more
+        if (!result) {
+          await new Promise((res) => setTimeout(res, 600));
+          result = await FirebaseService.getAdById(adId, adType || undefined);
+        }
+
+        setIsSharedAdLoading(false);
+
+        if (result && result.item) {
+          // Switch to corresponding section tab
+          if (result.type === 'horse') setActiveTab('horses');
+          else if (result.type === 'stable') setActiveTab('stables');
+          else if (result.type === 'shelter') setActiveTab('shelter');
+          else if (result.type === 'transport') setActiveTab('transport');
+
+          setSharedAdModal(result);
+          setSharedAdNotFound(false);
+        } else {
+          setSharedAdNotFound(true);
+          setTimeout(() => setSharedAdNotFound(false), 7000);
+        }
+      } catch (err) {
+        console.warn('Error loading shared ad from URL:', err);
+        setIsSharedAdLoading(false);
+      }
+    };
+
+    checkUrlForSharedAd();
+    window.addEventListener('popstate', checkUrlForSharedAd);
+    return () => window.removeEventListener('popstate', checkUrlForSharedAd);
+  }, []);
+
+  const handleAuthSuccess = (user: User) => {
+    setCurrentUser(user);
+    localStorage.setItem('horses_forum_session', JSON.stringify(user));
+  };
+
+  const handleLogout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('horses_forum_session');
+  };
+
+  const isAdmin = Boolean(currentUser && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email) || isSystemAdminEmail(currentUser.nickname)));
+
+  return (
+    <div className="min-h-screen bg-[#f0f2f5] flex flex-col font-sans selection:bg-gold/30 selection:text-navy" dir="rtl">
+      
+      {/* Header Panel */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-xs px-4 sm:px-6 py-3 flex items-center justify-between">
+        
+        {/* Brand Logo - Top Right Header */}
+        <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setActiveTab('home')}
+            className="flex items-center gap-2 cursor-pointer hover:opacity-90 transition group"
+            title={siteSettings.siteName || 'الصفحة الرئيسية'}
+          >
+            {siteSettings.logoUrl ? (
+              <img 
+                src={siteSettings.logoUrl} 
+                alt={siteSettings.siteName || 'شعار الموقع'} 
+                className="h-10 sm:h-12 max-w-[180px] object-contain rounded-lg transition-transform group-hover:scale-105"
+                onError={(e) => {
+                  (e.target as HTMLImageElement).src = '/logo.jpg';
+                }}
+              />
+            ) : (
+              <img 
+                src="/logo.jpg" 
+                alt="شعار الموقع" 
+                className="h-10 sm:h-12 max-w-[180px] object-contain rounded-lg transition-transform group-hover:scale-105" 
+              />
+            )}
+          </button>
+        </div>
+
+        {/* Global Search Bar */}
+        <div className="hidden md:block w-80 max-w-xs">
+          <GlobalSearchBar
+            searchQuery={searchQuery}
+            onSearchChange={setSearchQuery}
+            onSelectAd={(item, type) => {
+              setSharedAdModal({ item, type });
+            }}
+            onNavigateToSection={(section) => {
+              setActiveTab(section);
+            }}
+          />
+        </div>
+
+        {/* Action Controls & Session manager */}
+        <div className="flex items-center gap-2">
+          {currentUser ? (
+            <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-50 border border-slate-200/60 p-1.5 rounded-xl">
+              
+              {/* User Profile Quick Click */}
+              <button
+                onClick={() => setIsProfileOpen(true)}
+                className="flex items-center hover:bg-slate-100/80 px-1.5 py-1 rounded-lg transition cursor-pointer text-right"
+                title="تعديل ملفك الشخصي"
+              >
+                <div className="text-right flex flex-col justify-center max-w-[125px] sm:max-w-[160px]">
+                  <span className="text-[10px] font-bold text-slate-800 block truncate">{currentUser.name}</span>
+                  <span className="text-[8px] text-gold-dark font-semibold block truncate">@{currentUser.nickname} {isAdmin ? '(مدير)' : currentUser.isGold ? '(عضو ذهبي)' : ''}</span>
+                  {isAdmin ? (
+                    <span className="text-[8px] font-extrabold text-navy bg-navy/10 px-1.5 py-0.2 rounded border border-navy/20 mt-0.5 block truncate" title="إعلانات غير محدودة لمدير النظام">
+                      🛡️ إعلانات غير محدودة
+                    </span>
+                  ) : currentUser.isGold ? (
+                    <div className="mt-0.5 space-y-0.5" title={`العضوية الذهبية (100 ريال شهرياً) - العد التنازلي: ${vipCountdown.formattedDetailed}`}>
+                      <span className="text-[8px] font-extrabold text-amber-900 bg-amber-100 px-1.5 py-0.2 rounded border border-amber-300 block truncate">
+                        👑 ذهبي (100 ريال)
+                      </span>
+                      <span className={`text-[7.5px] font-mono font-bold px-1.5 py-0.2 rounded border block truncate flex items-center gap-0.5 ${
+                        vipCountdown.isExpired 
+                          ? 'bg-red-50 text-red-700 border-red-200' 
+                          : vipCountdown.days <= 3 
+                          ? 'bg-amber-100 text-amber-950 border-amber-300 animate-pulse' 
+                          : 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                      }`}>
+                        <Clock className="w-2 h-2 text-amber-700 shrink-0" />
+                        <span>{vipCountdown.formattedDetailed}</span>
+                      </span>
+                    </div>
+                  ) : (
+                    <span className={`text-[8px] font-extrabold px-1.5 py-0.2 rounded border mt-0.5 block truncate ${
+                      todayAdsCount >= 1 
+                        ? 'text-amber-800 bg-amber-100 border-amber-300' 
+                        : 'text-emerald-800 bg-emerald-100/90 border-emerald-300'
+                    }`} title={todayAdsCount >= 1 ? 'استنفدت إعلان اليوم (يتجدد مجاناً كل 24 ساعة)' : 'متاح إعلان مجاني واحد كل 24 ساعة'}>
+                      {todayAdsCount >= 1 ? 'استنفدت إعلان اليوم' : 'متاح اعلان مجانى واحد'}
+                    </span>
+                  )}
+                </div>
+              </button>
+
+              {/* Red Message Comment Notification Icon next to user profile */}
+              <AdNotificationCenter
+                currentUser={currentUser}
+                onOpenAd={handleOpenAdFromNotification}
+              />
+
+
+              {/* Admin Button if user is Admin */}
+              {isAdmin && (
+                <button
+                  onClick={() => setActiveTab('admin')}
+                  className="p-1.5 bg-gold-light hover:bg-gold/20 text-gold-dark rounded-lg transition cursor-pointer shrink-0 text-xs flex items-center gap-1 font-extrabold border border-gold/30"
+                  title="لوحة التحكم الإدارية"
+                >
+                  <ShieldAlert className="w-3.5 h-3.5 text-gold-dark" />
+                  <span className="hidden sm:inline text-[10px]">المدير</span>
+                </button>
+              )}
+
+              {/* Logout button */}
+              <button
+                onClick={handleLogout}
+                className="p-1.5 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition cursor-pointer shrink-0"
+                title="تسجيل الخروج"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setIsAuthOpen(true)}
+                className="bg-navy hover:bg-navy-dark text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-xs"
+              >
+                <UserIcon className="w-3.5 h-3.5" />
+                <span>دخول / اشتراك</span>
+              </button>
+            </div>
+          )}
+
+          {/* Mobile navigation drawer toggle */}
+          <button
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            className="md:hidden p-2 rounded-xl border border-slate-100 hover:bg-slate-50 text-slate-600 cursor-pointer"
+          >
+            {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
+
+      </header>
+
+      {/* Main Content & Navigation Shell */}
+      <div className="flex-1 max-w-7xl w-full mx-auto flex flex-col md:flex-row pb-24 md:pb-0">
+        
+        {/* Sidebar Navigation - Desktop */}
+        <aside className="hidden md:block w-64 border-l border-slate-100 bg-white p-4 space-y-2 shrink-0">
+          <div className="text-[10px] text-slate-400 font-bold px-3 pb-2 uppercase tracking-wider">الأقسام الرئيسية</div>
+          
+          <nav className="space-y-1">
+            <button
+              onClick={() => { setActiveTab('home'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'home' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <Compass className={`w-4 h-4 ${activeTab === 'home' ? 'text-gold' : 'text-navy'}`} />
+              <span>الرئيسية</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('horses'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'horses' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <Award className={`w-4 h-4 ${activeTab === 'horses' ? 'text-gold' : 'text-navy'}`} />
+              <span>الخيول (بيع وإيجار)</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('stables'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'stables' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <Home className={`w-4 h-4 ${activeTab === 'stables' ? 'text-gold' : 'text-navy'}`} />
+              <span>الإسطبلات والمشروعات</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('shelter'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'shelter' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <ShieldCheck className={`w-4 h-4 ${activeTab === 'shelter' ? 'text-gold' : 'text-navy'}`} />
+              <span>خدمات الإيواء</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('transport'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'transport' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <Truck className={`w-4 h-4 ${activeTab === 'transport' ? 'text-gold' : 'text-navy'}`} />
+              <span>نقل الخيول والمقطورات</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('subscriptions'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'subscriptions' 
+                  ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white shadow-md' 
+                  : 'text-amber-900 bg-amber-50/70 hover:bg-amber-100 border border-amber-200/70'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Crown className={`w-4 h-4 ${activeTab === 'subscriptions' ? 'text-white' : 'text-amber-600'}`} />
+                <span>باقات الاشتراكات والترقية</span>
+              </div>
+              <span className="bg-amber-200/90 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                VIP
+              </span>
+            </button>
+
+            {/* User Dashboard Tab - صفحة المستخدم */}
+            <button
+              onClick={() => { setActiveTab('user-dashboard'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center justify-between px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'user-dashboard' 
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white shadow-md font-black' 
+                  : 'text-emerald-900 bg-emerald-50/80 hover:bg-emerald-100 border border-emerald-200/80'
+              }`}
+            >
+              <div className="flex items-center gap-3">
+                <Layers className={`w-4 h-4 ${activeTab === 'user-dashboard' ? 'text-white' : 'text-emerald-600'}`} />
+                <span>صفحة المستخدم (إعلاناتي)</span>
+              </div>
+              {currentUser && userTotalAds > 0 ? (
+                <span className="bg-emerald-200 text-emerald-950 text-[10px] font-black px-2 py-0.5 rounded-full font-mono">
+                  {userTotalAds} إعلان
+                </span>
+              ) : (
+                <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                  إدارة
+                </span>
+              )}
+            </button>
+
+            {/* Admin navigation tab if user is Admin */}
+            {isAdmin && (
+              <>
+                <div className="h-px bg-slate-100 my-4"></div>
+                <div className="text-[10px] text-gold-dark font-extrabold px-3 pb-2 uppercase tracking-wider flex items-center gap-1">
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>لوحة الإدارة</span>
+                </div>
+                <button
+                  onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'admin' 
+                      ? 'bg-navy text-gold shadow-md border border-gold/30 font-black' 
+                      : 'text-gold-dark bg-gold-light hover:bg-gold/20'
+                  }`}
+                >
+                  <ShieldAlert className="w-4 h-4 text-gold-dark" />
+                  <span>لوحة التحكم الإدارية</span>
+                </button>
+
+                <button
+                  onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    activeTab === 'backup' 
+                      ? 'bg-navy text-white shadow-md' 
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+                  }`}
+                >
+                  <Cloud className={`w-4 h-4 ${activeTab === 'backup' ? 'text-gold' : 'text-navy'}`} />
+                  <span>النسخ الاحتياطي (Drive)</span>
+                </button>
+              </>
+            )}
+
+            <div className="h-px bg-slate-100 my-4"></div>
+            <div className="text-[10px] text-slate-400 font-bold px-3 pb-2 uppercase tracking-wider">المنصة والاتصال</div>
+
+            <button
+              onClick={() => { setActiveTab('terms'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'terms' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <FileText className={`w-4 h-4 ${activeTab === 'terms' ? 'text-gold' : 'text-navy'}`} />
+              <span>الشروط والأحكام</span>
+            </button>
+
+            <button
+              onClick={() => { setActiveTab('contact'); setIsMobileMenuOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                activeTab === 'contact' 
+                  ? 'bg-navy text-white shadow-md' 
+                  : 'text-slate-600 hover:bg-slate-50 hover:text-navy'
+              }`}
+            >
+              <Mail className={`w-4 h-4 ${activeTab === 'contact' ? 'text-gold' : 'text-navy'}`} />
+              <span>تواصل معنا</span>
+            </button>
+          </nav>
+        </aside>
+
+         {/* Mobile menu navigation drawer overlay */}
+        {isMobileMenuOpen && (
+          <div className="md:hidden fixed inset-0 bg-black/60 z-30 pt-20 px-4">
+            <div className="bg-white rounded-2xl p-4 space-y-3 shadow-2xl border border-slate-100 flex flex-col">
+              
+              {currentUser && (
+                <div className="bg-slate-50 p-3 rounded-xl border border-slate-100 flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-9 h-9 rounded-lg bg-navy text-white flex items-center justify-center font-bold text-sm shrink-0">
+                      {currentUser.name.charAt(0)}
+                    </div>
+                    <div className="text-right space-y-0.5">
+                      <span className="text-xs font-bold text-slate-800 block">{currentUser.name}</span>
+                      <span className="text-[10px] text-slate-500 block">@{currentUser.nickname} {isAdmin ? '(مدير النظام)' : currentUser.isGold ? '(عضوية ذهبية)' : ''}</span>
+                      {isAdmin ? (
+                        <div className="text-[10px] font-bold text-navy bg-navy/10 px-2.5 py-1 rounded-lg border border-navy/20 mt-1 inline-flex items-center gap-1">
+                          <span>🛡️ مدير النظام: إعلانات غير محدودة</span>
+                        </div>
+                      ) : currentUser.isGold ? (
+                        <div className="text-[10px] font-bold text-amber-900 bg-amber-100 px-2.5 py-1.5 rounded-lg border border-amber-300 mt-1 space-y-1">
+                          <div className="flex items-center gap-1">
+                            <Crown className="w-3.5 h-3.5 text-amber-600" />
+                            <span>عضوية ذهبية 👑 (100 ريال شهرياً)</span>
+                          </div>
+                          <div className={`text-[9.5px] font-mono font-bold px-2 py-0.5 rounded border flex items-center gap-1 ${
+                            vipCountdown.isExpired 
+                              ? 'bg-red-50 text-red-700 border-red-200' 
+                              : vipCountdown.days <= 3 
+                              ? 'bg-amber-50 text-amber-950 border-amber-300 animate-pulse' 
+                              : 'bg-white/80 text-emerald-900 border-emerald-200'
+                          }`}>
+                            <Clock className="w-3 h-3 text-amber-700 shrink-0" />
+                            <span>العد التنازلي: {vipCountdown.formattedDetailed}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border mt-1 inline-flex items-center gap-1 ${
+                          todayAdsCount >= 1 
+                            ? 'bg-amber-50 text-amber-900 border-amber-200' 
+                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        }`}>
+                          <span>رصيد الإعلانات:</span>
+                          <span className="font-black px-1.5 py-0.5 rounded">
+                            {todayAdsCount >= 1 ? 'تم استهلاك إعلان اليوم (يتجدد كل 24 ساعة)' : 'متاح اعلان مجانى واحد (يتجدد كل 24 ساعة)'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <AdNotificationCenter
+                      currentUser={currentUser}
+                      onOpenAd={(adId, adType, notifId) => {
+                        setIsMobileMenuOpen(false);
+                        handleOpenAdFromNotification(adId, adType, notifId);
+                      }}
+                    />
+                    <button
+                      onClick={() => { handleLogout(); setIsMobileMenuOpen(false); }}
+                      className="flex items-center gap-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold px-3 py-1.5 rounded-lg text-xs transition cursor-pointer"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>خروج</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <span className="text-[10px] text-slate-400 font-bold pb-1 block border-b border-slate-50">الأقسام والخدمات</span>
+              
+              <button
+                onClick={() => { setActiveTab('home'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'home' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Compass className="w-4 h-4 text-gold" />
+                <span>الرئيسية</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('horses'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'horses' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Award className="w-4 h-4 text-gold" />
+                <span>الخيول (بيع وإيجار)</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('stables'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'stables' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Home className="w-4 h-4 text-gold" />
+                <span>الإسطبلات والمشروعات</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('shelter'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'shelter' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <ShieldCheck className="w-4 h-4 text-gold" />
+                <span>خدمات الإيواء</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('transport'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'transport' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Truck className="w-4 h-4 text-gold" />
+                <span>نقل الخيول والمقطورات</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('subscriptions'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition ${
+                  activeTab === 'subscriptions' 
+                    ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white' 
+                    : 'text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Crown className="w-4 h-4 text-amber-600" />
+                  <span>باقات الاشتراكات والترقية</span>
+                </div>
+                <span className="bg-amber-200 text-amber-950 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                  VIP
+                </span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('user-dashboard'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-xs font-bold transition ${
+                  activeTab === 'user-dashboard' 
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-700 text-white font-black' 
+                    : 'text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Layers className="w-4 h-4 text-emerald-600" />
+                  <span>صفحة المستخدم (إعلاناتي)</span>
+                </div>
+                {currentUser && userTotalAds > 0 ? (
+                  <span className="bg-emerald-200 text-emerald-950 text-[9px] font-black px-1.5 py-0.5 rounded-full font-mono">
+                    {userTotalAds} إعلان
+                  </span>
+                ) : (
+                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded-full">
+                    إدارة
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('terms'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'terms' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <FileText className="w-4 h-4 text-gold" />
+                <span>الشروط والأحكام</span>
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('contact'); setIsMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'contact' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Mail className="w-4 h-4 text-gold" />
+                <span>تواصل معنا</span>
+              </button>
+
+              {isAdmin && (
+                <>
+                  <button
+                    onClick={() => { setActiveTab('admin'); setIsMobileMenuOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'admin' ? 'bg-navy text-gold font-black' : 'text-gold-dark bg-gold-light'}`}
+                  >
+                    <ShieldAlert className="w-4 h-4 text-gold-dark" />
+                    <span>لوحة التحكم الإدارية</span>
+                  </button>
+
+                  <button
+                    onClick={() => { setActiveTab('backup'); setIsMobileMenuOpen(false); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-xs font-bold transition ${activeTab === 'backup' ? 'bg-navy text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <Cloud className="w-4 h-4 text-gold" />
+                    <span>النسخ الاحتياطي (Drive)</span>
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Main Body Section Panel */}
+        <main className="flex-1 p-4 sm:p-6 overflow-y-auto">
+          
+          {/* Mobile search bar */}
+          {/* Mobile search bar */}
+          {activeTab !== 'terms' && activeTab !== 'contact' && activeTab !== 'backup' && activeTab !== 'admin' && (
+            <div className="block md:hidden mb-4">
+              <GlobalSearchBar
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                onSelectAd={(item, type) => {
+                  setSharedAdModal({ item, type });
+                }}
+                onNavigateToSection={(section) => {
+                  setActiveTab(section);
+                }}
+                isMobileFullscreen={true}
+              />
+            </div>
+          )}
+
+          {/* Conditional Sections Render */}
+          {activeTab === 'home' && (
+            <HomeSection 
+              onSelectTab={(tab) => setActiveTab(tab)} 
+              currentUser={currentUser}
+              searchQuery={searchQuery}
+              onClearSearch={() => setSearchQuery('')}
+              onSelectAd={(item, type) => {
+                setSharedAdModal({ item, type });
+              }}
+            />
+          )}
+
+          {activeTab === 'horses' && (
+            <HorsesSection 
+              currentUser={currentUser} 
+              onOpenAuth={() => setIsAuthOpen(true)} 
+              searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'stables' && (
+            <StablesSection 
+              currentUser={currentUser} 
+              onOpenAuth={() => setIsAuthOpen(true)} 
+              searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'shelter' && (
+            <ShelterSection 
+              currentUser={currentUser} 
+              onOpenAuth={() => setIsAuthOpen(true)} 
+              searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'transport' && (
+            <TransportSection 
+              currentUser={currentUser} 
+              onOpenAuth={() => setIsAuthOpen(true)} 
+              searchQuery={searchQuery} 
+              onAdCreated={refreshDailyAdsCount}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+            />
+          )}
+
+          {activeTab === 'subscriptions' && (
+            <SubscriptionsSection 
+              currentUser={currentUser}
+              onOpenAuth={() => setIsAuthOpen(true)}
+              onNavigateToTab={(t: string) => setActiveTab(t as any)}
+            />
+          )}
+
+          {activeTab === 'user-dashboard' && (
+            <UserDashboardSection
+              currentUser={currentUser}
+              onOpenAuth={() => setIsAuthOpen(true)}
+              onOpenProfile={() => setIsProfileOpen(true)}
+              onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+              onNavigateToTab={(t: string) => setActiveTab(t as any)}
+            />
+          )}
+
+          {activeTab === 'terms' && (
+            <TermsSection />
+          )}
+
+          {activeTab === 'contact' && (
+            <ContactSection />
+          )}
+
+          {activeTab === 'backup' && (
+            <DriveBackupSection currentUser={currentUser} />
+          )}
+
+          {activeTab === 'admin' && currentUser && (
+            <AdminControlSection 
+              currentUser={currentUser} 
+              onSiteSettingsUpdated={(updatedSettings) => {
+                setSiteSettings(updatedSettings);
+                FirebaseService.applySiteSettings(updatedSettings);
+              }}
+            />
+          )}
+
+        </main>
+
+      </div>
+
+      {/* Navigation - Bottom bar strictly for mobile experience with rock-solid fixed anchoring */}
+      <footer
+        id="mobile-bottom-nav"
+        className={`md:hidden mobile-bottom-nav-fixed bg-navy border-t border-navy-dark px-2 pt-1.5 flex justify-around shadow-2xl ${
+          isKeyboardVisible || isAuthOpen || isProfileOpen || isSubscriptionsModalOpen || isMobileMenuOpen || Boolean(sharedAdModal)
+            ? 'is-hidden'
+            : ''
+        }`}
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          width: '100%',
+          zIndex: 45,
+          touchAction: 'manipulation',
+        }}
+      >
+        <button
+          onClick={() => setActiveTab('home')}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'home' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Compass className={`w-5 h-5 ${activeTab === 'home' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">الرئيسية</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('horses')}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'horses' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Award className={`w-5 h-5 ${activeTab === 'horses' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">الخيول</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('stables')}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'stables' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Home className={`w-5 h-5 ${activeTab === 'stables' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">الإسطبلات</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('shelter')}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'shelter' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <ShieldCheck className={`w-5 h-5 ${activeTab === 'shelter' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">الإيواء</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('transport')}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'transport' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Truck className={`w-5 h-5 ${activeTab === 'transport' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">النقل</span>
+        </button>
+
+        <button
+          onClick={() => {
+            if (currentUser) {
+              setActiveTab('user-dashboard');
+            } else {
+              setIsAuthOpen(true);
+            }
+          }}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer relative ${activeTab === 'user-dashboard' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Layers className={`w-5 h-5 ${activeTab === 'user-dashboard' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">إعلاناتي</span>
+          {currentUser && userTotalAds > 0 && (
+            <span className="absolute top-1 right-2 bg-emerald-500 text-white text-[8px] font-bold px-1 rounded-full font-mono">
+              {userTotalAds}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('contact')}
+          className={`flex flex-col items-center gap-1 p-2 transition-transform active:scale-95 cursor-pointer ${activeTab === 'contact' ? 'text-gold font-bold' : 'text-white/70 hover:text-white'}`}
+        >
+          <Mail className={`w-5 h-5 ${activeTab === 'contact' ? 'text-gold' : 'text-white/70'}`} />
+          <span className="text-[9px]">تواصل</span>
+        </button>
+
+      </footer>
+
+      {/* Auth Modal wrapper */}
+      <AuthModal 
+        isOpen={isAuthOpen} 
+        onClose={() => setIsAuthOpen(false)} 
+        onAuthSuccess={handleAuthSuccess} 
+      />
+
+      {/* User Profile Edit Modal wrapper */}
+      {currentUser && (
+        <UserProfileModal
+          isOpen={isProfileOpen}
+          currentUser={currentUser}
+          onClose={() => setIsProfileOpen(false)}
+          onUpdateUser={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            localStorage.setItem('horses_forum_session', JSON.stringify(updatedUser));
+          }}
+          onOpenSubscriptions={() => setIsSubscriptionsModalOpen(true)}
+          onNavigateToUserDashboard={() => {
+            setIsProfileOpen(false);
+            setActiveTab('user-dashboard');
+          }}
+        />
+      )}
+
+      {/* Subscriptions Modal Dialog */}
+      {isSubscriptionsModalOpen && (
+        <SubscriptionsSection
+          isModal={true}
+          currentUser={currentUser}
+          onClose={() => setIsSubscriptionsModalOpen(false)}
+          onOpenAuth={() => {
+            setIsSubscriptionsModalOpen(false);
+            setIsAuthOpen(true);
+          }}
+          onNavigateToTab={(t: string) => {
+            setIsSubscriptionsModalOpen(false);
+            setActiveTab(t as any);
+          }}
+        />
+      )}
+
+      {/* Announcement Banner Modal */}
+      <BannerModal banner={banner} />
+
+      {/* Mandatory National ID Modal (Prompts every 3 minutes if user is missing national ID) */}
+      {currentUser && (
+        <MandatoryNationalIdModal
+          isOpen={isNationalIdModalOpen}
+          currentUser={currentUser}
+          onSuccess={(updatedUser) => {
+            setCurrentUser(updatedUser);
+            setIsNationalIdModalOpen(false);
+          }}
+          onDismissTemporarily={() => {
+            setIsNationalIdModalOpen(false);
+          }}
+        />
+      )}
+
+      {/* Shared Ad Direct Modal (Opened from direct link or deep linking or notification) */}
+      {sharedAdModal && (
+        <DetailModal
+          item={sharedAdModal.item}
+          type={sharedAdModal.type}
+          isOpen={true}
+          focusReviews={sharedAdModal.focusReviews}
+          highlightReviewId={sharedAdModal.highlightReviewId}
+          onClose={() => {
+            setSharedAdModal(null);
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete('ad');
+              url.searchParams.delete('id');
+              url.searchParams.delete('type');
+              window.history.replaceState(null, '', url.pathname + (url.search ? url.search : ''));
+            } catch (e) {}
+          }}
+          currentUser={currentUser}
+          onRefresh={() => {
+            // refresh counts or data
+            refreshDailyAdsCount();
+          }}
+        />
+      )}
+
+      {/* Shared Ad Loading Indicator */}
+      {isSharedAdLoading && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-md text-amber-400 font-bold text-xs py-3 px-5 rounded-2xl shadow-2xl flex items-center gap-3 border border-amber-500/30 animate-in fade-in duration-200">
+          <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin shrink-0"></div>
+          <span className="text-white">جاري فتح الإعلان المطلوب ومزامنة تفاصيله...</span>
+        </div>
+      )}
+
+      {/* Shared Ad Not Found Toast */}
+      {sharedAdNotFound && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white font-bold text-xs py-3 px-5 rounded-2xl shadow-2xl flex items-center gap-3 border border-amber-400/40 animate-in fade-in duration-300">
+          <span>⚠️ عذراً، لم يتم العثور على الإعلان المطلوب أو قد يكون تم حذفه من قبل صاحبه.</span>
+          <button 
+            onClick={() => setSharedAdNotFound(false)} 
+            className="p-1 rounded-full hover:bg-white/20 transition cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Arabian Horses Screensaver (Activated when idle or previewed by Admin) */}
+      <HorsesScreensaver
+        isOpen={isScreensaverOpen}
+        onDismiss={() => setIsScreensaverOpen(false)}
+        siteSettings={siteSettings}
+      />
+
+    </div>
+  );
+}
