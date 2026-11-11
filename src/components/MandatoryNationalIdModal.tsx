@@ -47,8 +47,26 @@ export default function MandatoryNationalIdModal({
         updatedAt: new Date().toISOString(),
       };
 
-      await FirebaseService.saveUser(updatedUser);
+      // 1. Immediately update local storage session
       localStorage.setItem('horses_forum_session', JSON.stringify(updatedUser));
+
+      // 2. Persist via FirebaseService
+      await FirebaseService.saveUser(updatedUser);
+
+      // 3. Directly PATCH the RTDB node to guarantee immediate cloud persistence across all browsers
+      try {
+        await fetch(`https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app/users/${updatedUser.id}.json`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nationalId: clean,
+            updatedAt: new Date().toISOString()
+          })
+        });
+      } catch (patchErr) {
+        console.warn('Direct RTDB PATCH warning:', patchErr);
+      }
+
       setSuccess('تم حفظ وتوثيق رقم الهوية الوطنية بنجاح!');
       setTimeout(() => {
         onSuccess(updatedUser);

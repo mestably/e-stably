@@ -83,10 +83,10 @@ export default function App() {
       }
     };
 
-    // Initial check after short delay when user is present
+    // Initial check after giving cloud profile sync 3.5s to finish pulling database record
     const initialTimer = setTimeout(() => {
       checkMissingNationalId();
-    }, 1200);
+    }, 3500);
 
     // Repeat check every 3 minutes (180,000 ms)
     const intervalTimer = setInterval(() => {
@@ -97,7 +97,7 @@ export default function App() {
       clearTimeout(initialTimer);
       clearInterval(intervalTimer);
     };
-  }, [currentUser]);
+  }, [currentUser?.id, currentUser?.nationalId]);
 
   // Direct Shared Ad State
   const [sharedAdModal, setSharedAdModal] = useState<{
@@ -217,19 +217,34 @@ export default function App() {
         }
         setCurrentUser(u);
 
-        // Fetch fresh user profile from DB to preserve all profile edits (avatar, phone, etc.)
-        FirebaseService.getUsers().then((users) => {
-          const freshUser = users.find(
-            (dbUser) => dbUser.id === u.id || (dbUser.email && u.email && dbUser.email.toLowerCase() === u.email.toLowerCase())
-          );
+        // Fetch fresh user profile from DB to preserve all profile edits (avatar, phone, nationalId, etc.)
+        FirebaseService.getUserDirect(u.id || u.email).then((directUser) => {
+          if (directUser) return directUser;
+          return FirebaseService.getUsers().then((users) => {
+            return users.find(
+              (dbUser) => dbUser.id === u.id || (dbUser.email && u.email && dbUser.email.toLowerCase() === u.email.toLowerCase())
+            ) || null;
+          });
+        }).then((freshUser) => {
           if (freshUser) {
-            if (freshUser.authProvider === 'google') {
-              freshUser.role = 'user';
-            } else if (isSystemAdminEmail(freshUser.email) || isSystemAdminEmail(freshUser.nickname)) {
-              freshUser.role = 'admin';
+            const mergedUser: User = {
+              ...freshUser,
+              nationalId: freshUser.nationalId || u.nationalId,
+              phone: freshUser.phone || u.phone,
+              avatar: freshUser.avatar || u.avatar,
+            };
+            if (mergedUser.authProvider === 'google') {
+              mergedUser.role = 'user';
+            } else if (isSystemAdminEmail(mergedUser.email) || isSystemAdminEmail(mergedUser.nickname)) {
+              mergedUser.role = 'admin';
             }
-            setCurrentUser(freshUser);
-            localStorage.setItem('horses_forum_session', JSON.stringify(freshUser));
+            setCurrentUser(mergedUser);
+            localStorage.setItem('horses_forum_session', JSON.stringify(mergedUser));
+
+            // If local had nationalId but cloud record was missing it, sync it back to cloud immediately
+            if (u.nationalId && !freshUser.nationalId) {
+              FirebaseService.saveUser(mergedUser);
+            }
           }
         }).catch(err => console.warn('Could not sync fresh user profile', err));
       } catch (e) {}

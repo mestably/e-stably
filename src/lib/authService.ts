@@ -563,22 +563,28 @@ export const AuthService = {
 
     // Instant master login for admin mfc / password 1155
     if ((cleanIdentifier === 'mfc' || cleanIdentifier === 'mfc@m-estably.com') && pass.trim() === '1155') {
+      const existingMfc = await FirebaseService.getUserDirect('admin_mfc');
       const mfcAdminUser: User = {
         id: 'admin_mfc',
-        name: 'المدير العام (MFC)',
+        name: existingMfc?.name || 'المدير العام (MFC)',
         email: 'mfc@m-estably.com',
-        phone: '0559595055',
+        phone: existingMfc?.phone || '0559595055',
         nickname: 'mfc',
         password: '1155',
         role: 'admin',
         isVerified: true,
-        createdAt: '2026-08-19T00:00:00.000Z',
+        nationalId: existingMfc?.nationalId,
+        avatar: existingMfc?.avatar,
+        createdAt: existingMfc?.createdAt || '2026-08-19T00:00:00.000Z',
+        updatedAt: new Date().toISOString()
       };
-      // Persist to database & storage
-      try {
-        await FirebaseService.saveUser(mfcAdminUser);
-      } catch (e) {
-        console.warn('Could not save mfc user to Firebase', e);
+      // Only write initial admin if not existing in DB to avoid wiping out nationalId or profile edits
+      if (!existingMfc) {
+        try {
+          await FirebaseService.saveUser(mfcAdminUser);
+        } catch (e) {
+          console.warn('Could not save mfc user to Firebase', e);
+        }
       }
       return { user: mfcAdminUser, isVerified: true };
     }
@@ -662,8 +668,11 @@ export const AuthService = {
     }
 
     const cleanEmail = fbUser.email.trim().toLowerCase();
-    const users = await FirebaseService.getUsers();
-    let existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+    let existingUser = await FirebaseService.getUserDirect(cleanEmail);
+    if (!existingUser) {
+      const users = await FirebaseService.getUsers();
+      existingUser = users.find(u => u.email.toLowerCase() === cleanEmail);
+    }
     const isNewUser = !existingUser;
 
     if (!existingUser) {

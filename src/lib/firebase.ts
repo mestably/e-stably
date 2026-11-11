@@ -182,7 +182,12 @@ async function saveDocument<T extends { id: string; email?: string; updatedAt?: 
   });
 
   if (existingIndex > -1) {
-    local[existingIndex] = { ...local[existingIndex], ...doc };
+    const existing = local[existingIndex] as any;
+    // CRITICAL: For user accounts, never erase an existing nationalId if the incoming doc has undefined nationalId
+    if (nodeName === 'users' && existing.nationalId && !(doc as any).nationalId) {
+      (doc as any).nationalId = existing.nationalId;
+    }
+    local[existingIndex] = { ...existing, ...doc };
   } else {
     local.unshift(doc);
   }
@@ -448,6 +453,48 @@ export const FirebaseService = {
   // --- USER API & AUTHENTICATION ---
   async getUsers(): Promise<User[]> {
     return getCollection<User>('users');
+  },
+
+  getLocalUsers(): User[] {
+    return getLocal<User>('users');
+  },
+
+  async getUserDirect(idOrEmailOrNick: string): Promise<User | null> {
+    if (!idOrEmailOrNick) return null;
+    const clean = idOrEmailOrNick.trim().toLowerCase();
+    try {
+      const res = await fetch(`${RTDB_BASE_URL}/users.json`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (!data || typeof data !== 'object') return null;
+      for (const key of Object.keys(data)) {
+        const u = data[key];
+        const userObj: User = { id: key, ...u };
+        if (
+          key.toLowerCase() === clean ||
+          (userObj.email && userObj.email.toLowerCase() === clean) ||
+          (userObj.nickname && userObj.nickname.toLowerCase() === clean) ||
+          (userObj.phone && userObj.phone.replace(/[\s\-\+]/g, '') === clean.replace(/[\s\-\+]/g, ''))
+        ) {
+          return userObj;
+        }
+      }
+    } catch (e) {
+      console.warn('getUserDirect fetch warning:', e);
+    }
+    // Fallback to local cache
+    const local = getLocal<User>('users');
+    return (
+      local.find(
+        (u) =>
+          u.id.toLowerCase() === clean ||
+          (u.email && u.email.toLowerCase() === clean) ||
+          (u.nickname && u.nickname.toLowerCase() === clean)
+      ) || null
+    );
   },
 
   async saveUser(user: User): Promise<boolean> {
