@@ -15,8 +15,31 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 const app = express();
 const PORT = 3000;
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: true, limit: '100mb' }));
+
+const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+const videosDir = path.join(uploadsDir, 'videos');
+if (!fs.existsSync(videosDir)) {
+  fs.mkdirSync(videosDir, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsDir));
+
+// Dedicated endpoint to stream and save video files directly on disk
+app.post(['/api/upload-video', '/upload-video'], express.raw({ type: '*/*', limit: '150mb' }), (req, res) => {
+  try {
+    const rawExt = String(req.query.ext || 'mp4').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const ext = ['mp4', 'webm', 'mov', 'm4v', 'mkv', 'avi', '3gp'].includes(rawExt) ? rawExt : 'mp4';
+    const filename = `vid_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const targetFile = path.join(videosDir, filename);
+    fs.writeFileSync(targetFile, req.body);
+    const videoUrl = `/uploads/videos/${filename}`;
+    return res.json({ success: true, url: videoUrl, filename });
+  } catch (err: any) {
+    console.error('Error saving uploaded video:', err);
+    return res.status(500).json({ success: false, error: 'تعذر حفظ الفيديو على الخادم' });
+  }
+});
 
 function normalizePhone(rawPhone?: string): string {
   if (!rawPhone) return '';
