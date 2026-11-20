@@ -192,13 +192,13 @@ export const AuthService = {
     }
 
     const users = await FirebaseService.getUsers();
-    const existingByEmail = users.find((u) => u.email.toLowerCase() === cleanEmail);
+    const existingByEmail = users.find((u) => (u.email || '').trim().toLowerCase() === cleanEmail);
     if (existingByEmail && existingByEmail.isVerified) {
       throw new Error('البريد الإلكتروني مسجل ومفعل بالفعل في النظام. يرجى تسجيل الدخول مباشرة.');
     }
 
-    const existingByNick = users.find((u) => u.nickname.toLowerCase() === cleanNick);
-    if (existingByNick && existingByNick.isVerified && existingByNick.email.toLowerCase() !== cleanEmail) {
+    const existingByNick = users.find((u) => (u.nickname || '').trim().toLowerCase() === cleanNick);
+    if (existingByNick && existingByNick.isVerified && (existingByNick.email || '').trim().toLowerCase() !== cleanEmail) {
       throw new Error('الاسم المستعار مستخدم بالفعل من قبل عضو آخر، يرجى اختيار اسم آخر.');
     }
 
@@ -589,14 +589,16 @@ export const AuthService = {
       return { user: mfcAdminUser, isVerified: true };
     }
     
-    // Fetch user profiles from database
-    const users = await FirebaseService.getUsers();
-    
-    let targetUser = users.find(u => 
-      u.email.toLowerCase() === cleanIdentifier ||
-      u.nickname.toLowerCase() === cleanIdentifier ||
-      u.phone.replace(/[\s\-\+]/g, '') === cleanIdentifier.replace(/[\s\-\+]/g, '')
-    );
+    // Fetch fresh user profile directly from cloud database to ensure nationalId and profile are preserved across browsers
+    let targetUser = await FirebaseService.getUserDirect(cleanIdentifier);
+    if (!targetUser) {
+      const users = await FirebaseService.getUsers();
+      targetUser = users.find(u => 
+        u.email.toLowerCase() === cleanIdentifier ||
+        u.nickname.toLowerCase() === cleanIdentifier ||
+        u.phone.replace(/[\s\-\+]/g, '') === cleanIdentifier.replace(/[\s\-\+]/g, '')
+      ) || null;
+    }
 
     // Try Firebase Auth if identifier is email
     let fbUserVerified = false;

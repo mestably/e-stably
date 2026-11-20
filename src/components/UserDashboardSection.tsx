@@ -39,7 +39,8 @@ import {
   Archive,
   Info,
   Landmark,
-  CreditCard
+  CreditCard,
+  ArrowRight
 } from 'lucide-react';
 import { User, Horse, Stable, Shelter, Transport, SubscriptionCode, ArchivedDeletedAd } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
@@ -60,6 +61,9 @@ import { formatHorseAge, isHorseEndedOrSold, isHorseRentExpired } from '../lib/h
 
 interface UserDashboardSectionProps {
   currentUser: User | null;
+  actingUser?: User | null;
+  isAdminInspection?: boolean;
+  onBackFromInspection?: () => void;
   onOpenAuth: () => void;
   onOpenProfile: () => void;
   onOpenSubscriptions: () => void;
@@ -87,11 +91,16 @@ export interface UnifiedUserAd {
 
 export default function UserDashboardSection({
   currentUser,
+  actingUser,
+  isAdminInspection = false,
+  onBackFromInspection,
   onOpenAuth,
   onOpenProfile,
   onOpenSubscriptions,
   onNavigateToTab
 }: UserDashboardSectionProps) {
+  const effectiveViewer = actingUser || currentUser;
+  const isAdminViewer = effectiveViewer?.role === 'admin';
   // Main Tabs: 'ads' | 'bank_accounts' | 'verification' | 'codes' | 'subscription'
   const [activeMainTab, setActiveMainTab] = useState<'ads' | 'bank_accounts' | 'verification' | 'codes' | 'subscription'>('ads');
 
@@ -455,7 +464,7 @@ export default function UserDashboardSection({
     };
     const title = updatedItem.name || updatedItem.title || updatedItem.vehicleType || 'إعلان';
 
-    if (currentUser?.role === 'admin') {
+    if (isAdminViewer) {
       // Admin saves and publishes directly
       setIsSavingEdit(true);
       try {
@@ -643,6 +652,35 @@ export default function UserDashboardSection({
             <AlertCircle className="w-4 h-4 text-white shrink-0" />
           )}
           <span>{notification.message}</span>
+        </div>
+      )}
+
+      {/* Admin Inspection Return Bar */}
+      {isAdminInspection && onBackFromInspection && (
+        <div className="bg-navy text-white px-4 py-3 sm:px-5 sm:py-3.5 rounded-2xl shadow-md border border-navy-dark flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onBackFromInspection}
+              className="px-3.5 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white font-black text-xs flex items-center gap-1.5 transition cursor-pointer border border-white/20 shrink-0"
+            >
+              <ArrowRight className="w-4 h-4 text-gold" />
+              <span>العودة إلى جدول المستخدمين</span>
+            </button>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-black bg-gold text-navy px-2 py-0.5 rounded-md">معاينة المدير</span>
+                <span className="text-xs sm:text-sm font-black truncate">الصفحة الشخصية وإعلانات: {currentUser.name}</span>
+              </div>
+              <span className="text-[11px] text-slate-300 font-mono block truncate">
+                @{currentUser.nickname} • {currentUser.phone || 'بدون رقم'}
+              </span>
+            </div>
+          </div>
+
+          <span className="text-[11px] bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 px-3 py-1 rounded-xl font-bold self-start sm:self-auto shrink-0">
+            إجمالي الإعلانات: {totalUserAdsCount}
+          </span>
         </div>
       )}
 
@@ -863,7 +901,7 @@ export default function UserDashboardSection({
             }`}
           >
             <Layers className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-gold shrink-0" />
-            <span>إدارة إعلاناتي</span>
+            <span>{isAdminInspection ? 'إعلانات المستخدم' : 'إدارة إعلاناتي'}</span>
             <span className={`text-[9px] sm:text-[10px] px-1.5 sm:px-2 py-0.5 rounded-full font-bold shrink-0 ${
               activeMainTab === 'ads' ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-700'
             }`}>
@@ -1246,12 +1284,12 @@ export default function UserDashboardSection({
                         </div>
 
                         {/* Active Permission Indicator (Only when granted 12-hour permission) */}
-                        {hasEditPermission(ad.rawItem, currentUser) && (
+                        {hasEditPermission(ad.rawItem, effectiveViewer) && (
                           <div className="px-2 pb-2">
                             <AdPermissionNotice
                               ad={ad.rawItem}
                               category={ad.category}
-                              currentUser={currentUser}
+                              currentUser={effectiveViewer}
                             />
                           </div>
                         )}
@@ -1996,7 +2034,7 @@ export default function UserDashboardSection({
           type={previewAd.category}
           isOpen={true}
           onClose={() => setPreviewAd(null)}
-          currentUser={currentUser}
+          currentUser={effectiveViewer}
           onRefresh={loadUserData}
           onEdit={(rawItem) => {
             setPreviewAd(null);

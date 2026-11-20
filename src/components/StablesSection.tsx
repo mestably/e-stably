@@ -4,8 +4,8 @@
  */
 
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
-import { Plus, Search, Shield, Star, Phone, Map, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2, Crown, RotateCcw, Tag, CheckCircle2 } from 'lucide-react';
-import { Stable, User } from '../types';
+import { Plus, Search, Shield, Star, Phone, Map, MapPin, Users, Sparkles, Image, Check, AlertCircle, Trash2, Edit2, Crown, RotateCcw, Tag, CheckCircle2 } from 'lucide-react';
+import { Stable, User, GeoCoordinates } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import DetailModal from './DetailModal';
@@ -20,6 +20,11 @@ import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
 import RatingStars, { getItemRating } from './RatingStars';
+import {
+  GoogleMapLocationPicker,
+  DEFAULT_JEDDAH_COORDS,
+  DEFAULT_JEDDAH_LABEL,
+} from './GoogleMapLocation';
 
 interface StablesSectionProps {
   currentUser: User | null;
@@ -65,6 +70,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
   const [phone, setPhone] = useState('');
   const [images, setImages] = useState<string[]>([]);
   const [horseCount, setHorseCount] = useState(0);
+  const [location, setLocation] = useState(DEFAULT_JEDDAH_LABEL);
+  const [locationCoords, setLocationCoords] = useState<GeoCoordinates>(DEFAULT_JEDDAH_COORDS);
   const [verified, setVerified] = useState<'verified' | 'pending' | 'unverified'>('unverified');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -106,6 +113,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     setPhone('');
     setImages([]);
     setHorseCount(0);
+    setLocation(DEFAULT_JEDDAH_LABEL);
+    setLocationCoords(DEFAULT_JEDDAH_COORDS);
     setVerified('unverified');
     setError('');
     setSuccess('');
@@ -119,6 +128,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
     setPhone(stable.phone);
     setImages(stable.images || []);
     setHorseCount(stable.horseCount);
+    setLocation(stable.location || DEFAULT_JEDDAH_LABEL);
+    setLocationCoords(stable.locationCoords || DEFAULT_JEDDAH_COORDS);
     setVerified(stable.verified);
     setError('');
     setSuccess('');
@@ -220,6 +231,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       name: name.trim(),
       description: description.trim(),
       phone: phone.trim(),
+      location: location.trim() || DEFAULT_JEDDAH_LABEL,
+      locationCoords,
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'],
       verified: existing ? existing.verified : 'pending',
       horseCount,
@@ -251,6 +264,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       setPhone('');
       setImages([]);
       setHorseCount(0);
+      setLocation(DEFAULT_JEDDAH_LABEL);
+      setLocationCoords(DEFAULT_JEDDAH_COORDS);
       setVerified('unverified');
       setSubscriptionCode('');
       setIsCodeValid(false);
@@ -301,6 +316,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       name: name.trim(),
       description: description.trim(),
       phone: phone.trim(),
+      location: location.trim() || DEFAULT_JEDDAH_LABEL,
+      locationCoords,
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1553284965-83fd3e82fa5a?auto=format&fit=crop&q=80&w=800'],
       verified: editingItemId ? verified : (currentUser.role === 'admin' ? 'verified' : 'pending'),
       horseCount,
@@ -333,6 +350,8 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       setPhone('');
       setImages([]);
       setHorseCount(0);
+      setLocation(DEFAULT_JEDDAH_LABEL);
+      setLocationCoords(DEFAULT_JEDDAH_COORDS);
       setVerified('unverified');
       setSubscriptionCode('');
       setIsCodeValid(false);
@@ -357,6 +376,7 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
       const matchesSearch = !trimmedQuery ||
         stable.name.toLowerCase().includes(trimmedQuery) ||
         (stable.description && stable.description.toLowerCase().includes(trimmedQuery)) ||
+        (stable.location && stable.location.toLowerCase().includes(trimmedQuery)) ||
         (stable.phone && stable.phone.includes(trimmedQuery)) ||
         (stable.userName && stable.userName.toLowerCase().includes(trimmedQuery));
       if (!matchesSearch) return false;
@@ -558,6 +578,17 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                 </div>
               </div>
 
+              <GoogleMapLocationPicker
+                title="الموقع وتحديد المكان على خريطة جوجل"
+                address={location}
+                onAddressChange={setLocation}
+                coords={locationCoords}
+                onCoordsChange={setLocationCoords}
+                addressLabel="المدينة / الموقع التفصيلي"
+                placeholder="مثال: جدة - حي أبحر الشمالية"
+                accentColor="navy"
+              />
+
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">صور الإسطبل (متعددة من هاتفك)</label>
                 <div className="relative flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50 justify-center hover:bg-slate-100 transition duration-150">
@@ -648,6 +679,10 @@ export default function StablesSection({ currentUser, onOpenAuth, searchQuery, o
                     </div>
                   </div>
                   <p className="text-[9px] sm:text-[10px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">{stable.description}</p>
+                  <div className="flex items-center gap-1 text-[8.5px] sm:text-[10px] text-emerald-700 font-bold mt-1 truncate">
+                    <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-gold shrink-0" />
+                    <span className="truncate">{stable.location || DEFAULT_JEDDAH_LABEL}</span>
+                  </div>
                 </div>
 
                 <div className="flex justify-between items-center pt-1.5 sm:pt-2 border-t border-slate-50 text-[8px] sm:text-[10px] text-slate-400">

@@ -21,6 +21,11 @@ import AdPermissionNotice from './AdPermissionNotice';
 import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
+import {
+  GoogleMapLocationPicker,
+  DEFAULT_JEDDAH_COORDS,
+  DEFAULT_JEDDAH_LABEL,
+} from './GoogleMapLocation';
 
 // Reference the generated beautiful clipart image & default transport vehicle image
 const TRANSPORT_BG = transportBgImage;
@@ -75,20 +80,19 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
   const [images, setImages] = useState<string[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   
-  // Locations
-  const [pickupAddress, setPickupAddress] = useState('');
-  const [pickupLat, setPickupLat] = useState(24.7136);
-  const [pickupLng, setPickupLng] = useState(46.6753);
+  // Locations (Default: Jeddah, Saudi Arabia)
+  const [pickupAddress, setPickupAddress] = useState(DEFAULT_JEDDAH_LABEL);
+  const [pickupLat, setPickupLat] = useState(DEFAULT_JEDDAH_COORDS.lat);
+  const [pickupLng, setPickupLng] = useState(DEFAULT_JEDDAH_COORDS.lng);
   
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [deliveryLat, setDeliveryLat] = useState(21.4858);
-  const [deliveryLng, setDeliveryLng] = useState(39.1925);
+  const [deliveryLat, setDeliveryLat] = useState(DEFAULT_JEDDAH_COORDS.lat);
+  const [deliveryLng, setDeliveryLng] = useState(DEFAULT_JEDDAH_COORDS.lng);
 
   // UI States
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
-  const [mapMode, setMapMode] = useState<'pickup' | 'delivery' | null>(null);
 
   const fetchTransports = async () => {
     // 1. Load instantly from sanitized cache
@@ -129,12 +133,12 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     setPhone(currentUser?.phone || '');
     setDescription('');
     setImages([]);
-    setPickupAddress('');
-    setPickupLat(24.7136);
-    setPickupLng(46.6753);
+    setPickupAddress(DEFAULT_JEDDAH_LABEL);
+    setPickupLat(DEFAULT_JEDDAH_COORDS.lat);
+    setPickupLng(DEFAULT_JEDDAH_COORDS.lng);
     setDeliveryAddress('');
-    setDeliveryLat(21.4858);
-    setDeliveryLng(39.1925);
+    setDeliveryLat(DEFAULT_JEDDAH_COORDS.lat);
+    setDeliveryLng(DEFAULT_JEDDAH_COORDS.lng);
     setError('');
     setSuccess('');
     setIsAddOpen(true);
@@ -150,12 +154,12 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
     setPhone(transport.phone || '');
     setDescription(transport.description || '');
     setImages(transport.images || []);
-    setPickupAddress(transport.pickupAddress);
-    setPickupLat(transport.pickupCoords?.lat || 24.7136);
-    setPickupLng(transport.pickupCoords?.lng || 46.6753);
+    setPickupAddress(transport.pickupAddress || DEFAULT_JEDDAH_LABEL);
+    setPickupLat(transport.pickupCoords?.lat || DEFAULT_JEDDAH_COORDS.lat);
+    setPickupLng(transport.pickupCoords?.lng || DEFAULT_JEDDAH_COORDS.lng);
     setDeliveryAddress(transport.deliveryAddress);
-    setDeliveryLat(transport.deliveryCoords?.lat || 21.4858);
-    setDeliveryLng(transport.deliveryCoords?.lng || 39.1925);
+    setDeliveryLat(transport.deliveryCoords?.lat || DEFAULT_JEDDAH_COORDS.lat);
+    setDeliveryLng(transport.deliveryCoords?.lng || DEFAULT_JEDDAH_COORDS.lng);
     setError('');
     setSuccess('');
     setIsAddOpen(true);
@@ -311,12 +315,12 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
       setHorseCount(1);
       setDate('');
       setPrice(0);
-      setPickupAddress('');
-      setPickupLat(24.7136);
-      setPickupLng(46.6753);
+      setPickupAddress(DEFAULT_JEDDAH_LABEL);
+      setPickupLat(DEFAULT_JEDDAH_COORDS.lat);
+      setPickupLng(DEFAULT_JEDDAH_COORDS.lng);
       setDeliveryAddress('');
-      setDeliveryLat(21.4858);
-      setDeliveryLng(39.1925);
+      setDeliveryLat(DEFAULT_JEDDAH_COORDS.lat);
+      setDeliveryLng(DEFAULT_JEDDAH_COORDS.lng);
       setPhone('');
       setDescription('');
       setImages([]);
@@ -449,31 +453,6 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
 
   const visibleTransports = transports;
   const visibleEndedTransportsCount = transports.filter((t) => !!t.isEnded).length;
-
-  // Simulated Coordinates Picker for cities in Saudi Arabia
-  const handleCitySelect = (city: string, type: 'pickup' | 'delivery') => {
-    const coords: Record<string, { lat: number; lng: number; name: string }> = {
-      riyadh: { lat: 24.7136, lng: 46.6753, name: 'الرياض، المملكة العربية السعودية' },
-      jeddah: { lat: 21.4858, lng: 39.1925, name: 'جدة، المملكة العربية السعودية' },
-      dammam: { lat: 26.4207, lng: 50.0888, name: 'الدمام، المملكة العربية السعودية' },
-      mecca: { lat: 21.3891, lng: 39.8579, name: 'مكة المكرمة، المملكة العربية السعودية' },
-      medina: { lat: 24.5247, lng: 39.5692, name: 'المدينة المنورة، المملكة العربية السعودية' },
-      taif: { lat: 21.2854, lng: 40.4244, name: 'الطائف، المملكة العربية السعودية' },
-    };
-
-    const target = coords[city];
-    if (target) {
-      if (type === 'pickup') {
-        setPickupAddress(target.name);
-        setPickupLat(target.lat);
-        setPickupLng(target.lng);
-      } else {
-        setDeliveryAddress(target.name);
-        setDeliveryLat(target.lat);
-        setDeliveryLng(target.lng);
-      }
-    }
-  };
 
   return (
     <div className="space-y-6">
@@ -724,72 +703,37 @@ export default function TransportSection({ currentUser, onOpenAuth, searchQuery,
                 </div>
               </div>
 
-              {/* Pickup Location - Map style */}
-              <div className="space-y-2 border border-slate-100 p-4 rounded-xl bg-slate-50/50">
-                <span className="block text-xs font-bold text-slate-700 flex items-center gap-1">
-                  <MapPin className="w-4 h-4 text-gold" /> موقع الاستلام وتحديد العنوان *
-                </span>
-                
-                {/* Cities picker for simulated Google Maps coordinates */}
-                <div className="flex gap-1.5 flex-wrap">
-                  <span className="text-[10px] text-slate-400 self-center">تحديد سريع:</span>
-                  {['riyadh', 'jeddah', 'dammam', 'mecca', 'medina'].map((city) => (
-                    <button
-                      key={city}
-                      type="button"
-                      onClick={() => handleCitySelect(city, 'pickup')}
-                      className="bg-white border border-slate-200 hover:border-gold px-2 py-0.5 rounded-md text-[9px] font-semibold text-slate-600 cursor-pointer"
-                    >
-                      {city === 'riyadh' ? 'الرياض' : city === 'jeddah' ? 'جدة' : city === 'dammam' ? 'الدمام' : city === 'mecca' ? 'مكة' : 'المدينة'}
-                    </button>
-                  ))}
-                </div>
+              {/* Pickup Location - Real Google Maps Picker */}
+              <GoogleMapLocationPicker
+                title="موقع الاستلام وتحديد المكان على خريطة جوجل *"
+                address={pickupAddress}
+                onAddressChange={setPickupAddress}
+                coords={{ lat: pickupLat, lng: pickupLng }}
+                onCoordsChange={(c) => {
+                  setPickupLat(c.lat);
+                  setPickupLng(c.lng);
+                }}
+                addressLabel="عنوان الاستلام يدوياً بالتفصيل"
+                placeholder="مثال: جدة - مربط الصواري - بوابة رقم 2"
+                required={true}
+                accentColor="gold"
+              />
 
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-semibold text-slate-500">العنوان يدوي بالتفصيل *</label>
-                  <input
-                    type="text"
-                    value={pickupAddress}
-                    onChange={(e) => setPickupAddress(e.target.value)}
-                    placeholder="اكتب العنوان يدوياً (مثال: مربط الشقب - بوابة رقم 2)"
-                    required
-                    className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:border-navy bg-white"
-                  />
-                </div>
-              </div>
-
-              {/* Delivery Location - Map style */}
-              <div className="space-y-2 border border-slate-100 p-4 rounded-xl bg-slate-50/50">
-                <span className="block text-xs font-bold text-slate-700 flex items-center gap-1">
-                  <MapPin className="w-4 h-4 text-navy" /> موقع التسليم وتحديد العنوان *
-                </span>
-
-                <div className="flex gap-1.5 flex-wrap">
-                  <span className="text-[10px] text-slate-400 self-center">تحديد سريع:</span>
-                  {['riyadh', 'jeddah', 'dammam', 'mecca', 'medina'].map((city) => (
-                    <button
-                      key={city}
-                      type="button"
-                      onClick={() => handleCitySelect(city, 'delivery')}
-                      className="bg-white border border-slate-200 hover:border-gold px-2 py-0.5 rounded-md text-[9px] font-semibold text-slate-600 cursor-pointer"
-                    >
-                      {city === 'riyadh' ? 'الرياض' : city === 'jeddah' ? 'جدة' : city === 'dammam' ? 'الدمام' : city === 'mecca' ? 'مكة' : 'المدينة'}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="space-y-1">
-                  <label className="block text-[10px] font-semibold text-slate-500">العنوان يدوي بالتفصيل *</label>
-                  <input
-                    type="text"
-                    value={deliveryAddress}
-                    onChange={(e) => setDeliveryAddress(e.target.value)}
-                    placeholder="مثال: إسطبل الصواري - مخطط حي الأصالة"
-                    required
-                    className="w-full text-xs p-2 border border-slate-200 rounded-lg focus:outline-none focus:border-navy bg-white"
-                  />
-                </div>
-              </div>
+              {/* Delivery Location - Real Google Maps Picker */}
+              <GoogleMapLocationPicker
+                title="موقع التسليم وتحديد المكان على خريطة جوجل *"
+                address={deliveryAddress}
+                onAddressChange={setDeliveryAddress}
+                coords={{ lat: deliveryLat, lng: deliveryLng }}
+                onCoordsChange={(c) => {
+                  setDeliveryLat(c.lat);
+                  setDeliveryLng(c.lng);
+                }}
+                addressLabel="عنوان التسليم يدوياً بالتفصيل"
+                placeholder="مثال: جدة - مخطط حي الأصالة"
+                required={true}
+                accentColor="navy"
+              />
 
               <button
                 type="submit"

@@ -59,6 +59,7 @@ import ConfirmModal from './ConfirmModal';
 import DetailModal from './DetailModal';
 import AdVerifiedBadge from './AdVerifiedBadge';
 import AdminBankReceiptsSection from './AdminBankReceiptsSection';
+import UserDashboardSection from './UserDashboardSection';
 import { isAdVerified, getEditPermissionRemaining, getAdCategoryTitle, getAdTitle } from '../lib/adPermissions';
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 import { realWhiteHorseClipartUrl, realHorseIconUrl } from './ArabianHorseClipartHelper';
@@ -168,7 +169,14 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
 
   // Modal / Editing state
   const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [inspectedUser, setInspectedUser] = useState<User | null>(null);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+
+  useEffect(() => {
+    if (activeTab !== 'users' && inspectedUser) {
+      setInspectedUser(null);
+    }
+  }, [activeTab]);
   
   // Delete confirm state
   const [deleteTarget, setDeleteTarget] = useState<{ type: 'user' | 'horse' | 'stable' | 'shelter' | 'transport'; id: string; name: string } | null>(null);
@@ -506,6 +514,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     const ok = await FirebaseService.saveUser(updated);
     if (ok) {
       setUsers(users.map(u => u.id === updated.id ? updated : u));
+      if (inspectedUser?.id === updated.id) setInspectedUser(updated);
       showNotify('success', `تم ${updated.isSuspended ? 'إيقاف' : 'تفعيل'} حساب ${updated.name} بنجاح.`);
     } else {
       showNotify('error', 'فشل تغيير حالة الحساب.');
@@ -529,6 +538,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     const ok = await FirebaseService.saveUser(updated);
     if (ok) {
       setUsers(users.map(u => u.id === updated.id ? updated : u));
+      if (inspectedUser?.id === updated.id) setInspectedUser(updated);
       showNotify('success', `تم ${updated.isGold ? 'تفعيل العضوية الذهبية (30 يوماً عد تنازلي) 👑 لـ' : 'إلغاء العضوية الذهبية عن'} ${updated.name} بنجاح.`);
     } else {
       showNotify('error', 'فشل تغيير العضوية الذهبية.');
@@ -553,6 +563,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     const ok = await FirebaseService.saveUser(updated);
     if (ok) {
       setUsers(users.map(u => u.id === updated.id ? updated : u));
+      if (inspectedUser?.id === updated.id) setInspectedUser(updated);
       showNotify('success', `تم تجديد وتمديد العضوية الذهبية (+30 يوماً) للمشترك ${updated.name} بنجاح!`);
     } else {
       showNotify('error', 'فشل تمديد العضوية الذهبية.');
@@ -563,6 +574,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
     const ok = await FirebaseService.saveUser(userToSave);
     if (ok) {
       setUsers(users.map(u => u.id === userToSave.id ? userToSave : u));
+      if (inspectedUser?.id === userToSave.id) setInspectedUser(userToSave);
       showNotify('success', `تم تحديث بيانات المستخدم ${userToSave.name} بنجاح.`);
       setEditingUser(null);
     } else {
@@ -588,6 +600,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       if (deleteTarget.type === 'user') {
         await FirebaseService.deleteUser(deleteTarget.id);
         setUsers(users.filter(u => u.id !== deleteTarget.id));
+        if (inspectedUser?.id === deleteTarget.id) setInspectedUser(null);
         showNotify('success', `تم حذف المستخدم ${deleteTarget.name} بنجاح.`);
       } else if (deleteTarget.type === 'horse') {
         await FirebaseService.deleteHorse(deleteTarget.id);
@@ -1014,7 +1027,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       {/* Statistics Header Cards (Clickable shortcuts to admin sections) */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div 
-          onClick={() => setActiveTab('users')}
+          onClick={() => { setInspectedUser(null); setActiveTab('users'); }}
           className={`p-4 rounded-2xl border transition-all cursor-pointer shadow-xs flex items-center justify-between ${
             activeTab === 'users' ? 'bg-navy/5 border-navy ring-1 ring-navy' : 'bg-white hover:bg-slate-50 border-slate-200/60'
           }`}
@@ -1030,7 +1043,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
         </div>
 
         <div 
-          onClick={() => setActiveTab('users')}
+          onClick={() => { setInspectedUser(null); setActiveTab('users'); }}
           className="bg-white hover:bg-red-50/40 p-4 rounded-2xl border border-slate-200/60 transition-all cursor-pointer shadow-xs flex items-center justify-between"
           title="عرض الحسابات الموقوفة"
         >
@@ -1249,7 +1262,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
 
           {/* TAB 1: Users */}
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => { setInspectedUser(null); setActiveTab('users'); }}
             className={`px-4 sm:px-5 py-2.5 sm:py-3 font-bold text-xs sm:text-sm border-b-2 transition flex items-center gap-2 cursor-pointer shrink-0 whitespace-nowrap rounded-t-xl ${
               activeTab === 'users' ? 'border-navy text-navy font-extrabold bg-navy/5' : 'border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50'
             }`}
@@ -1352,7 +1365,25 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
       </div>
 
       {/* TAB 1: USERS MANAGEMENT */}
-      {activeTab === 'users' && (
+      {activeTab === 'users' && inspectedUser ? (
+        <div className="bg-slate-50/70 rounded-b-2xl p-3 sm:p-6 border border-t-0 border-slate-200/60 shadow-xs">
+          <UserDashboardSection
+            currentUser={inspectedUser}
+            actingUser={currentUser}
+            isAdminInspection={true}
+            onBackFromInspection={() => {
+              setInspectedUser(null);
+              loadData();
+            }}
+            onOpenAuth={() => {}}
+            onOpenProfile={() => setEditingUser(inspectedUser)}
+            onOpenSubscriptions={() => {
+              setInspectedUser(null);
+              setActiveTab('subscriptions');
+            }}
+          />
+        </div>
+      ) : activeTab === 'users' && (
         <div className="bg-white rounded-b-2xl p-4 sm:p-6 border border-t-0 border-slate-200/60 shadow-xs space-y-4">
           
           {/* Controls Bar */}
@@ -1425,10 +1456,15 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                   </tr>
                 ) : (
                   filteredUsers.map((u) => (
-                    <tr key={u.id} className="hover:bg-slate-50/80 transition">
+                    <tr
+                      key={u.id}
+                      onClick={() => setInspectedUser(u)}
+                      className="hover:bg-blue-50/50 transition cursor-pointer group"
+                      title={`اضغط لفتح الصفحة الشخصية وإعلانات ${u.name}`}
+                    >
                       <td className="p-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-navy/10 text-navy font-black flex items-center justify-center shrink-0 border border-navy/20">
+                          <div className="w-9 h-9 rounded-full bg-navy/10 text-navy font-black flex items-center justify-center shrink-0 border border-navy/20 group-hover:ring-2 group-hover:ring-navy/30 transition">
                             {u.avatar ? (
                               <img src={u.avatar} alt={u.name} className="w-full h-full rounded-full object-cover" />
                             ) : (
@@ -1437,7 +1473,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                           </div>
                           <div>
                             <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="font-bold text-slate-800">{u.name}</span>
+                              <span className="font-bold text-slate-800 group-hover:text-navy group-hover:underline transition">{u.name}</span>
                               {u.isGold && (
                                 <span className="inline-flex items-center gap-0.5 bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-2xs">
                                   <Crown className="w-2.5 h-2.5 text-amber-600" />
@@ -1460,7 +1496,12 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                                 </div>
                               );
                             })()}
-                            <span className="text-[10px] text-slate-400 block mt-0.5">{u.city || 'المدينة غير محددة'}</span>
+                            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                              <span className="text-[10px] text-slate-400">{u.city || 'المدينة غير محددة'}</span>
+                              <span className="text-[10px] font-bold text-navy/80 opacity-80 group-hover:opacity-100 transition">
+                                • عرض صفحته وإعلاناته ←
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -1520,8 +1561,18 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
                         )}
                       </td>
 
-                      <td className="p-3.5">
+                      <td className="p-3.5" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-center gap-1.5 flex-wrap">
+
+                          {/* Open User Personal Page & Ads */}
+                          <button
+                            onClick={() => setInspectedUser(u)}
+                            className="p-1.5 bg-navy hover:bg-navy-dark text-white rounded-lg font-bold text-[11px] flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                            title="فتح الصفحة الشخصية وإعلانات المستخدم"
+                          >
+                            <Eye className="w-3.5 h-3.5 text-gold" />
+                            <span>صفحته وإعلاناته</span>
+                          </button>
                           
                           {/* Toggle / Extend Gold Membership */}
                           {u.role !== 'admin' && (

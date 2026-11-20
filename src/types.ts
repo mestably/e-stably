@@ -68,6 +68,11 @@ export interface AdNotification {
   read: boolean;
 }
 
+export interface GeoCoordinates {
+  lat: number;
+  lng: number;
+}
+
 export interface Stable {
   id: string;
   userId: string;
@@ -75,6 +80,8 @@ export interface Stable {
   name: string;
   description: string;
   phone: string;
+  location?: string; // المدينة / العنوان النصي
+  locationCoords?: GeoCoordinates; // إحداثيات الموقع على خريطة جوجل
   images: string[]; // Base64 or URLs
   verified: 'verified' | 'pending' | 'unverified';
   isVerified?: boolean; // هل الإعلان موثق رسمياً من الإدارة
@@ -111,6 +118,7 @@ export interface Horse {
   height?: string; // طول / ارتفاع الخيل (مثال: 152 سم)
   healthStatus: string;
   images: string[]; // Base64 or URLs
+  videos?: string[]; // Base64 or video URLs (up to 3 minutes)
   stableId: string; // Associated stable ID (optional or manual entry)
   stableName?: string;
   phone?: string; // رقم هاتف التواصل المباشر
@@ -149,6 +157,8 @@ export interface Shelter {
   training: boolean;
   veterinary: boolean;
   phone: string;
+  location?: string; // المدينة / العنوان النصي
+  locationCoords?: GeoCoordinates; // إحداثيات الموقع على خريطة جوجل
   images: string[];
   rating: number;
   reviews?: Review[];

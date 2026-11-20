@@ -76,7 +76,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [lastOtpResult, setLastOtpResult] = useState<SendOtpResponse | null>(null);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
-  const [showDirectCode, setShowDirectCode] = useState(false);
 
   // Input refs for OTP 6-digits auto-advance
   const otpInputRefs = [
@@ -101,7 +100,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
   const [forgotLastSentCode, setForgotLastSentCode] = useState('');
   const [forgotOtpResult, setForgotOtpResult] = useState<SendOtpResponse | null>(null);
   const [isResettingPassword, setIsResettingPassword] = useState(false);
-  const [showDirectForgotCode, setShowDirectForgotCode] = useState(false);
 
   const forgotOtpRefs = [
     useRef<HTMLInputElement>(null),
@@ -145,7 +143,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
         const exists = users.some((u) => u.nickname.toLowerCase() === nickname.trim().toLowerCase());
         setNicknameAvailable(!exists);
       } catch (err) {
-        console.error(err);
+        console.warn('Nickname check warning:', err);
       } finally {
         setIsCheckingNickname(false);
       }
@@ -257,8 +255,7 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       }
       setResendCooldown(60);
     } catch (err: any) {
-      console.error(err);
-      setError(err.message || 'حدث خطأ أثناء إرسال كود التفعيل، يرجى المحاولة لاحقاً.');
+      setError(err?.message || 'حدث خطأ أثناء إرسال كود التفعيل، يرجى المحاولة لاحقاً.');
     } finally {
       setIsLoading(false);
     }
@@ -341,7 +338,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     const methodToUse = targetMethod || activeOtpMethod;
     setError('');
     setSuccess('');
-    setShowDirectCode(false);
 
     try {
       const otpRes = await AuthService.sendOtpCode({
@@ -371,7 +367,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     if (!pendingVerificationUser) return;
     setActiveOtpMethod(newMethod);
     setError('');
-    setShowDirectCode(false);
 
     try {
       const otpRes = await AuthService.sendOtpCode({
@@ -392,27 +387,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       otpInputRefs[0].current?.focus();
     } catch (e: any) {
       console.warn('Switch otp error:', e);
-    }
-  };
-
-  const handleRevealCode = () => {
-    let codeToShow = lastSentOtpCode || lastOtpResult?.fallbackCode;
-    if (!codeToShow && pendingVerificationUser) {
-      codeToShow = AuthService.getLatestOtpCode(
-        activeOtpMethod === 'whatsapp' ? pendingVerificationUser.phone : pendingVerificationUser.email
-      );
-    }
-    if (!codeToShow) {
-      codeToShow = Math.floor(100000 + Math.random() * 900000).toString();
-      if (pendingVerificationUser && typeof window !== 'undefined') {
-        sessionStorage.setItem('local_otp_' + pendingVerificationUser.email.toLowerCase(), codeToShow);
-        sessionStorage.setItem('local_otp_' + pendingVerificationUser.phone.toLowerCase(), codeToShow);
-      }
-      setLastSentOtpCode(codeToShow);
-    }
-    setShowDirectCode(true);
-    if (codeToShow && codeToShow.length === 6) {
-      setOtpDigits(codeToShow.split(''));
     }
   };
 
@@ -449,7 +423,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     e.preventDefault();
     setError('');
     setSuccess('');
-    setShowDirectForgotCode(false);
 
     if (!forgotIdentifier || !forgotIdentifier.trim()) {
       setError('يرجى إدخال اسم المستخدم، البريد الإلكتروني أو رقم الهاتف.');
@@ -533,7 +506,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     const methodToUse = targetMethod || forgotMethod;
     setError('');
     setSuccess('');
-    setShowDirectForgotCode(false);
 
     try {
       const { otpResponse } = await AuthService.sendPasswordResetOtp(
@@ -563,7 +535,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
     if (!forgotTargetUser) return;
     setForgotMethod(newMethod);
     setError('');
-    setShowDirectForgotCode(false);
 
     try {
       const { otpResponse } = await AuthService.sendPasswordResetOtp(
@@ -583,27 +554,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
       forgotOtpRefs[0].current?.focus();
     } catch (e: any) {
       setError(e?.message || 'تعذر تحويل الطريقة، يرجى التأكد من البيانات المسجلة.');
-    }
-  };
-
-  const handleRevealForgotCode = () => {
-    let codeToShow = forgotLastSentCode || forgotOtpResult?.fallbackCode;
-    if (!codeToShow && forgotTargetUser) {
-      codeToShow = AuthService.getLatestOtpCode(
-        forgotMethod === 'whatsapp' ? forgotTargetUser.phone : forgotTargetUser.email
-      );
-    }
-    if (!codeToShow) {
-      codeToShow = Math.floor(100000 + Math.random() * 900000).toString();
-      if (forgotTargetUser && typeof window !== 'undefined') {
-        sessionStorage.setItem('local_otp_' + forgotTargetUser.email.toLowerCase(), codeToShow);
-        sessionStorage.setItem('local_otp_' + forgotTargetUser.phone.toLowerCase(), codeToShow);
-      }
-      setForgotLastSentCode(codeToShow);
-    }
-    setShowDirectForgotCode(true);
-    if (codeToShow && codeToShow.length === 6) {
-      setForgotOtpDigits(codeToShow.split(''));
     }
   };
 
@@ -788,7 +738,23 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
           {error && (
             <div className="mb-4 p-3 bg-red-50 border-r-4 border-red-500 text-red-700 text-xs rounded-xl flex items-start gap-2 shadow-xs">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <div className="flex-1 space-y-1.5">
+                <span className="block">{error}</span>
+                {error.includes('مسجل ومفعل بالفعل') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (email.trim()) setLoginEmail(email.trim());
+                      setIsLogin(true);
+                      setError('');
+                      setSuccess('');
+                    }}
+                    className="inline-flex items-center gap-1 bg-navy hover:bg-navy-dark text-white font-bold px-3 py-1 rounded-lg text-[11px] transition cursor-pointer shadow-2xs"
+                  >
+                    <span>الانتقال لتسجيل الدخول بهذا البريد ←</span>
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -903,10 +869,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                       <span>فتح تطبيق الواتساب (الهاتف)</span>
                     </a>
                   </div>
-
-                  <p className="text-[11px] text-emerald-800 leading-relaxed bg-white/70 p-2 rounded-lg border border-emerald-200/60">
-                    💡 <strong>ملاحظة لمستخدمي واتساب ويب:</strong> إذا لم تكن مسجلاً في واتساب ويب أو واجهت أي تأخير، يمكنك الضغط على زر <strong>(أظهر لي كود التفعيل هنا)</strong> بالأسفل لتعبئة الرمز والتفعيل فوراً!
-                  </p>
                 </div>
               ) : (
                 <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center space-y-1.5 shadow-xs">
@@ -919,37 +881,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                   </p>
                 </div>
               )}
-
-              {/* Instant Code Display Fallback Button */}
-              <div className="bg-amber-50/80 border border-amber-200 rounded-xl p-3 text-center space-y-2 shadow-xs">
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-2 text-right">
-                  <div>
-                    <p className="text-xs font-bold text-amber-950">تعذر وصول الرسالة أو تريد التفعيل السريع؟</p>
-                    <p className="text-[11px] text-amber-800">اضغط لإظهار رمز التفعيل الخاص بك هنا مباشرة</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleRevealCode}
-                    className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold px-3.5 py-1.5 rounded-lg text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <KeyRound className="w-3.5 h-3.5" />
-                    <span>أظهر لي كود التفعيل هنا</span>
-                  </button>
-                </div>
-
-                {showDirectCode && (
-                  <div className="bg-white border-2 border-dashed border-amber-400 rounded-xl p-3 text-center space-y-2 mt-2">
-                    <div className="text-xs text-slate-600 font-semibold">رمز التفعيل المخصص لحسابك هو:</div>
-                    <div className="text-2xl font-black font-mono tracking-widest text-navy bg-amber-50 py-1.5 px-6 rounded-xl inline-block border border-amber-300 shadow-inner" dir="ltr">
-                      {lastSentOtpCode || lastOtpResult?.fallbackCode || (pendingVerificationUser && AuthService.getLatestOtpCode(activeOtpMethod === 'whatsapp' ? pendingVerificationUser.phone : pendingVerificationUser.email)) || '123456'}
-                    </div>
-                    <div className="text-[11px] text-emerald-700 font-medium flex items-center justify-center gap-1">
-                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                      <span>تمت تعبئة الرمز تلقائياً في الخانات بالأسفل لتأكيد التفعيل فوراً</span>
-                    </div>
-                  </div>
-                )}
-              </div>
 
               {/* 6 OTP Input Boxes */}
               <form onSubmit={handleVerifyOtp} className="space-y-4 pt-1">
@@ -1241,26 +1172,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }: AuthModalP
                           }`}
                         />
                       ))}
-                    </div>
-
-                    {/* Reveal Direct Code for Instant Access */}
-                    <div className="mt-2 text-center">
-                      {!showDirectForgotCode ? (
-                        <button
-                          type="button"
-                          onClick={handleRevealForgotCode}
-                          className="text-[11px] text-slate-500 hover:text-navy underline cursor-pointer"
-                        >
-                          لم يصلك الرمز؟ اضغط هنا لعرض الكود وتعبئته مباشرة
-                        </button>
-                      ) : (
-                        <div className="inline-flex items-center gap-2 bg-amber-50 border border-amber-300 text-amber-950 px-3 py-1 rounded-lg text-xs font-bold">
-                          <span>كود التحقق المباشر:</span>
-                          <span className="font-mono text-sm tracking-widest text-navy bg-white px-2 py-0.5 rounded border border-amber-200 font-extrabold">
-                            {forgotLastSentCode || forgotOtpDigits.join('') || '123456'}
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </div>
 

@@ -5,7 +5,7 @@
 
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent, useMemo } from 'react';
 import { Plus, Check, Star, Phone, Home, Heart, Activity, ClipboardCheck, Image, ShieldAlert, AlertCircle, Trash2, Edit2, Crown, Shield, Building2, Search, MapPin, CheckCircle2, Lock, RotateCcw, Tag } from 'lucide-react';
-import { Shelter, Stable, User } from '../types';
+import { Shelter, Stable, User, GeoCoordinates } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import DetailModal from './DetailModal';
@@ -20,6 +20,11 @@ import AdActionPermissionModal from './AdActionPermissionModal';
 import { hasEditPermission } from '../lib/adPermissions';
 import { useAdminContact } from '../lib/useAdminContact';
 import RatingStars, { getItemRating } from './RatingStars';
+import {
+  GoogleMapLocationPicker,
+  DEFAULT_JEDDAH_COORDS,
+  DEFAULT_JEDDAH_LABEL,
+} from './GoogleMapLocation';
 
 interface ShelterSectionProps {
   currentUser: User | null;
@@ -71,6 +76,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   const [training, setTraining] = useState(false);
   const [veterinary, setVeterinary] = useState(false);
   const [phone, setPhone] = useState('');
+  const [location, setLocation] = useState(DEFAULT_JEDDAH_LABEL);
+  const [locationCoords, setLocationCoords] = useState<GeoCoordinates>(DEFAULT_JEDDAH_COORDS);
   const [images, setImages] = useState<string[]>([]);
   
   // UI states
@@ -143,6 +150,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     setTraining(false);
     setVeterinary(false);
     setPhone(currentUser?.phone || '');
+    setLocation(DEFAULT_JEDDAH_LABEL);
+    setLocationCoords(DEFAULT_JEDDAH_COORDS);
     setImages([]);
     setError('');
     setSuccess('');
@@ -150,6 +159,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
   };
 
   const handleEditClick = (shelter: Shelter) => {
+    const linked = stables.find((s) => s.id === shelter.stableId);
     setEditingItemId(shelter.id);
     setStableId(shelter.stableId || '');
     setStableSearchText('');
@@ -161,6 +171,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
     setTraining(shelter.training || false);
     setVeterinary(shelter.veterinary || false);
     setPhone(shelter.phone);
+    setLocation(shelter.location || linked?.location || DEFAULT_JEDDAH_LABEL);
+    setLocationCoords(shelter.locationCoords || linked?.locationCoords || DEFAULT_JEDDAH_COORDS);
     setImages(shelter.images || []);
     setError('');
     setSuccess('');
@@ -279,6 +291,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       training,
       veterinary,
       phone: phone.trim(),
+      location: location.trim() || linkedStable?.location || DEFAULT_JEDDAH_LABEL,
+      locationCoords: locationCoords || linkedStable?.locationCoords || DEFAULT_JEDDAH_COORDS,
       images: images.length > 0 ? images : (linkedStable?.images?.length ? linkedStable.images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800']),
       rating: existing?.rating ?? 0,
       reviews: existing?.reviews || [],
@@ -313,6 +327,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       setTraining(false);
       setVeterinary(false);
       setPhone('');
+      setLocation(DEFAULT_JEDDAH_LABEL);
+      setLocationCoords(DEFAULT_JEDDAH_COORDS);
       setImages([]);
       setSubscriptionCode('');
       setIsCodeValid(false);
@@ -371,6 +387,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       training,
       veterinary,
       phone: phone.trim(),
+      location: location.trim() || linkedStable?.location || DEFAULT_JEDDAH_LABEL,
+      locationCoords: locationCoords || linkedStable?.locationCoords || DEFAULT_JEDDAH_COORDS,
       images: images.length > 0 ? images : (linkedStable?.images?.length ? linkedStable.images : ['https://images.unsplash.com/photo-1518495973542-4542c06a5843?auto=format&fit=crop&q=80&w=800']),
       rating: existing?.rating ?? 0,
       reviews: existing?.reviews || [],
@@ -405,6 +423,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       setTraining(false);
       setVeterinary(false);
       setPhone('');
+      setLocation(DEFAULT_JEDDAH_LABEL);
+      setLocationCoords(DEFAULT_JEDDAH_COORDS);
       setImages([]);
       setSubscriptionCode('');
       setIsCodeValid(false);
@@ -429,6 +449,7 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
       const matchesSearch = !trimmedQuery ||
         shelter.title.toLowerCase().includes(trimmedQuery) ||
         shelter.description.toLowerCase().includes(trimmedQuery) ||
+        (shelter.location && shelter.location.toLowerCase().includes(trimmedQuery)) ||
         (shelter.stableName && shelter.stableName.toLowerCase().includes(trimmedQuery)) ||
         shelter.phone.includes(trimmedQuery) ||
         (shelter.userName && shelter.userName.toLowerCase().includes(trimmedQuery));
@@ -641,6 +662,8 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                           if (found) {
                             if (!phone) setPhone(found.phone || '');
                             setTitle(`مركز إيواء ${found.name}`);
+                            if (found.location) setLocation(found.location);
+                            if (found.locationCoords) setLocationCoords(found.locationCoords);
                           } else {
                             setTitle('');
                           }
@@ -787,6 +810,17 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
                 </div>
               </div>
 
+              <GoogleMapLocationPicker
+                title="الموقع وتحديد المكان على خريطة جوجل"
+                address={location}
+                onAddressChange={setLocation}
+                coords={locationCoords}
+                onCoordsChange={setLocationCoords}
+                addressLabel="المدينة / موقع مركز الإيواء"
+                placeholder="مثال: جدة - المملكة العربية السعودية"
+                accentColor="emerald"
+              />
+
               {/* Image upload */}
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">صور مركز الإيواء</label>
@@ -889,6 +923,10 @@ export default function ShelterSection({ currentUser, onOpenAuth, searchQuery, o
 
                   <h4 className="font-bold text-navy group-hover:text-gold transition text-xs sm:text-sm leading-tight line-clamp-1">{shelter.title}</h4>
                   <p className="text-[9px] sm:text-[10px] text-slate-500 line-clamp-2 mt-1 leading-relaxed">{shelter.description}</p>
+                  <div className="flex items-center gap-1 text-[8.5px] sm:text-[10px] text-emerald-700 font-bold mt-1 truncate">
+                    <MapPin className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-gold shrink-0" />
+                    <span className="truncate">{shelter.location || DEFAULT_JEDDAH_LABEL}</span>
+                  </div>
                 </div>
 
                 {/* Micro services indicators */}

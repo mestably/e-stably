@@ -35,7 +35,21 @@ const setLocal = <T>(key: string, data: T[]) => {
   try {
     localStorage.setItem(`horses_forum_${key}`, JSON.stringify(data));
   } catch (err) {
-    console.warn(`Local storage quota exceeded or disabled for ${key}`, err);
+    try {
+      // If quota exceeded due to large video data, sanitize local storage cache
+      const sanitized = (data as any[]).map((item) => {
+        if (item && item.videos && Array.isArray(item.videos)) {
+          return {
+            ...item,
+            videos: item.videos.map((v: string) => (v && v.length > 50000 ? '[cloud_video]' : v)),
+          };
+        }
+        return item;
+      });
+      localStorage.setItem(`horses_forum_${key}`, JSON.stringify(sanitized));
+    } catch {
+      console.warn(`Local storage quota reached for ${key}`);
+    }
   }
 };
 
@@ -204,7 +218,7 @@ async function saveDocument<T extends { id: string; email?: string; updatedAt?: 
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(doc),
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(45000),
       });
 
       if (response.ok) {
@@ -550,7 +564,7 @@ export const FirebaseService = {
 
     try {
       const directRes = await fetch(`${RTDB_BASE_URL}/site_settings/main_site_settings.json`, {
-        signal: AbortSignal.timeout(4000)
+        signal: AbortSignal.timeout(10000)
       });
       if (directRes.ok) {
         const directData = await directRes.json();
@@ -570,21 +584,6 @@ export const FirebaseService = {
         }
       }
 
-      const list = await getCollection<SiteSettings>('site_settings');
-      const foundSetting = list.find(s => s && (s.siteName || s.id === 'main_site_settings'));
-      if (foundSetting && foundSetting.siteName) {
-        const item: SiteSettings = { 
-          ...defaultSettings, 
-          ...foundSetting,
-          screensaverEnabled: foundSetting.screensaverEnabled !== undefined ? foundSetting.screensaverEnabled : true,
-          screensaverTimeoutSeconds: foundSetting.screensaverTimeoutSeconds || 60,
-          screensaverShowClock: foundSetting.screensaverShowClock !== undefined ? foundSetting.screensaverShowClock : true,
-        };
-        if (!item.logoUrl || item.logoUrl === '/logomaster.jpg') {
-          item.logoUrl = '/logo.jpg';
-        }
-        return item;
-      }
       const local = getLocal<SiteSettings>('site_settings');
       if (local && local.length > 0 && local[0].siteName) {
         const item: SiteSettings = { 

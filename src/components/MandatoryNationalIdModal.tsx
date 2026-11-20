@@ -21,10 +21,16 @@ export default function MandatoryNationalIdModal({
   onSuccess,
   onDismissTemporarily,
 }: MandatoryNationalIdModalProps) {
-  const [nationalId, setNationalId] = useState('');
+  const [nationalId, setNationalId] = useState(currentUser?.nationalId || '');
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  React.useEffect(() => {
+    if (currentUser?.nationalId && !nationalId) {
+      setNationalId(currentUser.nationalId);
+    }
+  }, [currentUser?.nationalId, isOpen]);
 
   if (!isOpen) return null;
 
@@ -53,18 +59,45 @@ export default function MandatoryNationalIdModal({
       // 2. Persist via FirebaseService
       await FirebaseService.saveUser(updatedUser);
 
-      // 3. Directly PATCH the RTDB node to guarantee immediate cloud persistence across all browsers
+      // 3. Directly PATCH the user's primary RTDB document
+      if (updatedUser.id) {
+        try {
+          await fetch(`https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app/users/${updatedUser.id}.json`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              nationalId: clean,
+              updatedAt: new Date().toISOString()
+            })
+          });
+        } catch (patchErr) {
+          console.warn('Direct RTDB PATCH warning:', patchErr);
+        }
+      }
+
+      // 4. Also scan and patch any database nodes associated with this email/nickname to ensure 100% sync
       try {
-        await fetch(`https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app/users/${updatedUser.id}.json`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            nationalId: clean,
-            updatedAt: new Date().toISOString()
-          })
-        });
-      } catch (patchErr) {
-        console.warn('Direct RTDB PATCH warning:', patchErr);
+        const res = await fetch(`https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app/users.json`, { cache: 'no-store' });
+        if (res.ok) {
+          const dbUsers = await res.json();
+          if (dbUsers && typeof dbUsers === 'object') {
+            for (const key of Object.keys(dbUsers)) {
+              const u = dbUsers[key];
+              const matches = (u.id && u.id === updatedUser.id) ||
+                (updatedUser.email && u.email && u.email.toLowerCase() === updatedUser.email.toLowerCase()) ||
+                (updatedUser.nickname && u.nickname && u.nickname.toLowerCase() === updatedUser.nickname.toLowerCase());
+              if (matches && key !== updatedUser.id) {
+                await fetch(`https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app/users/${key}.json`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ nationalId: clean, updatedAt: new Date().toISOString() })
+                }).catch(() => {});
+              }
+            }
+          }
+        }
+      } catch (err2) {
+        console.warn('Sync across alias keys warning:', err2);
       }
 
       setSuccess('تم حفظ وتوثيق رقم الهوية الوطنية بنجاح!');
@@ -100,7 +133,7 @@ export default function MandatoryNationalIdModal({
           <button
             type="button"
             onClick={onDismissTemporarily}
-            title="تأجيل التذكير لمدة 3 دقائق"
+            title="تأجيل التذكير لمدة 5 دقائق"
             className="w-8 h-8 rounded-xl bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition cursor-pointer"
           >
             <X className="w-5 h-5" />
@@ -194,7 +227,7 @@ export default function MandatoryNationalIdModal({
               onClick={onDismissTemporarily}
               className="w-full py-2.5 text-xs text-slate-500 hover:text-slate-800 font-bold transition rounded-xl cursor-pointer hover:bg-slate-100"
             >
-              تذكيري لاحقاً (خلال 3 دقائق)
+              تذكيري لاحقاً (خلال 5 دقائق)
             </button>
           </div>
         </form>

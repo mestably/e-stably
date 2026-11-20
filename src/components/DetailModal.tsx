@@ -4,9 +4,10 @@
  */
 
 import { useState, useEffect, FormEvent } from 'react';
-import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2, Copy, Send, MessageCircle, FileText, ChevronDown, ChevronUp, ShieldCheck, Clock } from 'lucide-react';
+import { X, Star, Calendar, Shield, Phone, MessageSquare, Award, Trash2, Edit2, Share2, Check, CheckCircle2, RotateCcw, Tag, AlertCircle, ZoomIn, Eye, Maximize2, Copy, Send, MessageCircle, FileText, ChevronDown, ChevronUp, ShieldCheck, Clock, Video, Play, Loader2, MapPin } from 'lucide-react';
 import { Stable, Horse, Shelter, Transport, User, Review } from '../types';
 import { FirebaseService } from '../lib/firebase';
+import { resolveVideoUrl } from '../lib/videoCloud';
 import ConfirmModal from './ConfirmModal';
 import ImageLightboxModal from './ImageLightboxModal';
 import { getRentDurationLabel } from './HorsesSection';
@@ -17,6 +18,7 @@ import { hasEditPermission, generateWhatsAppEditRequestUrl } from '../lib/adPerm
 import { useAdminContact } from '../lib/useAdminContact';
 import { formatHorseAge, isHorseEndedOrSold, isHorseRentExpired } from '../lib/horseUtils';
 import RatingStars, { getItemRating } from './RatingStars';
+import { GoogleMapViewer, DEFAULT_JEDDAH_COORDS, DEFAULT_JEDDAH_LABEL } from './GoogleMapLocation';
 
 import defaultTransportImg from '../assets/images/horse_transport_default_1788309609008.jpg';
 
@@ -53,6 +55,66 @@ export default function DetailModal({
   const initialImage = hasItemImages ? item.images[0] : defaultFallback;
 
   const [activeImage, setActiveImage] = useState(initialImage);
+  const [activeVideo, setActiveVideo] = useState<string | null>(null);
+  const [resolvedVideoUrl, setResolvedVideoUrl] = useState<string | null>(null);
+  const [isVideoLoading, setIsVideoLoading] = useState(false);
+  const [videoLoadProgress, setVideoLoadProgress] = useState(0);
+  const [videoError, setVideoError] = useState<string | null>(null);
+
+  // Reset active video and active image when item changes or modal opens
+  useEffect(() => {
+    setActiveVideo(null);
+    setResolvedVideoUrl(null);
+    setIsVideoLoading(false);
+    setVideoLoadProgress(0);
+    setVideoError(null);
+    if (hasItemImages) {
+      setActiveImage(item.images[0]);
+    } else {
+      setActiveImage(defaultFallback);
+    }
+  }, [isOpen, item?.id]);
+
+  // Resolve cloud or direct video URL whenever user selects a video thumbnail
+  useEffect(() => {
+    if (!activeVideo) {
+      setResolvedVideoUrl(null);
+      setIsVideoLoading(false);
+      setVideoLoadProgress(0);
+      setVideoError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setIsVideoLoading(true);
+    setVideoLoadProgress(0);
+    setVideoError(null);
+    setResolvedVideoUrl(null);
+
+    resolveVideoUrl(activeVideo, (pct) => {
+      if (!cancelled) setVideoLoadProgress(pct);
+    })
+      .then((playableUrl) => {
+        if (!cancelled) {
+          setResolvedVideoUrl(playableUrl);
+          setIsVideoLoading(false);
+        }
+      })
+      .catch((err: any) => {
+        if (!cancelled) {
+          setIsVideoLoading(false);
+          if (err?.message === 'EXPIRED_LOCAL_VIDEO') {
+            setVideoError('هذا المقطع تم رفعه سابقاً على التخزين المؤقت القديم ولم يعد متوفراً بعد تحديث الخادم. يرجى تعديل الإعلان وإعادة رفع الفيديو ليُحفظ سحابياً بشكل دائم.');
+          } else {
+            setVideoError(err?.message || 'تعذر تحميل مقطع الفيديو. يرجى المحاولة مرة أخرى.');
+          }
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeVideo]);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
   const [error, setError] = useState('');
@@ -372,10 +434,12 @@ export default function DetailModal({
       return `${item.name} (${breed})${priceStr}`;
     }
     if (type === 'stable') {
-      return `إسطبل ومربط: ${item.name}${item.city ? ` - ${item.city}` : ''}`;
+      const loc = item.location || item.city;
+      return `إسطبل ومربط: ${item.name}${loc ? ` - ${loc}` : ''}`;
     }
     if (type === 'shelter') {
-      return `${item.title || item.name}${item.city ? ` - ${item.city}` : ''}`;
+      const loc = item.location || item.city;
+      return `${item.title || item.name}${loc ? ` - ${loc}` : ''}`;
     }
     return `رحلة نقل خيل: من ${item.pickupAddress || 'الموقع'} إلى ${item.deliveryAddress || 'الوجهة'}${item.price ? ` - ${item.price.toLocaleString('ar-SA')} ريال` : ''}`;
   };
@@ -464,7 +528,7 @@ export default function DetailModal({
         `🏡 *إعلان إسطبل ومربط خيول على منصة إستابلي*`,
         `═════════════════════════`,
         `✨ *اسم الإسطبل:* ${item.name || 'إسطبل خيول'}`,
-        `📍 *الموقع:* ${item.city || item.address || 'المملكة العربية السعودية'}`,
+        `📍 *الموقع:* ${item.location || item.city || item.address || DEFAULT_JEDDAH_LABEL}`,
         item.horseCount ? `🐴 *الطاقة الاستيعابية:* ${item.horseCount} خيل` : '',
         `⭐ *التقييم:* ${item.rating || 5} من 5 نجوم`,
         `🛡️ *حالة التوثيق:* ${verifiedText}`,
@@ -504,7 +568,7 @@ export default function DetailModal({
         `✨ *الخدمة:* ${item.title || 'خدمة إيواء خيل'}`,
         item.stableName ? `🏡 *الإسطبل المضيف:* ${item.stableName}` : '',
         `🗓️ *نظام الإيواء:* ${typeAr}`,
-        item.city ? `📍 *المدينة / الموقع:* ${item.city}` : '',
+        (item.location || item.city) ? `📍 *المدينة / الموقع:* ${item.location || item.city}` : '',
         services.length > 0 ? `🛠️ *الخدمات المتوفرة:*\n${services.map((s) => '  • ' + s).join('\n')}` : '',
       ].filter(Boolean);
 
@@ -731,61 +795,136 @@ ${shareUrl}`;
             </div>
           )}
 
-          {/* Photos Panel */}
-          {itemImages.length > 0 && (
+          {/* Photos & Videos Media Panel */}
+          {(itemImages.length > 0 || (item.videos && item.videos.length > 0)) && (
             <div className="space-y-2">
-              <div 
-                className="w-full h-64 sm:h-72 rounded-xl overflow-hidden bg-slate-100 relative group cursor-zoom-in border border-slate-200"
-                onClick={() => openGalleryAt(itemImages.indexOf(activeImage))}
-                title="اضغط لتكبير الصورة وعرض كافة الصور بالكامل"
-              >
-                <img
-                  src={activeImage}
-                  referrerPolicy="no-referrer"
-                  alt="Detail"
-                  className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
-                />
-                
-                {/* Dark Gradient on hover */}
-                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                  <span className="bg-black/75 backdrop-blur-xs text-white text-xs font-bold px-3.5 py-2 rounded-full flex items-center gap-1.5 shadow-xl border border-white/30 transform group-hover:scale-105 transition">
-                    <Maximize2 className="w-3.5 h-3.5 text-gold" /> اضغط للتكبير وعرض الصور بالكامل ({itemImages.length})
-                  </span>
+              {activeVideo ? (
+                <div className="w-full h-64 sm:h-80 rounded-xl overflow-hidden bg-black relative border border-slate-800 shadow-inner flex items-center justify-center">
+                  {isVideoLoading ? (
+                    <div className="flex flex-col items-center justify-center gap-3 text-white p-6 text-center w-full max-w-xs">
+                      <Loader2 className="w-9 h-9 text-amber-400 animate-spin" />
+                      <div className="space-y-1.5 w-full">
+                        <p className="text-xs font-bold text-amber-100">
+                          جاري تحميل وتجهيز الفيديو للمشاهدة ({videoLoadProgress}%)
+                        </p>
+                        <div className="w-full bg-white/15 h-2 rounded-full overflow-hidden">
+                          <div
+                            className="bg-amber-400 h-full rounded-full transition-all duration-200"
+                            style={{ width: `${Math.max(8, videoLoadProgress)}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ) : videoError ? (
+                    <div className="flex flex-col items-center justify-center gap-2.5 text-center p-5 max-w-sm">
+                      <AlertCircle className="w-9 h-9 text-red-400" />
+                      <p className="text-xs text-red-100 font-bold leading-relaxed">{videoError}</p>
+                      <button
+                        type="button"
+                        onClick={() => setActiveVideo(null)}
+                        className="mt-1 px-3 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white text-[11px] font-bold transition cursor-pointer"
+                      >
+                        العودة لعرض الصور
+                      </button>
+                    </div>
+                  ) : resolvedVideoUrl ? (
+                    <video
+                      key={resolvedVideoUrl}
+                      src={resolvedVideoUrl}
+                      controls
+                      playsInline
+                      preload="auto"
+                      onError={() =>
+                        setVideoError('تعذر تشغيل هذا المقطع في متصفحك. تأكد من أن صيغة الفيديو مدعومة (مثل MP4).')
+                      }
+                      className="w-full h-full object-contain"
+                    />
+                  ) : null}
+                  <div className="absolute top-3 left-3 bg-red-600/90 text-white text-[11px] font-bold px-3 py-1 rounded-full flex items-center gap-1.5 shadow-md border border-white/20">
+                    <Video className="w-3.5 h-3.5" /> مقطع فيديو
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveVideo(null)}
+                    className="absolute top-3 right-3 bg-black/70 hover:bg-black text-white text-[11px] font-bold px-2.5 py-1 rounded-full border border-white/20 transition cursor-pointer"
+                  >
+                    عرض الصور
+                  </button>
                 </div>
+              ) : (
+                <div 
+                  className="w-full h-64 sm:h-72 rounded-xl overflow-hidden bg-slate-100 relative group cursor-zoom-in border border-slate-200"
+                  onClick={() => openGalleryAt(itemImages.indexOf(activeImage))}
+                  title="اضغط لتكبير الصورة وعرض كافة الصور بالكامل"
+                >
+                  <img
+                    src={activeImage}
+                    referrerPolicy="no-referrer"
+                    alt="Detail"
+                    className="w-full h-full object-cover group-hover:scale-105 transition duration-500"
+                  />
+                  
+                  {/* Dark Gradient on hover */}
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <span className="bg-black/75 backdrop-blur-xs text-white text-xs font-bold px-3.5 py-2 rounded-full flex items-center gap-1.5 shadow-xl border border-white/30 transform group-hover:scale-105 transition">
+                      <Maximize2 className="w-3.5 h-3.5 text-gold" /> اضغط للتكبير وعرض الصور بالكامل ({itemImages.length})
+                    </span>
+                  </div>
 
-                {item.verified === 'verified' && (
-                  <span className="absolute top-3 right-3 bg-green-500 text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-bold shadow-md">
-                    <Shield className="w-3.5 h-3.5" /> موثق
-                  </span>
-                )}
-                {((type === 'horse' && isHorseEndedOrSold(item)) || (type !== 'horse' && item.isEnded)) && (
-                  <span className="absolute top-3 left-3 bg-red-600/95 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black shadow-lg border border-white/20 backdrop-blur-xs">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-white" />
-                    {type === 'horse' ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع') : type === 'stable' ? 'مكتمل الاستيعاب' : type === 'shelter' ? 'محجوز بالكامل' : 'تم النقل'}
-                  </span>
-                )}
+                  {item.verified === 'verified' && (
+                    <span className="absolute top-3 right-3 bg-green-500 text-white text-xs px-2.5 py-1 rounded-full flex items-center gap-1 font-bold shadow-md">
+                      <Shield className="w-3.5 h-3.5" /> موثق
+                    </span>
+                  )}
+                  {((type === 'horse' && isHorseEndedOrSold(item)) || (type !== 'horse' && item.isEnded)) && (
+                    <span className="absolute top-3 left-3 bg-red-600/95 text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 font-black shadow-lg border border-white/20 backdrop-blur-xs">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                      {type === 'horse' ? (item.adType === 'rent' ? 'الاعلان منتهي' : 'تم البيع') : type === 'stable' ? 'مكتمل الاستيعاب' : type === 'shelter' ? 'محجوز بالكامل' : 'تم النقل'}
+                    </span>
+                  )}
 
-                {/* Floating Enlarge Hint at bottom right */}
-                <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-xs text-white text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 font-medium shadow-md border border-white/20">
-                  <ZoomIn className="w-3.5 h-3.5 text-gold" />
-                  <span>تكبير المعرض</span>
-                  {itemImages.length > 1 && (
-                    <span className="text-[10px] text-gold font-bold">({itemImages.length} صور)</span>
+                  {/* Floating Enlarge Hint at bottom left */}
+                  <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-xs text-white text-[11px] px-2.5 py-1 rounded-lg flex items-center gap-1.5 font-medium shadow-md border border-white/20">
+                    <ZoomIn className="w-3.5 h-3.5 text-gold" />
+                    <span>تكبير المعرض</span>
+                    {itemImages.length > 1 && (
+                      <span className="text-[10px] text-gold font-bold">({itemImages.length} صور)</span>
+                    )}
+                  </div>
+
+                  {/* Direct Play Video Button at bottom right if videos exist */}
+                  {item.videos && Array.isArray(item.videos) && item.videos.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveVideo(item.videos[0]);
+                      }}
+                      className="absolute bottom-3 right-3 bg-red-600 hover:bg-red-700 text-white text-[11px] font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 shadow-lg border border-white/30 transition cursor-pointer z-10"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-white" />
+                      <span>تشغيل الفيديو ({item.videos.length})</span>
+                    </button>
                   )}
                 </div>
-              </div>
+              )}
 
-              {/* Thumbnails row */}
-              {itemImages.length > 1 && (
+              {/* Thumbnails row (Images & Videos) */}
+              {((itemImages.length > 1) || (item.videos && item.videos.length > 0)) && (
                 <div className="flex gap-2 overflow-x-auto pb-1 items-center">
+                  {/* Photo Thumbnails */}
                   {itemImages.map((img: string, idx: number) => (
                     <button
-                      key={idx}
-                      onClick={() => setActiveImage(img)}
+                      key={`img-${idx}`}
+                      type="button"
+                      onClick={() => {
+                        setActiveVideo(null);
+                        setActiveImage(img);
+                      }}
                       onDoubleClick={() => openGalleryAt(idx)}
                       title={`صورة ${idx + 1} (اضغط مرتين للتكبير الفوري)`}
                       className={`relative w-16 h-12 rounded-lg overflow-hidden border-2 shrink-0 transition cursor-pointer group ${
-                        activeImage === img ? 'border-gold shadow-xs scale-102' : 'border-slate-200 hover:border-slate-400'
+                        !activeVideo && activeImage === img ? 'border-gold shadow-xs scale-102 ring-1 ring-gold' : 'border-slate-200 hover:border-slate-400'
                       }`}
                     >
                       <img src={img} referrerPolicy="no-referrer" alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
@@ -794,8 +933,29 @@ ${shareUrl}`;
                       </div>
                     </button>
                   ))}
+
+                  {/* Video Thumbnails */}
+                  {item.videos && Array.isArray(item.videos) && item.videos.map((vid: string, vIdx: number) => (
+                    <button
+                      key={`vid-${vIdx}`}
+                      type="button"
+                      onClick={() => setActiveVideo(vid)}
+                      title={`مقطع فيديو ${vIdx + 1} (اضغط للتشغيل)`}
+                      className={`relative w-16 h-12 rounded-lg overflow-hidden border-2 shrink-0 transition cursor-pointer bg-slate-900 flex flex-col items-center justify-center text-white ${
+                        activeVideo === vid ? 'border-red-500 ring-2 ring-red-400 shadow-md scale-102' : 'border-slate-300 hover:border-red-300'
+                      }`}
+                    >
+                      <Play className="w-5 h-5 text-red-500 fill-red-500" />
+                      <span className="text-[9px] font-bold mt-0.5 text-white/90">فيديو {vIdx + 1}</span>
+                    </button>
+                  ))}
+
                   <button
-                    onClick={() => openGalleryAt(itemImages.indexOf(activeImage))}
+                    type="button"
+                    onClick={() => {
+                      setActiveVideo(null);
+                      openGalleryAt(itemImages.indexOf(activeImage));
+                    }}
                     className="h-12 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold rounded-lg border border-slate-200 flex items-center gap-1.5 shrink-0 transition cursor-pointer"
                     title="فتح معرض الصور بالكامل"
                   >
@@ -949,6 +1109,13 @@ ${shareUrl}`;
                   variant="full"
                   size="sm"
                 />
+              </div>
+              <div className="space-y-1 col-span-2">
+                <span className="text-[10px] text-slate-400 block">الموقع / المدينة</span>
+                <span className="text-xs font-bold text-navy flex items-center gap-1">
+                  <MapPin className="w-3.5 h-3.5 text-gold shrink-0" />
+                  <span>{item.location || DEFAULT_JEDDAH_LABEL}</span>
+                </span>
               </div>
             </div>
           )}
@@ -1150,6 +1317,13 @@ ${shareUrl}`;
                     size="sm"
                   />
                 </div>
+                <div className="space-y-1 col-span-2 sm:col-span-3 border-t border-slate-200/70 pt-2">
+                  <span className="text-[10px] text-slate-400 block">الموقع / المدينة</span>
+                  <span className="text-xs font-bold text-navy flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5 text-gold shrink-0" />
+                    <span>{item.location || DEFAULT_JEDDAH_LABEL}</span>
+                  </span>
+                </div>
               </div>
 
               <div className="space-y-2">
@@ -1204,6 +1378,57 @@ ${shareUrl}`;
                 <span className="text-[10px] text-slate-400 block">عنوان التسليم</span>
                 <span className="text-xs text-slate-800">{item.deliveryAddress}</span>
               </div>
+            </div>
+          )}
+
+          {/* Interactive Google Map Viewer for Stable, Shelter, and Transport */}
+          {(type === 'stable' || type === 'shelter' || type === 'transport') && (
+            <div className="space-y-2.5 bg-slate-50/60 p-4 rounded-2xl border border-slate-100">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h4 className="font-bold text-navy text-xs sm:text-sm flex items-center gap-1.5">
+                  <MapPin className="w-4 h-4 text-gold shrink-0" />
+                  <span>الموقع على خريطة جوجل</span>
+                </h4>
+                <span className="text-[10px] text-slate-500 font-medium">
+                  {type === 'transport'
+                    ? 'مسار الاستلام والتسليم'
+                    : item.location || DEFAULT_JEDDAH_LABEL}
+                </span>
+              </div>
+              <GoogleMapViewer
+                markers={
+                  type === 'transport'
+                    ? [
+                        {
+                          id: 'pickup',
+                          label: 'موقع الاستلام',
+                          subtitle: item.pickupAddress || DEFAULT_JEDDAH_LABEL,
+                          coords: item.pickupCoords || DEFAULT_JEDDAH_COORDS,
+                          color: 'gold',
+                        },
+                        ...(item.deliveryCoords
+                          ? [
+                              {
+                                id: 'delivery',
+                                label: 'موقع التسليم',
+                                subtitle: item.deliveryAddress,
+                                coords: item.deliveryCoords,
+                                color: 'navy' as const,
+                              },
+                            ]
+                          : []),
+                      ]
+                    : [
+                        {
+                          id: item.id,
+                          label: item.name || item.title || 'الموقع',
+                          subtitle: item.location || DEFAULT_JEDDAH_LABEL,
+                          coords: item.locationCoords || DEFAULT_JEDDAH_COORDS,
+                          color: 'navy',
+                        },
+                      ]
+                }
+              />
             </div>
           )}
 

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, ChangeEvent, FormEvent, MouseEvent } from 'react';
-import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse, Sparkles, Clock } from 'lucide-react';
+import { Plus, Search, Star, Phone, MessageSquare, Info, Eye, Image, ShieldAlert, Award, Calendar, RefreshCw, AlertCircle, Check, Trash2, Edit2, Crown, Tag, CheckCircle2, RotateCcw, Lock, Ruler, HeartPulse, Sparkles, Clock, Video, Play, Loader2, X, Film } from 'lucide-react';
 import { Horse, Stable, User } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
@@ -14,6 +14,7 @@ import TermsAgreementModal from './TermsAgreementModal';
 import EditTermsAgreementModal from './EditTermsAgreementModal';
 import SubscriptionCodeField from './SubscriptionCodeField';
 import { compressImage } from '../lib/imageUtils';
+import { uploadVideoToCloud } from '../lib/videoCloud';
 import AdVerifiedBadge from './AdVerifiedBadge';
 import AdPermissionNotice from './AdPermissionNotice';
 import AdActionPermissionModal from './AdActionPermissionModal';
@@ -107,6 +108,11 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
   const [height, setHeight] = useState('');
   const [healthStatus, setHealthStatus] = useState('سليم خالي من العيوب');
   const [images, setImages] = useState<string[]>([]);
+  const [videos, setVideos] = useState<string[]>([]);
+  const [isVideoProcessing, setIsVideoProcessing] = useState<boolean>(false);
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number>(0);
+  const [videoProcessingStep, setVideoProcessingStep] = useState<string>('');
+  const [videoFileName, setVideoFileName] = useState<string>('');
   const [stableId, setStableId] = useState('');
   const [phone, setPhone] = useState('');
   const [hasPrice, setHasPrice] = useState<boolean>(false);
@@ -194,6 +200,11 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setHeight('');
     setHealthStatus(adType === 'rent' ? 'سليم وصحة ممتازة' : 'سليم خالي من العيوب');
     setImages([]);
+    setVideos([]);
+    setIsVideoProcessing(false);
+    setVideoUploadProgress(0);
+    setVideoProcessingStep('');
+    setVideoFileName('');
     setStableId('');
     setPhone(currentUser?.phone || '');
     setHasPrice(false);
@@ -242,6 +253,11 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     setHeight(horse.height || '');
     setHealthStatus(horse.healthStatus || (horse.adType === 'rent' ? 'سليم وصحة ممتازة' : 'سليم خالي من العيوب'));
     setImages(horse.images || []);
+    setVideos(horse.videos || []);
+    setIsVideoProcessing(false);
+    setVideoUploadProgress(0);
+    setVideoProcessingStep('');
+    setVideoFileName('');
     setStableId(horse.stableId || '');
     setPhone(horse.phone || currentUser?.phone || '');
     setHasPrice(horse.adType === 'sale' ? !!(horse.price && horse.price > 0) : true);
@@ -371,33 +387,192 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
     }
   };
 
-  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>, target: 'certificate' | 'images') => {
-    const files = e.target.files;
-    if (!files) return;
+  /**
+   * Processes a video file: validates duration <= 180s (3 minutes) & size <= 50MB,
+   * extracts a compressed poster image (640px max, JPEG 0.65) via canvas to save storage,
+   * and uploads the video in chunks directly to Firebase Cloud so any user worldwide can watch it permanently.
+   */
+  const processVideoFile = async (file: File): Promise<{ thumbnail: string; videoData: string }> => {
+    if (file.size > 50 * 1024 * 1024) {
+      const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+      throw new Error(`حجم الفيديو (${sizeMb} ميجابايت) يتجاوز 50 ميجابايت. يرجى اختيار فيديو أصغر حجماً أو تقليل جودته (حتى 3 دقائق).`);
+    }
 
-    Array.from(files).forEach((file: any) => {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        if (typeof reader.result === 'string') {
-          try {
-            const compressed = await compressImage(reader.result, 800, 800, 0.7);
-            if (target === 'certificate') {
-              setCertificate(compressed);
-            } else {
-              setImages((prev) => [...prev, compressed]);
-            }
-          } catch (err) {
-            console.error('Failed to compress image, using fallback raw result', err);
-            if (target === 'certificate') {
-              setCertificate(reader.result);
-            } else {
-              setImages((prev) => [...prev, reader.result as string]);
+    setVideoFileName(file.name);
+    setVideoUploadProgress(5);
+    setVideoProcessingStep('جاري فحص مدة وصيغة الفيديو...');
+
+    const thumbnail = await new Promise<string>((resolve, reject) => {
+      const videoEl = document.createElement('video');
+      videoEl.preload = 'metadata';
+      videoEl.muted = true;
+      videoEl.playsInline = true;
+      const objectUrl = URL.createObjectURL(file);
+      videoEl.src = objectUrl;
+
+      const timeoutId = setTimeout(() => {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('استغرقت معالجة الفيديو وقتاً طويلاً، يرجى تجربة ملف آخر.'));
+      }, 25000);
+
+      videoEl.onloadedmetadata = () => {
+        const duration = videoEl.duration;
+        if (!duration || isNaN(duration)) {
+          clearTimeout(timeoutId);
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('تعذر تحديد مدة الفيديو. يرجى التأكد من سلامة الملف وصيغته.'));
+          return;
+        }
+
+        if (duration > 180) {
+          clearTimeout(timeoutId);
+          URL.revokeObjectURL(objectUrl);
+          const minutes = Math.floor(duration / 60);
+          const seconds = Math.round(duration % 60);
+          reject(new Error(`عذراً، يجب ألا تزيد مدة الفيديو عن 3 دقائق. مدة الفيديو الحالي: ${minutes > 0 ? `${minutes} دقيقة و ` : ''}${seconds} ثانية.`));
+          return;
+        }
+
+        setVideoUploadProgress(15);
+        setVideoProcessingStep('جاري استخراج وضغط صورة المعاينة من الفيديو...');
+
+        const seekTime = Math.min(1.0, duration > 1 ? 1.0 : duration / 2);
+        videoEl.currentTime = seekTime;
+
+        let settled = false;
+        let seekFallbackTimer: ReturnType<typeof setTimeout>;
+        const finishThumbnail = (captureSuccess: boolean) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timeoutId);
+          clearTimeout(seekFallbackTimer);
+          let thumb = '';
+          if (captureSuccess) {
+            try {
+              const canvas = document.createElement('canvas');
+              const maxDim = 640;
+              let width = videoEl.videoWidth || 640;
+              let height = videoEl.videoHeight || 360;
+              if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                  height = Math.round((height * maxDim) / width);
+                  width = maxDim;
+                } else {
+                  width = Math.round((width * maxDim) / height);
+                  height = maxDim;
+                }
+              }
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                ctx.drawImage(videoEl, 0, 0, width, height);
+                thumb = canvas.toDataURL('image/jpeg', 0.65);
+              }
+            } catch (e) {
+              console.warn('Canvas thumbnail extraction warning:', e);
             }
           }
-        }
+          URL.revokeObjectURL(objectUrl);
+          resolve(thumb);
+        };
+
+        videoEl.onseeked = () => finishThumbnail(true);
+        // Fallback if onseeked doesn't fire on some mobile browsers
+        seekFallbackTimer = setTimeout(() => finishThumbnail(false), 4000);
       };
-      reader.readAsDataURL(file);
+
+      videoEl.onerror = () => {
+        clearTimeout(timeoutId);
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('تعذر قراءة ملف الفيديو، يرجى التأكد من أن صيغة الفيديو مدعومة (مثل MP4، WebM، MOV).'));
+      };
     });
+
+    // Upload directly to Firebase Cloud chunked storage so all users worldwide can watch it permanently
+    const cloudRef = await uploadVideoToCloud(file, (pct, msg) => {
+      setVideoUploadProgress(pct);
+      setVideoProcessingStep(msg);
+    });
+
+    return { thumbnail, videoData: cloudRef };
+  };
+
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>, target: 'certificate' | 'images') => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setError('');
+    const fileList: File[] = Array.from(files);
+    if (target === 'images') {
+      e.target.value = '';
+    }
+
+    for (const file of fileList) {
+      const isVideo = file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v|mkv|avi|3gp)$/i.test(file.name);
+
+      if (target === 'certificate') {
+        if (isVideo) {
+          setError('شهادة النسب يجب أن تكون صورة بصيغة jpg فقط وليست فيديو.');
+          continue;
+        }
+        const isJpg = file.type === 'image/jpeg' || file.type === 'image/jpg' || /\.(jpe?g)$/i.test(file.name);
+        if (!isJpg && !file.type.startsWith('image/')) {
+          setError('يرجى اختيار صورة شهادة النسب بصيغة jpg فقط.');
+          continue;
+        }
+
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          if (typeof reader.result === 'string') {
+            try {
+              const compressed = await compressImage(reader.result, 800, 800, 0.7);
+              setCertificate(compressed);
+            } catch (err) {
+              setCertificate(reader.result);
+            }
+          }
+        };
+        reader.readAsDataURL(file);
+      } else {
+        // Media: image or video
+        if (isVideo) {
+          if (file.size > 50 * 1024 * 1024) {
+            const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+            setError(`حجم الفيديو (${sizeMb} ميجابايت) يتجاوز الحد الأقصى المسموح به للرفع السحابي (50 ميجابايت). يرجى اختيار فيديو أصغر حجماً.`);
+            continue;
+          }
+          setIsVideoProcessing(true);
+          try {
+            const { thumbnail, videoData } = await processVideoFile(file);
+            setVideos((prev) => [...prev, videoData]);
+            if (thumbnail) {
+              // Add compressed thumbnail as preview image to save space
+              setImages((prev) => [...prev, thumbnail]);
+            }
+          } catch (err: any) {
+            console.warn('Video processing notice:', err?.message || err);
+            setError(err.message || 'حدث خطأ أثناء معالجة ملف الفيديو.');
+          } finally {
+            setIsVideoProcessing(false);
+          }
+        } else {
+          // Regular image
+          const reader = new FileReader();
+          reader.onloadend = async () => {
+            if (typeof reader.result === 'string') {
+              try {
+                const compressed = await compressImage(reader.result, 800, 800, 0.7);
+                setImages((prev) => [...prev, compressed]);
+              } catch (err) {
+                setImages((prev) => [...prev, reader.result as string]);
+              }
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -407,6 +582,11 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
 
     if (!currentUser) {
       onOpenAuth();
+      return;
+    }
+
+    if (isVideoProcessing) {
+      setError(`جاري تحميل ومعالجة مقطع الفيديو حالياً (${videoUploadProgress}%). يرجى الانتظار حتى اكتمال التحميل بنسبة 100% قبل نشر الإعلان.`);
       return;
     }
 
@@ -504,6 +684,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       height: !isRent && height.trim() ? height.trim() : undefined,
       healthStatus: healthStatus.trim() || (isRent ? 'سليم وصحة ممتازة' : 'سليم خالي من العيوب'),
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=800'],
+      videos: videos.length > 0 ? videos : undefined,
       stableId,
       stableName: linkedStable ? linkedStable.name : 'غير مرتبط بإسطبل محدد',
       phone: phone.trim() || currentUser.phone || '',
@@ -546,6 +727,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       setHeight('');
       setHealthStatus('سليم خالي من العيوب');
       setImages([]);
+      setVideos([]);
       setStableId('');
       setPhone('');
       setHasPrice(false);
@@ -600,6 +782,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       height: !isRent && height.trim() ? height.trim() : undefined,
       healthStatus: healthStatus.trim() || (isRent ? 'سليم وصحة ممتازة' : 'سليم خالي من العيوب'),
       images: images.length > 0 ? images : ['https://images.unsplash.com/photo-1534447677768-be436bb09401?auto=format&fit=crop&q=80&w=800'],
+      videos: videos.length > 0 ? videos : undefined,
       stableId,
       stableName: linkedStable ? linkedStable.name : 'غير مرتبط بإسطبل محدد',
       phone: phone.trim() || currentUser.phone || '',
@@ -642,6 +825,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
       setHeight('');
       setHealthStatus('سليم خالي من العيوب');
       setImages([]);
+      setVideos([]);
       setStableId('');
       setPhone('');
       setHasPrice(false);
@@ -809,7 +993,7 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               <button onClick={() => setIsAddOpen(false)} className="text-slate-500 hover:text-navy text-xs font-bold">إغلاق</button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 overflow-y-auto flex-1 space-y-4">
+            <form onSubmit={handleSubmit} noValidate className="p-6 overflow-y-auto flex-1 space-y-4">
               {!editingItemId && (
                 <SubscriptionCodeField
                   currentUser={currentUser}
@@ -1347,58 +1531,189 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
               {/* Pedigree Certificate Upload (ONLY for Sale - Hidden for Rent) */}
               {adType === 'sale' && (
                 <div className="space-y-1">
-                  <label className="block text-xs font-semibold text-slate-600">
+                  <label className="block text-xs font-semibold text-slate-700">
                     {breed === 'arabian' ? 'شهادة النسب والتوثيق * (مطلوب للخيل العربي الأصيل)' : 'شهادة النسب أو وثيقة الملكية (اختياري)'}
                   </label>
-                  <div className="relative flex items-center gap-2 border border-slate-200 rounded-xl p-3 bg-slate-50 justify-center hover:bg-slate-100 transition duration-150">
-                    <Award className={`w-5 h-5 ${breed === 'arabian' ? 'text-gold' : 'text-slate-400'}`} />
-                    <span className="text-xs text-slate-500">رفع صورة الشهادة من ملفاتك</span>
+                  <div className="relative flex items-center gap-2 border border-slate-300 rounded-xl p-3 bg-slate-50 justify-center hover:bg-slate-100 transition duration-150 cursor-pointer shadow-xs">
+                    <Award className={`w-5 h-5 ${breed === 'arabian' ? 'text-amber-500' : 'text-slate-400'}`} />
+                    <span className="text-xs font-bold text-slate-700">اضغط هنا لرفع شهادة نسب بصيغة jpg</span>
                     <input
                       type="file"
-                      accept="image/*"
-                      required={breed === 'arabian' && !editingItemId}
+                      accept="image/jpeg,image/jpg"
                       onChange={(e) => handleFileUpload(e, 'certificate')}
                       className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                     />
                   </div>
                   {certificate && (
-                    <div className="w-16 h-12 rounded border overflow-hidden mt-1 bg-slate-100">
-                      <img src={certificate} referrerPolicy="no-referrer" alt="Cert-Preview" className="w-full h-full object-contain" />
+                    <div className="flex items-center gap-2 mt-1.5 p-2 bg-amber-50/60 rounded-xl border border-amber-200">
+                      <div className="w-16 h-12 rounded border overflow-hidden bg-white shrink-0 shadow-xs">
+                        <img src={certificate} referrerPolicy="no-referrer" alt="Cert-Preview" className="w-full h-full object-contain" />
+                      </div>
+                      <div className="flex-1 text-right">
+                        <span className="text-[11px] font-bold text-slate-700 block">تم رفع شهادة النسب بنجاح</span>
+                        <span className="text-[10px] text-slate-400">صورة بصيغة JPG</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setCertificate('')}
+                        title="حذف الشهادة"
+                        className="w-7 h-7 rounded-lg bg-red-100 hover:bg-red-200 text-red-600 flex items-center justify-center transition cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Photo upload */}
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">صور وفيديوهات الخيل (متعددة)</label>
-                <div className="relative flex items-center gap-2 border-2 border-dashed border-slate-200 rounded-xl p-4 bg-slate-50 justify-center hover:bg-slate-100 transition duration-150">
-                  <Image className="w-5 h-5 text-slate-400" />
-                  <span className="text-xs text-slate-500 font-medium">اضغط لرفع ملفات الوسائط</span>
+              {/* Media upload (images & videos) */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="block text-xs font-bold text-slate-700">صور وفيديوهات الخيل</label>
+                  <span className="text-[10px] text-slate-500">مدة الفيديو: 3 دقائق كحد أقصى</span>
+                </div>
+                
+                <div className="relative flex items-center gap-2 border-2 border-dashed border-amber-300 rounded-xl p-4 bg-amber-50/40 justify-center hover:bg-amber-50/80 transition duration-150 cursor-pointer">
+                  {isVideoProcessing ? (
+                    <div className="flex items-center gap-2 text-amber-800 font-bold text-xs py-1">
+                      <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
+                      <span>{videoProcessingStep || `جاري تحميل الفيديو (${videoUploadProgress}%)...`}</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600">
+                        <Video className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs text-slate-800 font-bold">اضغط هنا لرفع صور بصيغة jpg أو فيديوهات</span>
+                    </>
+                  )}
                   <input
                     type="file"
-                    accept="image/*"
+                    accept="image/jpeg,image/jpg,image/png,image/webp,video/mp4,video/webm,video/quicktime,video/x-m4v,video/*"
                     multiple
+                    disabled={isVideoProcessing}
                     onChange={(e) => handleFileUpload(e, 'images')}
-                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer disabled:cursor-not-allowed"
                   />
                 </div>
-                {images.length > 0 && (
-                  <div className="flex gap-2 overflow-x-auto mt-2">
-                    {images.map((img, idx) => (
-                      <div key={idx} className="w-12 h-12 rounded-lg overflow-hidden border border-slate-200 shrink-0">
-                        <img src={img} referrerPolicy="no-referrer" alt="preview" className="w-full h-full object-cover" />
+
+                <p className="text-[10px] text-slate-400">
+                  * يتم استخراج صورة معاينة مضغوطة تلقائياً من الفيديو لتوفير مساحة التخزين وسرعة التصفح.
+                </p>
+
+                {/* Real-time Video Upload Progress Bar */}
+                {isVideoProcessing && (
+                  <div className="p-3.5 bg-gradient-to-r from-amber-50 via-amber-100/60 to-amber-50 rounded-2xl border-2 border-amber-400/80 space-y-2 animate-in fade-in duration-200 shadow-xs">
+                    <div className="flex items-center justify-between text-xs font-bold text-amber-950">
+                      <div className="flex items-center gap-2">
+                        <Loader2 className="w-4 h-4 text-amber-600 animate-spin" />
+                        <span>{videoProcessingStep || 'جاري تحميل مقطع الفيديو...'}</span>
                       </div>
-                    ))}
+                      <span className="font-mono text-amber-900 bg-amber-300/80 px-2.5 py-0.5 rounded-full text-xs font-black shadow-2xs">
+                        {videoUploadProgress}%
+                      </span>
+                    </div>
+
+                    {/* Animated Progress Bar Track */}
+                    <div className="w-full bg-amber-200/80 h-3 rounded-full overflow-hidden p-0.5 shadow-inner">
+                      <div
+                        className="bg-gradient-to-r from-amber-500 via-amber-600 to-amber-500 h-full rounded-full transition-all duration-200 ease-out shadow"
+                        style={{ width: `${Math.max(6, Math.min(100, videoUploadProgress))}%` }}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between text-[11px] text-amber-900 font-medium">
+                      <span className="truncate max-w-[200px]">{videoFileName ? `الملف: ${videoFileName}` : 'يرجى عدم إغلاق الصفحة'}</span>
+                      <span className="font-bold text-red-600 flex items-center gap-1 bg-red-50 px-2 py-0.5 rounded-md border border-red-200">
+                        <Lock className="w-3 h-3" /> تم قفل النشر لحين اكتمال الرفع 100%
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Completed Banner */}
+                {!isVideoProcessing && videoUploadProgress === 100 && videos.length > 0 && (
+                  <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-300 flex items-center gap-2 text-emerald-900 text-xs font-bold animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span>تم اكتمال تحميل الفيديو بنجاح (100%)! يمكنك الآن مراجعة بيانات الخيل ونشر الإعلان.</span>
+                  </div>
+                )}
+
+                {/* Previews List (Images & Videos) */}
+                {(images.length > 0 || videos.length > 0) && (
+                  <div className="space-y-2 mt-2">
+                    {/* Images thumbnails */}
+                    {images.length > 0 && (
+                      <div>
+                        <span className="text-[10px] text-slate-500 font-bold block mb-1">الصور المرفوعة ({images.length}):</span>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {images.map((img, idx) => (
+                            <div key={`img-prev-${idx}`} className="relative w-14 h-14 rounded-lg overflow-hidden border border-slate-200 shrink-0 group bg-slate-100">
+                              <img src={img} referrerPolicy="no-referrer" alt="preview" className="w-full h-full object-cover" />
+                              <button
+                                type="button"
+                                onClick={() => setImages((prev) => prev.filter((_, i) => i !== idx))}
+                                title="حذف الصورة"
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-85 hover:opacity-100 transition shadow cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Videos thumbnails */}
+                    {videos.length > 0 && (
+                      <div>
+                        <span className="text-[10px] text-red-600 font-bold block mb-1">مقاطع الفيديو ({videos.length}) - حتى 3 دقائق:</span>
+                        <div className="flex gap-2 overflow-x-auto pb-1">
+                          {videos.map((vid, vIdx) => (
+                            <div key={`vid-prev-${vIdx}`} className="relative w-20 h-14 rounded-lg overflow-hidden border border-red-200 shrink-0 bg-slate-900 flex flex-col items-center justify-center text-white">
+                              <Film className="w-5 h-5 text-red-400" />
+                              <span className="text-[9px] font-bold mt-0.5">فيديو {vIdx + 1}</span>
+                              <button
+                                type="button"
+                                onClick={() => setVideos((prev) => prev.filter((_, i) => i !== vIdx))}
+                                title="حذف الفيديو"
+                                className="absolute top-1 right-1 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-90 hover:opacity-100 transition shadow cursor-pointer"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
 
               <button
                 type="submit"
-                className="w-full bg-navy hover:bg-navy-dark text-white font-bold py-3 rounded-xl cursor-pointer transition text-xs shadow"
+                disabled={isVideoProcessing || isSubmittingAd}
+                className={`w-full py-3.5 rounded-xl font-bold transition text-xs shadow flex items-center justify-center gap-2 ${
+                  isVideoProcessing
+                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed border border-slate-300'
+                    : isSubmittingAd
+                    ? 'bg-navy/70 text-white cursor-wait'
+                    : 'bg-navy hover:bg-navy-dark text-white cursor-pointer'
+                }`}
               >
-                {editingItemId ? 'حفظ التعديلات' : 'نشر إعلان الجواد'}
+                {isVideoProcessing ? (
+                  <>
+                    <Lock className="w-4 h-4 text-amber-700 animate-pulse" />
+                    <span>جاري تحميل الفيديو ({videoUploadProgress}%)... لا يمكن النشر حتى اكتمال التحميل</span>
+                  </>
+                ) : isSubmittingAd ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-white" />
+                    <span>جاري حفظ ونشر الإعلان...</span>
+                  </>
+                ) : (
+                  <span>{editingItemId ? 'حفظ التعديلات' : 'نشر إعلان الجواد'}</span>
+                )}
               </button>
             </form>
           </div>
@@ -1467,14 +1782,19 @@ export default function HorsesSection({ currentUser, onOpenAuth, searchQuery, on
                   )}
                 </div>
 
-                {/* Left Bottom Badges (Images count) */}
-                {horse.images && horse.images.length > 1 && (
-                  <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 flex items-center gap-1">
+                {/* Left Bottom Badges (Videos & Images count) */}
+                <div className="absolute bottom-2 left-2 sm:bottom-3 sm:left-3 flex items-center gap-1 z-10">
+                  {horse.videos && horse.videos.length > 0 && (
+                    <span className="bg-red-600/95 backdrop-blur-xs text-white text-[8px] sm:text-[9px] px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-md border border-white/20">
+                      <Video className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-white" /> فيديو ({horse.videos.length})
+                    </span>
+                  )}
+                  {horse.images && horse.images.length > 1 && (
                     <span className="bg-black/65 backdrop-blur-xs text-white text-[8px] sm:text-[9px] px-1.5 sm:px-2 py-0.5 rounded-full flex items-center gap-1 font-bold shadow-md border border-white/20">
                       <Image className="w-2 h-2 sm:w-2.5 sm:h-2.5 text-gold" /> {horse.images.length}
                     </span>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Price Display */}
                 <div className="absolute bottom-2 right-2 sm:bottom-3 sm:right-3 text-white font-bold">

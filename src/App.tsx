@@ -46,6 +46,7 @@ import { HorsesScreensaver } from './components/HorsesScreensaver';
 import MandatoryNationalIdModal from './components/MandatoryNationalIdModal';
 import AdNotificationCenter from './components/AdNotificationCenter';
 import { GlobalSearchBar } from './components/GlobalSearchBar';
+import { GoogleMapsAppProvider } from './components/GoogleMapLocation';
 
 import { AuthService, isSystemAdminEmail } from './lib/authService';
 import { DAILY_FREE_ADS_LIMIT } from './lib/firebase';
@@ -72,8 +73,15 @@ export default function App() {
   const [isScreensaverOpen, setIsScreensaverOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
   const [isNationalIdModalOpen, setIsNationalIdModalOpen] = useState(false);
+  const [isMapsQuotaExceeded, setIsMapsQuotaExceeded] = useState(false);
 
-  // Periodic check (every 3 minutes) for users missing nationalId
+  useEffect(() => {
+    const handleQuotaExceeded = () => setIsMapsQuotaExceeded(true);
+    window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+    return () => window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+  }, []);
+
+  // Periodic check (after 5 minutes on first load, then every 5 minutes) for users missing nationalId
   useEffect(() => {
     const checkMissingNationalId = () => {
       if (currentUser && (!currentUser.nationalId || currentUser.nationalId.trim().length < 8)) {
@@ -83,15 +91,15 @@ export default function App() {
       }
     };
 
-    // Initial check after giving cloud profile sync 3.5s to finish pulling database record
+    // Initial check: precisely 5 minutes (300,000 ms) after opening site as requested by user
     const initialTimer = setTimeout(() => {
       checkMissingNationalId();
-    }, 3500);
+    }, 5 * 60 * 1000);
 
-    // Repeat check every 3 minutes (180,000 ms)
+    // Repeat check: every 5 minutes (300,000 ms)
     const intervalTimer = setInterval(() => {
       checkMissingNationalId();
-    }, 3 * 60 * 1000);
+    }, 5 * 60 * 1000);
 
     return () => {
       clearTimeout(initialTimer);
@@ -451,7 +459,24 @@ export default function App() {
   const isAdmin = Boolean(currentUser && (currentUser.role === 'admin' || isSystemAdminEmail(currentUser.email) || isSystemAdminEmail(currentUser.nickname)));
 
   return (
-    <div className="min-h-screen bg-[#f0f2f5] flex flex-col font-sans selection:bg-gold/30 selection:text-navy" dir="rtl">
+    <GoogleMapsAppProvider>
+      <div className="min-h-screen bg-[#f0f2f5] flex flex-col font-sans selection:bg-gold/30 selection:text-navy" dir="rtl">
+        {isMapsQuotaExceeded && (
+          <div dir="ltr" className="bg-amber-50 border-b border-amber-200 text-amber-900 px-4 py-2.5 text-xs md:text-sm text-center sticky top-0 z-50 shadow-sm">
+            <span>
+              Google Maps Platform quota reached. If you are the app owner, visit{' '}
+              <a
+                href="https://developers.google.com/maps/ai/ai-studio?utm_campaign=gmp_mcp_codeassist_v1_aistudio#quota_exceeded_errors"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline font-semibold text-amber-950 hover:text-amber-800"
+              >
+                maps developer site
+              </a>{' '}
+              for instructions to update your account.
+            </span>
+          </div>
+        )}
       
       {/* Header Panel */}
       <header className="sticky top-0 z-40 bg-white border-b border-slate-100 shadow-xs px-4 sm:px-6 py-3 flex items-center justify-between">
@@ -1273,6 +1298,7 @@ export default function App() {
         siteSettings={siteSettings}
       />
 
-    </div>
+      </div>
+    </GoogleMapsAppProvider>
   );
 }
