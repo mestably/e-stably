@@ -352,11 +352,16 @@ export const AuthService = {
 
     const localCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // Cache locally
+    // Cache locally for WhatsApp direct link flow; clear stale local code for email OTP
     if (typeof window !== 'undefined') {
       try {
-        if (cleanEmail) sessionStorage.setItem('local_otp_' + cleanEmail, localCode);
-        if (cleanPhone) sessionStorage.setItem('local_otp_' + cleanPhone, localCode);
+        if (isWhatsApp) {
+          if (cleanEmail) sessionStorage.setItem('local_otp_' + cleanEmail, localCode);
+          if (cleanPhone) sessionStorage.setItem('local_otp_' + cleanPhone, localCode);
+        } else {
+          if (cleanEmail) sessionStorage.removeItem('local_otp_' + cleanEmail);
+          if (cleanPhone) sessionStorage.removeItem('local_otp_' + cleanPhone);
+        }
       } catch (e) {}
     }
 
@@ -383,55 +388,67 @@ export const AuthService = {
         })
       });
 
-      if (res.ok) {
-        const text = await res.text();
-        let data: any = {};
-        try {
-          data = JSON.parse(text);
-        } catch (e) {}
+      const text = await res.text();
+      let data: any = {};
+      try {
+        data = JSON.parse(text);
+      } catch (e) {}
 
-        if (data.success) {
-          if (data.otpToken && typeof window !== 'undefined') {
-            try {
-              if (cleanEmail) sessionStorage.setItem('otp_token_' + cleanEmail, data.otpToken);
-              if (cleanPhone) sessionStorage.setItem('otp_token_' + cleanPhone, data.otpToken);
-            } catch (e) {}
-          }
-
-          const activeCode = data.fallbackCode || data.code || localCode;
-          if (activeCode && typeof window !== 'undefined') {
-            try {
-              if (cleanEmail) sessionStorage.setItem('local_otp_' + cleanEmail, activeCode);
-              if (cleanPhone) sessionStorage.setItem('local_otp_' + cleanPhone, activeCode);
-            } catch (e) {}
-          }
-
-          const isReal = data.apiDeliveryMethod && !data.apiDeliveryMethod.includes('محلياً');
-          return {
-            email: cleanEmail,
-            phone: cleanPhone,
-            method: isWhatsApp ? 'whatsapp' : 'email',
-            sentViaRealApi: Boolean(isReal),
-            apiDeliveryMethod: data.apiDeliveryMethod,
-            fallbackCode: activeCode,
-            previewUrl: data.previewUrl,
-            whatsappUrl: data.whatsappUrl || defaultWhatsappUrl,
-            whatsappWebUrl: data.whatsappWebUrl || defaultWhatsappWebUrl,
-            whatsappMessage: data.whatsappMessage || defaultWhatsappMsg
-          };
+      if (res.ok && data.success) {
+        if (data.otpToken && typeof window !== 'undefined') {
+          try {
+            if (cleanEmail) sessionStorage.setItem('otp_token_' + cleanEmail, data.otpToken);
+            if (cleanPhone) sessionStorage.setItem('otp_token_' + cleanPhone, data.otpToken);
+          } catch (e) {}
         }
+
+        const activeCode = data.fallbackCode || data.code || (isWhatsApp ? localCode : '');
+        if (activeCode && typeof window !== 'undefined') {
+          try {
+            if (cleanEmail) sessionStorage.setItem('local_otp_' + cleanEmail, activeCode);
+            if (cleanPhone) sessionStorage.setItem('local_otp_' + cleanPhone, activeCode);
+          } catch (e) {}
+        }
+
+        const isReal = Boolean(data.sentViaRealApi) && (!data.apiDeliveryMethod || !data.apiDeliveryMethod.includes('محلياً'));
+        return {
+          email: cleanEmail,
+          phone: cleanPhone,
+          method: isWhatsApp ? 'whatsapp' : 'email',
+          sentViaRealApi: isReal,
+          apiDeliveryMethod: data.apiDeliveryMethod,
+          fallbackCode: activeCode || undefined,
+          previewUrl: data.previewUrl,
+          whatsappUrl: data.whatsappUrl || defaultWhatsappUrl,
+          whatsappWebUrl: data.whatsappWebUrl || defaultWhatsappWebUrl,
+          whatsappMessage: data.whatsappMessage || defaultWhatsappMsg
+        };
       }
-    } catch (netErr) {
+
+      if (!isWhatsApp) {
+        throw new Error(
+          data?.error ||
+          'تعذر إرسال كود التفعيل عبر البريد الإلكتروني. يرجى التأكد من إعدادات البريد في الخادم أو اختيار التفعيل عبر الواتساب.'
+        );
+      }
+    } catch (netErr: any) {
+      if (!isWhatsApp) {
+        throw new Error(
+          netErr?.message && !netErr.message.includes('fetch')
+            ? netErr.message
+            : 'تعذر الاتصال بخادم إرسال البريد الإلكتروني (/api/send-otp). يرجى التأكد من تفعيل الخادم أو استخدام التفعيل عبر الواتساب.'
+        );
+      }
       console.warn('Network or server error during send-otp, using fallback:', netErr);
     }
 
-    // Fallback response
+    // Fallback response (WhatsApp direct link mode)
     return {
       email: cleanEmail,
       phone: cleanPhone,
-      method: isWhatsApp ? 'whatsapp' : 'email',
-      sentViaRealApi: isWhatsApp,
-      apiDeliveryMethod: isWhatsApp ? 'واتساب (WhatsApp OTP)' : 'كود التفعيل محلياً (وضع التطوير)',
+      method: 'whatsapp',
+      sentViaRealApi: true,
+      apiDeliveryMethod: 'واتساب (WhatsApp OTP)',
       fallbackCode: localCode,
       whatsappUrl: defaultWhatsappUrl,
       whatsappWebUrl: defaultWhatsappWebUrl,
