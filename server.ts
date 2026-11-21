@@ -18,10 +18,16 @@ const PORT = 3000;
 app.use(express.json({ limit: '100mb' }));
 app.use(express.urlencoded({ extended: true, limit: '100mb' }));
 
-const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+const uploadsDir = process.env.VERCEL
+  ? path.join('/tmp', 'uploads')
+  : path.join(process.cwd(), 'public', 'uploads');
 const videosDir = path.join(uploadsDir, 'videos');
-if (!fs.existsSync(videosDir)) {
-  fs.mkdirSync(videosDir, { recursive: true });
+try {
+  if (!fs.existsSync(videosDir)) {
+    fs.mkdirSync(videosDir, { recursive: true });
+  }
+} catch (fsErr) {
+  console.warn('Could not create uploads directory (read-only filesystem):', (fsErr as any)?.message);
 }
 app.use('/uploads', express.static(uploadsDir));
 
@@ -318,6 +324,7 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
 
     let sentViaRealApi = false;
     let apiDeliveryMethod = '';
+    const deliveryErrors: string[] = [];
 
     const emailSubject = isReset
       ? 'رمز استعادة كلمة المرور في منصة إستابلي للخيول العربية'
@@ -338,16 +345,12 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
       </div>
     `;
 
-    // 1. Brevo Email Configuration (REST API v3 & SMTP Relay)
-    const defaultBrevoApiKey = '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';
-    const defaultBrevoSmtpKey = 'xsmtpsib-8f0222f5c0710f508432cdfc8b9ba02bc7b2aa40fd8eeb7600c9b1bf97e710b2-oXCwee0OfEB5NDmf';
-    const defaultSenderEmail = 'x24.akar@gmail.com';
+    // 1. Brevo Email Configuration (REST API v3 & SMTP Relay from environment variables)
+    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim();
+    const brevoSmtpKey = (process.env.BREVO_SMTP_KEY || '').trim();
+    const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || process.env.SMTP_FROM || '').trim();
 
-    const brevoApiKey = (process.env.BREVO_API_KEY || '').trim() || defaultBrevoApiKey;
-    const brevoSmtpKey = (process.env.BREVO_SMTP_KEY || '').trim() || defaultBrevoSmtpKey;
-    const brevoSenderEmail = (process.env.BREVO_SENDER_EMAIL || '').trim() || defaultSenderEmail;
-
-    if (brevoApiKey) {
+    if (brevoApiKey && brevoSenderEmail) {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -374,14 +377,16 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         } else {
           const errText = await brevoRes.text().catch(() => '');
           console.error(`[Brevo API Debug] Status ${brevoRes.status}: ${errText}`);
+          deliveryErrors.push(`Brevo API (${brevoRes.status})`);
         }
       } catch (err: any) {
         console.error(`[Brevo API Catch Debug]`, err?.message || err);
+        deliveryErrors.push(`Brevo API (${err?.message || 'error'})`);
       }
     }
 
     // 2. Try Brevo SMTP Relay via Nodemailer if REST API failed or brevoSmtpKey exists
-    if (!sentViaRealApi && brevoSmtpKey) {
+    if (!sentViaRealApi && brevoSmtpKey && (process.env.SMTP_USER || brevoSenderEmail)) {
       try {
         const transporter = nodemailer.createTransport({
           host: 'smtp-relay.brevo.com',
@@ -397,7 +402,7 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         });
 
         await transporter.sendMail({
-          from: `"منصة إستابلي للخيول" <${brevoSenderEmail}>`,
+          from: `"منصة إستابلي للخيول" <${brevoSenderEmail || process.env.SMTP_USER}>`,
           to: cleanEmail,
           subject: emailSubject,
           html: emailHtml
@@ -406,7 +411,8 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         apiDeliveryMethod = 'Brevo SMTP Relay';
         console.log(`[Brevo SMTP Success] Email sent to ${cleanEmail}`);
       } catch (smtpErr: any) {
-        console.log(`[Brevo SMTP Provider Note] Authentication or transport skipped, switching to fallback provider.`);
+        console.error(`[Brevo SMTP Error]`, smtpErr?.message || smtpErr);
+        deliveryErrors.push(`Brevo SMTP (${smtpErr?.message || 'error'})`);
       }
     }
 
@@ -414,15 +420,15 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
     if (!sentViaRealApi && process.env.RESEND_API_KEY) {
       try {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const timeoutId = setTimeout(() => controller.abort(), 6000);
         const resendRes = await fetch('https://api.resend.com/emails', {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+            'Authorization': `Bearer ${process.env.RESEND_API_KEY.trim()}`,
             'Content-Type': 'application/json'
           },
           body: JSON.stringify({
-            from: process.env.SMTP_FROM || 'Estably <onboarding@resend.dev>',
+            from: (process.env.SMTP_FROM || process.env.RESEND_FROM || 'Estably <onboarding@resend.dev>').trim(),
             to: [cleanEmail],
             subject: emailSubject,
             html: emailHtml
@@ -434,31 +440,35 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
           sentViaRealApi = true;
           apiDeliveryMethod = 'Resend Email API';
         } else {
-          console.log(`[Resend API] Provider status ${resendRes.status}, switching to fallback provider.`);
+          const errText = await resendRes.text().catch(() => '');
+          console.error(`[Resend API] Status ${resendRes.status}: ${errText}`);
+          deliveryErrors.push(`Resend API (${resendRes.status})`);
         }
       } catch (err: any) {
-        console.log(`[Resend API] Connection skipped, switching to fallback provider.`);
+        console.error(`[Resend API] Error:`, err?.message || err);
+        deliveryErrors.push(`Resend API (${err?.message || 'error'})`);
       }
     }
 
     // 4. Try custom SMTP if SMTP_HOST exists
     if (!sentViaRealApi && process.env.SMTP_HOST) {
       try {
+        const port = Number(process.env.SMTP_PORT) || 587;
         const transporter = nodemailer.createTransport({
-          host: process.env.SMTP_HOST,
-          port: Number(process.env.SMTP_PORT) || 587,
-          secure: Number(process.env.SMTP_PORT) === 465,
-          connectionTimeout: 4000,
-          greetingTimeout: 3000,
-          socketTimeout: 5000,
+          host: process.env.SMTP_HOST.trim(),
+          port,
+          secure: port === 465,
+          connectionTimeout: 5000,
+          greetingTimeout: 4000,
+          socketTimeout: 6000,
           auth: process.env.SMTP_USER ? {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS
+            user: process.env.SMTP_USER.trim(),
+            pass: (process.env.SMTP_PASS || '').trim()
           } : undefined
         });
 
         await transporter.sendMail({
-          from: process.env.SMTP_FROM || '"Estably" <noreply@estably.com>',
+          from: (process.env.SMTP_FROM || `"Estably" <${process.env.SMTP_USER || 'noreply@estably.com'}>`).trim(),
           to: cleanEmail,
           subject: emailSubject,
           html: emailHtml
@@ -466,40 +476,46 @@ async function handleSendOtp(req: express.Request, res: express.Response) {
         sentViaRealApi = true;
         apiDeliveryMethod = 'SMTP Transport';
       } catch (err: any) {
-        console.log(`[SMTP] Transport skipped, switching to fallback provider.`);
+        console.error(`[SMTP] Error:`, err?.message || err);
+        deliveryErrors.push(`SMTP (${err?.message || 'error'})`);
       }
     }
 
-    // 5. Automatic Fallback / Development OTP Mode
+    // 5. Email failed or no email provider configured in environment variables
     if (!sentViaRealApi) {
-      sentViaRealApi = true;
-      apiDeliveryMethod = 'كود التفعيل محلياً (وضع التطوير)';
-      console.log(`[Fallback OTP Active] OTP code generated for ${cleanEmail}: ${code}`);
+      const hasAnyProvider = Boolean(
+        (brevoApiKey && brevoSenderEmail) ||
+        brevoSmtpKey ||
+        process.env.RESEND_API_KEY ||
+        process.env.SMTP_HOST
+      );
+      const errorMsg = hasAnyProvider
+        ? `تعذر إرسال رسالة التفعيل إلى البريد الإلكتروني (${deliveryErrors.join(' / ')}). يرجى مراجعة صلاحية مفتاح الإرسال وبريد المرسل في إعدادات الخادم أو التفعيل عبر الواتساب.`
+        : 'خدمة إرسال البريد الإلكتروني غير مفعّلة في الخادم (لم يتم ضبط متغيرات البيئة BREVO_API_KEY أو RESEND_API_KEY أو SMTP_HOST). يرجى ضبطها في إعدادات الاستضافة.';
+
+      console.warn(`[Email OTP Not Sent] ${errorMsg}`);
+      return res.status(502).json({
+        success: false,
+        email: cleanEmail,
+        sentViaRealApi: false,
+        error: errorMsg,
+        details: deliveryErrors
+      });
     }
 
-    return res.json({
-      success: true,
-      email: cleanEmail,
-      sentViaRealApi,
-      apiDeliveryMethod,
-      fallbackCode: code,
-      code,
-      otpToken
-    });
-  } catch (topErr: any) {
-    console.error('Unhandled top-level error in send-otp:', topErr);
-    const cleanEmail = String(req.body?.email || req.query?.email || '').trim().toLowerCase();
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiresAt = Date.now() + 10 * 60 * 1000;
-    const otpToken = generateOtpToken(cleanEmail, code, expiresAt);
     return res.json({
       success: true,
       email: cleanEmail,
       sentViaRealApi: true,
-      apiDeliveryMethod: 'البريد الإلكتروني',
-      fallbackCode: code,
-      code,
+      apiDeliveryMethod,
       otpToken
+    });
+  } catch (topErr: any) {
+    console.error('Unhandled top-level error in send-otp:', topErr);
+    return res.status(500).json({
+      success: false,
+      sentViaRealApi: false,
+      error: 'حدث خطأ غير متوقع أثناء إرسال كود التفعيل إلى البريد الإلكتروني.'
     });
   }
 }
