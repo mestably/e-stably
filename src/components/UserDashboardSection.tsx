@@ -42,7 +42,7 @@ import {
   CreditCard,
   ArrowRight
 } from 'lucide-react';
-import { User, Horse, Stable, Shelter, Transport, SubscriptionCode, ArchivedDeletedAd } from '../types';
+import { User, Horse, Stable, Shelter, Transport, SubscriptionCode, ArchivedDeletedAd, PlatformBankAccount } from '../types';
 import { FirebaseService, DAILY_FREE_ADS_LIMIT } from '../lib/firebase';
 import { SubscriptionService, FREE_USER_ADS_LIMIT } from '../lib/subscriptionService';
 import { getVipRemainingTime } from '../lib/countdownHelper';
@@ -113,6 +113,9 @@ export default function UserDashboardSection({
   const [activeAds, setActiveAds] = useState<UnifiedUserAd[]>([]);
   const [deletedAds, setDeletedAds] = useState<ArchivedDeletedAd[]>([]);
   const [userCodes, setUserCodes] = useState<SubscriptionCode[]>([]);
+  const [platformBankAccounts, setPlatformBankAccounts] = useState<PlatformBankAccount[]>(() =>
+    FirebaseService.getCachedPlatformBankAccounts()
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -256,6 +259,26 @@ export default function UserDashboardSection({
   useEffect(() => {
     loadUserData();
   }, [currentUser?.id]);
+
+  useEffect(() => {
+    let mounted = true;
+    FirebaseService.getPlatformBankAccounts().then((accs) => {
+      if (mounted && accs && accs.length > 0) {
+        setPlatformBankAccounts(accs);
+      }
+    });
+    const onBankAccountsChanged = (e: Event) => {
+      const detail = (e as CustomEvent<PlatformBankAccount[]>).detail;
+      if (Array.isArray(detail) && detail.length > 0) {
+        setPlatformBankAccounts(detail);
+      }
+    };
+    window.addEventListener('platform_bank_accounts_changed', onBankAccountsChanged);
+    return () => {
+      mounted = false;
+      window.removeEventListener('platform_bank_accounts_changed', onBankAccountsChanged);
+    };
+  }, []);
 
   // Handle Refresh button
   const handleManualRefresh = () => {
@@ -1011,7 +1034,10 @@ export default function UserDashboardSection({
                   </span>
                 </div>
                 <p className="text-[11px] text-emerald-100/90 mt-0.5">
-                  بنك فيصل الإسلامي (8542412232100) • البنك السعودي (21546522122) - ارفع إيصال التحويل للمدير
+                  {platformBankAccounts
+                    .map((acc) => `${acc.bankName} (${acc.accountNumber})`)
+                    .join(' • ')}{' '}
+                  - ارفع إيصال التحويل للمدير
                 </p>
               </div>
             </div>

@@ -261,8 +261,8 @@ export interface BankReceipt {
   userPhone?: string;
   userEmail?: string;
   nationalId?: string; // رقم الهوية الوطنية أو الإقامة للمحول
-  bankName: string; // 'حساب بنك فيصل الإسلامي' | 'حساب البنك السعودي'
-  accountNumber: string; // '8542412232100' | '21546522122'
+  bankName: string;
+  accountNumber: string;
   images: string[]; // Base64 or URLs (صورة إيداع الحساب - يمكن عدد من الصور)
   purpose: string; // الغرض من التحويل / دفع الحساب
   amount?: number; // المبلغ المحول بالريال
@@ -279,6 +279,7 @@ export interface PlatformBankAccount {
   bankName: string;
   accountNumber: string;
   iban?: string;
+  swiftCode?: string;
   accountHolder: string;
   currency: string;
   colorScheme: 'emerald' | 'amber';
@@ -287,21 +288,23 @@ export interface PlatformBankAccount {
 
 export const PLATFORM_BANK_ACCOUNTS: PlatformBankAccount[] = [
   {
-    id: 'faisal_islamic_bank',
-    bankName: 'حساب بنك فيصل الإسلامي',
-    accountNumber: '8542412232100',
-    iban: 'EG8542412232100',
-    accountHolder: 'منصة إستابلي لخدمات الخيل',
-    currency: 'ريال / جنيه',
+    id: 'bank_account_1',
+    bankName: 'البنك الأهلي السعودي',
+    accountNumber: '10754975000105',
+    iban: 'SA5810000010754975000105',
+    swiftCode: 'NCBKSAJE',
+    accountHolder: 'فارس محمد علي العامودي',
+    currency: 'ريال سعودي (SAR)',
     colorScheme: 'emerald',
     badge: 'حساب معتمد ورسمي'
   },
   {
-    id: 'saudi_bank',
-    bankName: 'حساب البنك السعودي',
-    accountNumber: '21546522122',
-    iban: 'SA21546522122',
-    accountHolder: 'منصة إستابلي لخدمات الخيل',
+    id: 'bank_account_2',
+    bankName: 'STC Bank',
+    accountNumber: '1097744347',
+    iban: 'SA9378000000001097744347',
+    swiftCode: 'لايوجد',
+    accountHolder: 'فارس محمد علي العامودي',
     currency: 'ريال سعودي (SAR)',
     colorScheme: 'amber',
     badge: 'حساب معتمد ورسمي'

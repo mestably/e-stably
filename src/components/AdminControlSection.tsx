@@ -1201,7 +1201,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
             onChange={(e) => setActiveTab(e.target.value as any)}
             className="w-full bg-white border border-slate-300 rounded-xl py-2 px-3 text-xs font-bold text-slate-800 shadow-xs focus:outline-none focus:border-navy"
           >
-            <option value="bank_receipts">💳 الحسابات المرفوعة من المستخدمين ({totalReceiptsCount}) {pendingReceiptsCount > 0 ? `(${pendingReceiptsCount} جديد)` : ''}</option>
+            <option value="bank_receipts">💳 الحسابات البنكية والإيصالات ({totalReceiptsCount}) {pendingReceiptsCount > 0 ? `(${pendingReceiptsCount} جديد)` : ''}</option>
             <option value="verification">🛡️ قسم التوثيق واعتماد الإعلانات ({verifiedListingsCount}/{allListings.length} موثق)</option>
             <option value="subscriptions">👑 إدارة الاشتراكات والأكواد ({subscriptionCodes.length}) {pendingCodesCount > 0 ? `(${pendingCodesCount} بانتظار الاعتماد)` : ''}</option>
             <option value="users">👥 إدارة المستخدمين ({users.length})</option>
@@ -1226,7 +1226,7 @@ export default function AdminControlSection({ currentUser, onSiteSettingsUpdated
             }`}
           >
             <Landmark className={`w-4 h-4 ${activeTab === 'bank_receipts' ? 'text-emerald-700 fill-emerald-500/20' : 'text-emerald-600'}`} />
-            <span>الحسابات المرفوعة من المستخدمين ({totalReceiptsCount})</span>
+            <span>الحسابات البنكية والإيصالات ({totalReceiptsCount})</span>
             {pendingReceiptsCount > 0 ? (
               <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded-full font-black animate-pulse shadow-xs">
                 {pendingReceiptsCount} إيصال جديد ⏳

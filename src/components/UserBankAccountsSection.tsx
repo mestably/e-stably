@@ -62,12 +62,21 @@ export default function UserBankAccountsSection({
 
   const [adminViewMode, setAdminViewMode] = useState<'all' | 'mine'>('all');
 
+  // Dynamic platform bank accounts loaded from Firebase / cache
+  const [bankAccounts, setBankAccounts] = useState<PlatformBankAccount[]>(() =>
+    FirebaseService.getCachedPlatformBankAccounts()
+  );
+
   // Copy feedback states
   const [copiedBankId, setCopiedBankId] = useState<string | null>(null);
   const [copiedIbanId, setCopiedIbanId] = useState<string | null>(null);
+  const [copiedSwiftId, setCopiedSwiftId] = useState<string | null>(null);
 
   // Form states for uploading deposit slip
-  const [selectedBankId, setSelectedBankId] = useState<string>('faisal_islamic_bank');
+  const [selectedBankId, setSelectedBankId] = useState<string>(() => {
+    const cached = FirebaseService.getCachedPlatformBankAccounts();
+    return cached[0]?.id || PLATFORM_BANK_ACCOUNTS[0].id;
+  });
   const [nationalId, setNationalId] = useState<string>(currentUser?.nationalId || '');
   const [purpose, setPurpose] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
@@ -126,6 +135,29 @@ export default function UserBankAccountsSection({
     fetchUserReceipts();
   }, [currentUser?.id, isAdmin, adminViewMode]);
 
+  useEffect(() => {
+    let mounted = true;
+    FirebaseService.getPlatformBankAccounts().then((accs) => {
+      if (!mounted || !accs || accs.length === 0) return;
+      setBankAccounts(accs);
+      setSelectedBankId((prev) => (accs.some((b) => b.id === prev) ? prev : accs[0].id));
+    });
+
+    const handleAccountsUpdated = (e: Event) => {
+      const detail = (e as CustomEvent<PlatformBankAccount[]>).detail;
+      if (Array.isArray(detail) && detail.length > 0) {
+        setBankAccounts(detail);
+        setSelectedBankId((prev) => (detail.some((b) => b.id === prev) ? prev : detail[0].id));
+      }
+    };
+
+    window.addEventListener('platform_bank_accounts_changed', handleAccountsUpdated);
+    return () => {
+      mounted = false;
+      window.removeEventListener('platform_bank_accounts_changed', handleAccountsUpdated);
+    };
+  }, []);
+
   // Admin Quick Action: Change status (Approve / Reject)
   const handleAdminStatusChange = async (receiptId: string, status: 'approved' | 'rejected' | 'pending') => {
     try {
@@ -153,17 +185,22 @@ export default function UserBankAccountsSection({
   };
 
   // Handle Copy to clipboard
-  const handleCopy = (text: string, type: 'account' | 'iban', id: string) => {
+  const handleCopy = (text: string, type: 'account' | 'iban' | 'swift', id: string) => {
     navigator.clipboard.writeText(text);
     if (type === 'account') {
       setCopiedBankId(id);
       setTimeout(() => setCopiedBankId(null), 2500);
-    } else {
+    } else if (type === 'iban') {
       setCopiedIbanId(id);
       setTimeout(() => setCopiedIbanId(null), 2500);
+    } else {
+      setCopiedSwiftId(id);
+      setTimeout(() => setCopiedSwiftId(null), 2500);
     }
     if (onSuccessToast) {
-      onSuccessToast(`تم نسخ ${type === 'account' ? 'رقم الحساب' : 'الآيبان'} بنجاح!`);
+      const label =
+        type === 'account' ? 'رقم الحساب' : type === 'iban' ? 'الآيبان' : 'رمز السويفت';
+      onSuccessToast(`تم نسخ ${label} بنجاح!`);
     }
   };
 
@@ -255,7 +292,7 @@ export default function UserBankAccountsSection({
       return;
     }
 
-    const selectedBank = PLATFORM_BANK_ACCOUNTS.find((b) => b.id === selectedBankId) || PLATFORM_BANK_ACCOUNTS[0];
+    const selectedBank = bankAccounts.find((b) => b.id === selectedBankId) || bankAccounts[0] || PLATFORM_BANK_ACCOUNTS[0];
 
     setIsSubmitting(true);
 
@@ -363,16 +400,20 @@ export default function UserBankAccountsSection({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {PLATFORM_BANK_ACCOUNTS.map((bank, index) => {
-            const isFaisal = bank.id === 'faisal_islamic_bank';
+          {bankAccounts.map((bank, index) => {
+            const isEmeraldScheme = bank.colorScheme === 'emerald' || index % 2 === 0;
             const isCopiedAcc = copiedBankId === bank.id;
             const isCopiedIban = copiedIbanId === bank.id;
+            const isCopiedSwift = copiedSwiftId === bank.id;
+            const hasCopyableSwift = Boolean(
+              bank.swiftCode && bank.swiftCode.trim() !== '' && bank.swiftCode.trim() !== 'لايوجد'
+            );
 
             return (
               <div
                 key={bank.id}
                 className={`rounded-2xl p-5 border shadow-sm transition-all relative overflow-hidden flex flex-col justify-between ${
-                  isFaisal
+                  isEmeraldScheme
                     ? 'bg-gradient-to-br from-emerald-50/80 via-white to-teal-50/60 border-emerald-300 hover:border-emerald-500'
                     : 'bg-gradient-to-br from-amber-50/80 via-white to-orange-50/60 border-amber-300 hover:border-amber-500'
                 }`}
@@ -383,7 +424,7 @@ export default function UserBankAccountsSection({
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black shadow-sm ${
-                          isFaisal
+                          isEmeraldScheme
                             ? 'bg-emerald-600 text-white'
                             : 'bg-gradient-to-tr from-amber-600 to-amber-500 text-white'
                         }`}
@@ -402,7 +443,7 @@ export default function UserBankAccountsSection({
 
                     <span
                       className={`text-[10px] font-black px-2.5 py-1 rounded-full flex items-center gap-1 shrink-0 ${
-                        isFaisal
+                        isEmeraldScheme
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300/80'
                           : 'bg-amber-100 text-amber-900 border border-amber-300/80'
                       }`}
@@ -412,21 +453,37 @@ export default function UserBankAccountsSection({
                     </span>
                   </div>
 
-                  {/* Account Number Box */}
+                  {/* Beneficiary Name */}
+                  <div className="bg-white rounded-xl p-3 border border-slate-200/90 shadow-2xs mb-3 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <UserIcon className="w-4 h-4 text-slate-500 shrink-0" />
+                      <div className="min-w-0">
+                        <span className="text-slate-500 block text-[10px] font-bold">الاسم (صاحب الحساب):</span>
+                        <span className="text-slate-900 font-black text-xs sm:text-sm block truncate">
+                          {bank.accountHolder}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Account Number, IBAN, SWIFT Box */}
                   <div className="bg-white rounded-xl p-3.5 border border-slate-200/90 shadow-2xs space-y-2.5 mb-3">
                     <div>
                       <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                        <span className="font-bold">رقم الحساب البنكي:</span>
+                        <span className="font-bold">رقم الحساب:</span>
                         <span className="text-[11px] text-slate-400">للتحويل المباشر</span>
                       </div>
-                      <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                        <span className="font-mono text-base sm:text-lg font-black text-slate-900 tracking-wider dir-ltr select-all">
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                        <span
+                          dir="ltr"
+                          className="font-mono text-sm sm:text-base font-black text-slate-900 tracking-normal dir-ltr select-all break-all"
+                        >
                           {bank.accountNumber}
                         </span>
                         <button
                           type="button"
                           onClick={() => handleCopy(bank.accountNumber, 'account', bank.id)}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-2xs ${
+                          className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-2xs shrink-0 ${
                             isCopiedAcc
                               ? 'bg-emerald-600 text-white'
                               : 'bg-white hover:bg-slate-100 text-slate-800 border border-slate-300'
@@ -451,11 +508,14 @@ export default function UserBankAccountsSection({
                     {bank.iban && (
                       <div>
                         <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                          <span className="font-bold">رقم الآيبان (IBAN):</span>
-                          <span className="text-[11px] text-slate-400">للتحويلات الدولية والمحلية</span>
+                          <span className="font-bold">الآيبان (IBAN):</span>
+                          <span className="text-[11px] text-slate-400">للتحويلات المحلية والدولية</span>
                         </div>
-                        <div className="flex items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
-                          <span className="font-mono text-xs sm:text-sm font-black text-slate-800 tracking-wider dir-ltr select-all truncate">
+                        <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                          <span
+                            dir="ltr"
+                            className="font-mono text-xs sm:text-[13px] font-black text-slate-900 tracking-normal dir-ltr select-all break-all"
+                          >
                             {bank.iban}
                           </span>
                           <button
@@ -482,21 +542,43 @@ export default function UserBankAccountsSection({
                         </div>
                       </div>
                     )}
-                  </div>
 
-                  {/* Beneficiary Name & Currency */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
-                      <span className="text-slate-500 block text-[10px] font-bold">اسم المستفيد:</span>
-                      <span className="text-slate-900 font-black truncate block mt-0.5">
-                        {bank.accountHolder}
-                      </span>
-                    </div>
-                    <div className="bg-slate-50/80 p-2.5 rounded-xl border border-slate-200/70">
-                      <span className="text-slate-500 block text-[10px] font-bold">العملة المقبولة:</span>
-                      <span className="text-slate-900 font-black truncate block mt-0.5">
-                        {bank.currency}
-                      </span>
+                    {/* SWIFT Code Box */}
+                    <div>
+                      <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                        <span className="font-bold">رمز تعريف المصرف سويفت (SWIFT):</span>
+                      </div>
+                      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 border border-slate-200 rounded-lg p-2.5">
+                        <span
+                          dir="ltr"
+                          className="font-mono text-xs sm:text-sm font-black text-slate-800 tracking-normal dir-ltr select-all"
+                        >
+                          {bank.swiftCode || 'لايوجد'}
+                        </span>
+                        {hasCopyableSwift && (
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(bank.swiftCode!, 'swift', bank.id)}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition cursor-pointer shadow-2xs shrink-0 ${
+                              isCopiedSwift
+                                ? 'bg-emerald-600 text-white'
+                                : 'bg-white hover:bg-slate-100 text-slate-800 border border-slate-300'
+                            }`}
+                          >
+                            {isCopiedSwift ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>تم النسخ ✓</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>نسخ السويفت</span>
+                              </>
+                            )}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -567,7 +649,7 @@ export default function UserBankAccountsSection({
                 onChange={(e) => setSelectedBankId(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs sm:text-sm font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition cursor-pointer"
               >
-                {PLATFORM_BANK_ACCOUNTS.map((b) => (
+                {bankAccounts.map((b) => (
                   <option key={b.id} value={b.id}>
                     {b.bankName} - رقم: {b.accountNumber}
                   </option>

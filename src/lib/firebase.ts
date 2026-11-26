@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner, SiteSettings, ArchivedDeletedAd, BankReceipt, AdNotification } from '../types';
+import { Stable, Horse, Shelter, Transport, User, ChatMessage, Review, AnnouncementBanner, SiteSettings, ArchivedDeletedAd, BankReceipt, AdNotification, PlatformBankAccount, PLATFORM_BANK_ACCOUNTS } from '../types';
 
 const RTDB_BASE_URL = 'https://horses-835f1-default-rtdb.asia-southeast1.firebasedatabase.app';
 
@@ -1255,6 +1255,115 @@ export const FirebaseService = {
     } catch (err) {
       console.warn('Failed to update bank receipt status in backend:', err);
     }
+  },
+
+  /**
+   * Platform Bank Accounts (الحسابات البنكية للمنصة القابلة للتعديل من المدير)
+   */
+  getCachedPlatformBankAccounts(): PlatformBankAccount[] {
+    try {
+      const raw = localStorage.getItem('horses_forum_platform_bank_accounts_v2');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((acc, idx) => ({
+            ...(PLATFORM_BANK_ACCOUNTS[idx] || PLATFORM_BANK_ACCOUNTS[0]),
+            ...acc,
+          }));
+        }
+      }
+    } catch {}
+    return PLATFORM_BANK_ACCOUNTS.map((acc) => ({ ...acc }));
+  },
+
+  async getPlatformBankAccounts(): Promise<PlatformBankAccount[]> {
+    try {
+      const res = await fetch(`${RTDB_BASE_URL}/site_settings/platform_bank_accounts.json`, {
+        cache: 'no-store',
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const rawList = Array.isArray(data)
+          ? data
+          : data && typeof data === 'object'
+          ? Object.values(data)
+          : null;
+
+        if (rawList && rawList.length > 0) {
+          const normalized: PlatformBankAccount[] = rawList
+            .filter((item: any) => item && typeof item === 'object' && item.bankName)
+            .map((item: any, idx: number) => {
+              const fallback = PLATFORM_BANK_ACCOUNTS[idx] || PLATFORM_BANK_ACCOUNTS[0];
+              return {
+                ...fallback,
+                ...item,
+                id: item.id || fallback.id || `bank_account_${idx + 1}`,
+                colorScheme: item.colorScheme || (idx % 2 === 0 ? 'emerald' : 'amber'),
+                badge: item.badge || 'حساب معتمد ورسمي',
+                currency: item.currency || 'ريال سعودي (SAR)',
+                swiftCode: item.swiftCode !== undefined ? item.swiftCode : fallback.swiftCode || 'لايوجد',
+              };
+            });
+
+          if (normalized.length > 0) {
+            try {
+              localStorage.setItem('horses_forum_platform_bank_accounts_v2', JSON.stringify(normalized));
+            } catch {}
+            return normalized;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to fetch platform bank accounts from RTDB, using cache/default:', e);
+    }
+
+    return this.getCachedPlatformBankAccounts();
+  },
+
+  async savePlatformBankAccounts(accounts: PlatformBankAccount[]): Promise<boolean> {
+    const cleaned = accounts.map((acc, idx) => {
+      const fallback = PLATFORM_BANK_ACCOUNTS[idx] || PLATFORM_BANK_ACCOUNTS[0];
+      return {
+        ...fallback,
+        ...acc,
+        id: acc.id || fallback.id || `bank_account_${idx + 1}`,
+        accountHolder: (acc.accountHolder || '').trim(),
+        bankName: (acc.bankName || '').trim(),
+        iban: (acc.iban || '').trim(),
+        accountNumber: (acc.accountNumber || '').trim(),
+        swiftCode: (acc.swiftCode || '').trim() || 'لايوجد',
+        currency: (acc.currency || fallback.currency || 'ريال سعودي (SAR)').trim(),
+        badge: (acc.badge || fallback.badge || 'حساب معتمد ورسمي').trim(),
+        colorScheme: acc.colorScheme || (idx % 2 === 0 ? 'emerald' : 'amber'),
+      };
+    });
+
+    try {
+      localStorage.setItem('horses_forum_platform_bank_accounts_v2', JSON.stringify(cleaned));
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('platform_bank_accounts_changed', { detail: cleaned }));
+      }
+    } catch {}
+
+    let savedToCloud = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch(`${RTDB_BASE_URL}/site_settings/platform_bank_accounts.json`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(cleaned),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (res.ok) {
+          savedToCloud = true;
+          break;
+        }
+      } catch {
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 500 * attempt));
+      }
+    }
+    return savedToCloud;
   },
 
   async createAdNotification(notification: AdNotification): Promise<void> {

@@ -24,9 +24,14 @@ import {
   X,
   Filter,
   User as UserIcon,
-  HelpCircle
+  HelpCircle,
+  Save,
+  RotateCcw,
+  Edit3,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
-import { BankReceipt, PLATFORM_BANK_ACCOUNTS } from '../types';
+import { BankReceipt, PLATFORM_BANK_ACCOUNTS, PlatformBankAccount } from '../types';
 import { FirebaseService } from '../lib/firebase';
 import ImageLightboxModal from './ImageLightboxModal';
 
@@ -40,6 +45,16 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [bankFilter, setBankFilter] = useState<'all' | string>('all');
+
+  // Platform Bank Accounts Management State (الحساب الأول والحساب الثاني)
+  const [bankAccounts, setBankAccounts] = useState<PlatformBankAccount[]>(() =>
+    FirebaseService.getCachedPlatformBankAccounts()
+  );
+  const [editedBankAccounts, setEditedBankAccounts] = useState<PlatformBankAccount[]>(() =>
+    FirebaseService.getCachedPlatformBankAccounts()
+  );
+  const [isBankEditorOpen, setIsBankEditorOpen] = useState<boolean>(true);
+  const [isSavingBankAccounts, setIsSavingBankAccounts] = useState<boolean>(false);
 
   // Review / Decision Modal
   const [reviewModalReceipt, setReviewModalReceipt] = useState<BankReceipt | null>(null);
@@ -74,7 +89,74 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
 
   useEffect(() => {
     fetchReceipts();
+    FirebaseService.getPlatformBankAccounts().then((accs) => {
+      if (accs && accs.length > 0) {
+        setBankAccounts(accs);
+        setEditedBankAccounts(accs);
+      }
+    });
   }, []);
+
+  const handleBankFieldChange = (
+    index: number,
+    field: keyof PlatformBankAccount,
+    value: string
+  ) => {
+    setEditedBankAccounts((prev) =>
+      prev.map((acc, idx) => (idx === index ? { ...acc, [field]: value } : acc))
+    );
+  };
+
+  const handleSaveBankAccounts = async () => {
+    for (let i = 0; i < editedBankAccounts.length; i++) {
+      const acc = editedBankAccounts[i];
+      if (!acc.accountHolder.trim() || !acc.bankName.trim() || !acc.accountNumber.trim()) {
+        if (onNotification) {
+          onNotification(
+            `يرجى إدخال الاسم واسم البنك ورقم الحساب للحساب رقم ${i + 1}`,
+            'error'
+          );
+        }
+        return;
+      }
+    }
+
+    setIsSavingBankAccounts(true);
+    try {
+      const saved = await FirebaseService.savePlatformBankAccounts(editedBankAccounts);
+      const updated = FirebaseService.getCachedPlatformBankAccounts();
+      setBankAccounts(updated);
+      setEditedBankAccounts(updated);
+      if (onNotification) {
+        onNotification(
+          saved
+            ? 'تم حفظ وتحديث بيانات الحسابات البنكية للمنصة بنجاح ✓'
+            : 'تم حفظ التعديلات محلياً وتحديث الواجهة (تعذر الوصول السحابي حالياً)',
+          saved ? 'success' : 'error'
+        );
+      }
+    } catch (err) {
+      console.error('Failed to save platform bank accounts', err);
+      if (onNotification) onNotification('حدث خطأ أثناء حفظ الحسابات البنكية', 'error');
+    } finally {
+      setIsSavingBankAccounts(false);
+    }
+  };
+
+  const handleResetDefaultBankAccounts = async () => {
+    const defaults = PLATFORM_BANK_ACCOUNTS.map((acc) => ({ ...acc }));
+    setEditedBankAccounts(defaults);
+    setIsSavingBankAccounts(true);
+    try {
+      await FirebaseService.savePlatformBankAccounts(defaults);
+      setBankAccounts(defaults);
+      if (onNotification) {
+        onNotification('تمت استعادة بيانات الحسابات البنكية الافتراضية بنجاح ✓', 'success');
+      }
+    } finally {
+      setIsSavingBankAccounts(false);
+    }
+  };
 
   // Quick Status Update
   const handleQuickStatusChange = async (receiptId: string, newStatus: 'approved' | 'rejected' | 'pending', note?: string) => {
@@ -146,7 +228,11 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
     // Status filter
     if (statusFilter !== 'all' && r.status !== statusFilter) return false;
     // Bank filter
-    if (bankFilter !== 'all' && !(r.bankName || '').includes(bankFilter)) return false;
+    if (bankFilter !== 'all') {
+      const matchBankName = (r.bankName || '').includes(bankFilter);
+      const matchAccNum = (r.accountNumber || '').includes(bankFilter);
+      if (!matchBankName && !matchAccNum) return false;
+    }
     // Search query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
@@ -205,6 +291,180 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
             <span>تحديث الإيصالات</span>
           </button>
         </div>
+      </div>
+
+      {/* Platform Bank Accounts Settings Editor (إدارة الحسابات البنكية للمنصة) */}
+      <div className="bg-gradient-to-br from-slate-50 via-white to-emerald-50/40 rounded-2xl border border-emerald-300/80 shadow-sm overflow-hidden">
+        <div className="p-4 sm:p-5 bg-emerald-50/70 border-b border-emerald-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-xs shrink-0">
+              <Edit3 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm sm:text-base font-black text-slate-900">
+                  إدارة وتعديل الحسابات البنكية للمنصة (الحسابين الرسميين)
+                </h3>
+                <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-md">
+                  تحديث فوري لجميع المستخدمين
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-0.5">
+                عدّل تفاصيل الحساب الأول والحساب الثاني (الاسم، البنك، الآيبان، رقم الحساب، رمز السويفت) وسينعكس التحديث مباشرة للمستخدمين.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsBankEditorOpen((prev) => !prev)}
+            className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 text-slate-800 border border-slate-300 text-xs font-black flex items-center gap-1.5 transition cursor-pointer self-start sm:self-auto shrink-0"
+          >
+            {isBankEditorOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            <span>{isBankEditorOpen ? 'إخفاء التعديل' : 'تعديل الحسابات البنكية'}</span>
+          </button>
+        </div>
+
+        {isBankEditorOpen && (
+          <div className="p-4 sm:p-5 space-y-5">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {editedBankAccounts.map((acc, idx) => {
+                const isFirst = idx === 0;
+                return (
+                  <div
+                    key={acc.id || idx}
+                    className={`rounded-2xl p-4 sm:p-5 border space-y-3.5 ${
+                      isFirst
+                        ? 'bg-emerald-50/40 border-emerald-300'
+                        : 'bg-amber-50/40 border-amber-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-200/80">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center text-xs font-black text-white ${
+                            isFirst ? 'bg-emerald-600' : 'bg-amber-600'
+                          }`}
+                        >
+                          {idx + 1}
+                        </span>
+                        <h4 className="text-sm font-black text-slate-900">
+                          {isFirst ? 'الحساب البنكي الأول' : 'الحساب البنكي الثاني'}
+                        </h4>
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-500">
+                        {acc.bankName || 'غير محدد'}
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {/* 1. الاسم */}
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 mb-1">
+                          الاسم (اسم صاحب الحساب): <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={acc.accountHolder}
+                          onChange={(e) => handleBankFieldChange(idx, 'accountHolder', e.target.value)}
+                          placeholder="مثال: فارس محمد علي العامودي"
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      {/* 2. البنك */}
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 mb-1">
+                          البنك: <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={acc.bankName}
+                          onChange={(e) => handleBankFieldChange(idx, 'bankName', e.target.value)}
+                          placeholder="مثال: البنك الأهلي السعودي أو STC Bank"
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+
+                      {/* 3. الآيبان */}
+                      <div>
+                        <label className="block text-xs font-black text-slate-700 mb-1">
+                          الآيبان (IBAN):
+                        </label>
+                        <input
+                          type="text"
+                          dir="ltr"
+                          value={acc.iban || ''}
+                          onChange={(e) => handleBankFieldChange(idx, 'iban', e.target.value)}
+                          placeholder="مثال: SA5810000010754975000105"
+                          className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-left"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* 4. رقم الحساب */}
+                        <div>
+                          <label className="block text-xs font-black text-slate-700 mb-1">
+                            رقم الحساب: <span className="text-rose-500">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={acc.accountNumber}
+                            onChange={(e) => handleBankFieldChange(idx, 'accountNumber', e.target.value)}
+                            placeholder="مثال: 10754975000105"
+                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-left"
+                          />
+                        </div>
+
+                        {/* 5. رمز تعريف المصرف سويفت */}
+                        <div>
+                          <label className="block text-xs font-black text-slate-700 mb-1">
+                            رمز تعريف المصرف سويفت (SWIFT):
+                          </label>
+                          <input
+                            type="text"
+                            dir="ltr"
+                            value={acc.swiftCode || ''}
+                            onChange={(e) => handleBankFieldChange(idx, 'swiftCode', e.target.value)}
+                            placeholder="مثال: NCBKSAJE أو لايوجد"
+                            className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs sm:text-sm font-mono font-bold text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 text-left"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200/80">
+              <button
+                type="button"
+                onClick={handleResetDefaultBankAccounts}
+                disabled={isSavingBankAccounts}
+                className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>استعادة البيانات الافتراضية</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSaveBankAccounts}
+                disabled={isSavingBankAccounts}
+                className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-black flex items-center gap-2 transition cursor-pointer shadow-sm disabled:opacity-50"
+              >
+                {isSavingBankAccounts ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                <span>{isSavingBankAccounts ? 'جارٍ الحفظ...' : 'حفظ وتحديث الحسابات البنكية ✓'}</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Metrics Cards */}
@@ -291,8 +551,11 @@ export default function AdminBankReceiptsSection({ onNotification }: AdminBankRe
               className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500 cursor-pointer"
             >
               <option value="all">جميع البنوك والحسابات</option>
-              <option value="فيصل">حساب بنك فيصل الإسلامي (8542412232100)</option>
-              <option value="السعودي">حساب البنك السعودي (21546522122)</option>
+              {bankAccounts.map((acc) => (
+                <option key={acc.id} value={acc.bankName}>
+                  {acc.bankName} ({acc.accountNumber})
+                </option>
+              ))}
             </select>
           </div>
         </div>
